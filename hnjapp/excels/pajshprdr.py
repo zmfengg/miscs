@@ -38,6 +38,11 @@ def _accdstr(dt):
 def _fmtjono(jn):
     return ("%d" % jn if(isinstance(jn,numbers.Number)) else jn.strip()) if jn else None
 
+def _removenonascii(s0):
+    """remove thos non ascii characters from given string"""
+    if(isinstance(s0,basestring)): return "".join([x for x in s0 if ord(x) > 31 and ord(x) < 127])
+    return s0            
+
 class ShpReader:
 
     def __init__(self, accdb,hnjhkdb):
@@ -125,8 +130,7 @@ class ShpReader:
         @param dups: a list contains file names that need to be removed
         @param items: all the ShipItems that need to be persisted
         """
-          
-        # todo::need sybase
+        
         if(len(dups) + len(items) <= 0): return
         dbs = (self._accessdb,self._hnjhkdb)
         curs = [x.cursor() for x in dbs]
@@ -141,12 +145,13 @@ class ShpReader:
                 jns = self._getjoids(jns)                
                 for dct in dcts:
                     dct["joid"] = jns[dct["jono"]]
+                    dct['fnnc'] = _removenonascii(dct["fn"])
                     ss = (("insert into jotop17 (fn,jono,p17,fillDate,lastModified,invno,qty" + \
                         ",InvDate,ShpDate,OrdNo,MtlWgt,StWgt) values('%(fn)s','%(jono)s','%(p17)s'" + \
                         ",#%(fillDate)s#,#%(lastModified)s#,'%(invno)s',%(qty)f,#%(invDate)s#" + \
                         ",#%(shpDate)s#,'%(ordno)s',%(mtlWgt)f,%(stWgt)f)") % dct, \
                         ("insert into pajshp (fn,joid,pcode,filldate,lastmodified,invno,qty" + \
-                        ",invdate,shpdate,orderno,mtlwgt,stwgt) values('%(fn)s',%(joid)d,'%(p17)s'" + \
+                        ",invdate,shpdate,orderno,mtlwgt,stwgt) values('%(fnnc)s',%(joid)d,'%(p17)s'" + \
                         ",'%(fillDate)s','%(lastModified)s','%(invno)s',%(qty)f,'%(invDate)s'" + \
                         ",'%(shpDate)s','%(ordno)s',%(mtlWgt)6.2f,%(stWgt)6.2f)") % dct)
                     for ii in range(len(curs)):
@@ -162,7 +167,7 @@ class ShpReader:
             else:
                 for db in dbs:
                     db.commit()
-            return -1 if(e) else 1 , e
+        return -1 if(e) else 1 , e
     
     def read(self, fldr):
         """
@@ -257,7 +262,7 @@ class ShpReader:
                 finally:
                     if(wb): wb.close()
                 x = self._persist(toRv, items)
-            if(x[0] <> 1): errors.append(x[1])
+                if(x[0] <> 1): errors.append(x[1])
         finally:
             if(killxls): app.quit()
         return -1 if len(errors) > 0 else 1, errors
