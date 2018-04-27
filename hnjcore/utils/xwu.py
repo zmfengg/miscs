@@ -9,6 +9,15 @@ Utils for xlwings's not implemented but useful function
 import xlwings.constants as const
 
 
+def app(vis=True):    
+    """ launch an excel or connect to existing one """
+    
+    import xlwings
+    flag = xlwings.apps.count == 0
+    return flag, \
+        xlwings.apps.active if not flag else xlwings.App(visible=vis)
+
+
 def usedrange(sh):
     """
     find out the used range of the given sheet
@@ -40,3 +49,23 @@ def find(sh, val, aftr=None, matchCase=False, lookat=const.LookAt.xlPart, \
     if(apiRng):
         apiRng = sh.range((apiRng.row, apiRng.column))
     return apiRng
+
+
+def arrtodict(lst,trmap = None):
+    """ turn a list into zero-id based, name -> id lookup map 
+    @param lst: the list or one-dim array containing the strings that need to do the name-> pos map
+    @param trmap: An translation map, make the description -> name translation, if ommitted, description become name
+                  if the description is not sure, split them with candidates, for example, "Job,JS":"jono"
+    @return: a dict with name -> id map   
+    """
+    if(len(lst) == 0): return None,None
+    lstl = [x.lower() for x in lst]
+    if(not trmap): trmap = {}
+    for x in [x for x in trmap.keys() if(x.find(",") >= 0)]:
+        for y in x.split(","):
+            cnds = [x0 for x0 in lstl if(len(y) >0 and x0.find(y) >= 0)]
+            if(len(cnds) > 0):
+                trmap[cnds[0]] = trmap[x]
+                break
+    return dict(zip([trmap[x] if(x in trmap) else x for x in lstl],range(len(lstl))))
+    

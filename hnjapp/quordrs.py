@@ -6,7 +6,7 @@ module try to read data from quo catalog
 
 from collections import namedtuple
 from models.utils import JOElement
-import logging as logger
+import logging
 from os import path
 import re
 
@@ -18,15 +18,13 @@ def readagq(fn):
     
     if(not path.exists(fn)): return
     
-    import xlwings as xw
-    from utils import xw as xu
+    from utils import xwu
     import numbers
     
-    kxl = xw.apps.count == 0    
-    app = xw.App(visible=True) if kxl else xw.apps.active    
-    wb = xw.Book(fn)
+    kxl,app = xwu.app(False)    
+    wb = app.books.open(fn)
     try:
-        rng = xu.usedrange(wb.sheets(r'Running lines'))
+        rng = xwu.usedrange(wb.sheets(r'Running lines'))
         cidxs = list()
         vals = rng.value
         Point = namedtuple("Point","x,y")
@@ -76,7 +74,7 @@ def readagq(fn):
                             je = JOElement(x.strip())
                             if(len(je.alpha) == 1 and je.digit > 0): stynos.append(str(je))
             if(not stynos):
-                logger.debug("failed to get sty# for pt %s" % (pt,))                
+                logging.getLogger(__name__).debug("failed to get sty# for pt %s" % (pt,))                
             else:
                 #4 rows down, must have
                 rxs = [x + pt.x for x in range(1,5)]
@@ -111,7 +109,10 @@ def readagq(fn):
     finally:
         wb.close()
         if(kxl): app.books[0].close()
-        if(not wb1 and kxl): app.quit()
+        if(not wb1 and kxl):
+            app.quit()
+        else:
+            if(wb1): app.visible = True
 
 if __name__ == "__main__":
     for x in (r'd:\temp\1200&15.xls',r'd:\temp\1300&20.xls'):

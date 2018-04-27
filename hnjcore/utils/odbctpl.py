@@ -17,7 +17,7 @@ def getSybCstr(addr, db, uid, pwd, \
     if you want a direct connect, call getSybConn() instead
     @param addr:         IP of the server
     @param uid & pwd:    the userId and password
-    @param miscs:        the key=value pair with ; as delimiter
+    @param tests:        the key=value pair with ; as delimiter
     @param autoCP:       get the code page automatically       
     """
     
@@ -30,10 +30,10 @@ def getSybCstr(addr, db, uid, pwd, \
     
     if(drvs[0].find("Adaptive Server") >= 0):
         cs = "Driver={%(drv)s};app=%(app)s;server=%(addr)s;" \
-            + "port=%(port)s;db=%(db)s;uid=%(uid)s;pwd=%(pwd)s;%(miscs)s"
+            + "port=%(port)s;db=%(db)s;uid=%(uid)s;pwd=%(pwd)s;%(tests)s"
     elif(drvs[0].find("Sybase ASE ODBC") >= 0):
         cs = "Driver={%(drv)s};NA=%(addr)s,%(port)s;Database=%(db)s;" \
-            + "LogonId=%(uid)s;Password=%(pwd)s;%(miscs)s"
+            + "LogonId=%(uid)s;Password=%(pwd)s;%(tests)s"
     else:
         return
     
@@ -42,7 +42,7 @@ def getSybCstr(addr, db, uid, pwd, \
         miscs = miscs + ";" + cp if miscs else cp    
     if(cs):
         cs = cs % {"drv" : drvs[0], "app" : app, "addr":addr, "db":db, \
-            "uid":uid, "pwd":pwd , "port":port, "miscs":miscs}
+            "uid":uid, "pwd":pwd , "port":port, "tests":miscs}
     return cs
 
 
