@@ -1,4 +1,4 @@
-#   coding = utf-8    
+# coding=utf-8    
 
 '''
 Created on Apr 19, 2018
@@ -51,7 +51,7 @@ def find(sh, val, aftr=None, matchCase=False, lookat=const.LookAt.xlPart, \
     return apiRng
 
 
-def arrtodict(lst,trmap = None):
+def listodict(lst,trmap = None):
     """ turn a list into zero-id based, name -> id lookup map 
     @param lst: the list or one-dim array containing the strings that need to do the name-> pos map
     @param trmap: An translation map, make the description -> name translation, if ommitted, description become name

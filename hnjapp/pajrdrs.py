@@ -21,15 +21,12 @@ from models.utils import JOElement
 from utils import p17u
 from utils import xwu
 import xlwings.constants as const
+from _utils import fmtjono
 
 
 def _accdstr(dt):
     """ make a date into an access date """ 
     return dt.strftime('%Y-%m-%d %H:%M:%S') if(dt and isinstance(dt, date)) else dt
-
-
-def _fmtjono(jn):
-    return ("%d" % jn if(isinstance(jn, numbers.Number)) else jn.strip()) if jn else None
 
 
 def _removenonascii(s0):
@@ -204,7 +201,7 @@ class ShpReader:
                         # vvs = rng.end('left').expand("table").value
                         vvs = xwu.usedrange(sht).value
                         th = vvs[0]
-                        tm = xwu.arrtodict(th, {u"订单号":"odx", u"发票日期":"invdate", u"订单序号":"odseq", \
+                        tm = xwu.listodict(th, {u"订单号":"odx", u"发票日期":"invdate", u"订单序号":"odseq", \
                             u"平均单件石头,XXX":"stwgt", u"发票号":"invno", u"订单号序号":"ordno", u"十七位,十七":"p17", \
                             u"平均单件金,XX":"mtlwgt", u"工单,job":"jono", u"数量":"qty"})
                         x = [x for x in "invno,p17,jono,qty,invdate".split(",") if not tm.has_key(x)]
@@ -231,7 +228,7 @@ class ShpReader:
                                     si = items[thekey]
                                     items[thekey] = si._replace(qty=si.qty + tr[tm["qty"]]) 
                                 else:
-                                    si = PajShpItem(bfn, odno, _fmtjono(tr[tm["jono"]]) , tr[tm["qty"]], tr[tm['p17']], \
+                                    si = PajShpItem(bfn, odno, fmtjono(tr[tm["jono"]]) , tr[tm["qty"]], tr[tm['p17']], \
                                         invno, _accdstr(tr[tm['invdate']]), mwgt, tr[tm['stwgt']], \
                                         _accdstr(self._getshpdate(bfn)), lmd, _accdstr(datetime.today()))
                                     items[thekey] = si
@@ -247,7 +244,7 @@ class ShpReader:
                                     odno = tr[tm['ordno']] if tm.has_key('ordno') else "N/A"
                                     p17 = tr[tm['p17']]
                                     if(not p17): break                                    
-                                    si = PajShpItem(bfn, odno, _fmtjono(tr[tm["jono"]]), tr[tm["qty"]], p17, tr[tm["invno"]], \
+                                    si = PajShpItem(bfn, odno, fmtjono(tr[tm["jono"]]), tr[tm["qty"]], p17, tr[tm["invno"]], \
                                         _accdstr(tr[tm['invdate']]), qmap[p17][0], qmap[p17][1], \
                                         _accdstr(self._getshpdate(bfn)), lmd, _accdstr(datetime.today()))
                                     # new sample won't have duplicated items                                    
@@ -393,7 +390,7 @@ class InvReader(object):
                     tm = {}
                     tm["p17"] = 0
                     tr = [xx.lower() for xx in vals[0]]
-                    tm = xwu.arrtodict(tr, {"gold,":"gold", "silver,":"silver", u"job#,工单":"jono", \
+                    tm = xwu.listodict(tr, {"gold,":"gold","silver,":"silver", u"job#,工单":"jono", \
                         "price,":"price", "unit,":"qty", "stone,":"stone"})
                     x = [x for x in "price,qty,stone".split(",") if not tm.has_key(x)]
                     if(len(x)):
@@ -406,7 +403,7 @@ class InvReader(object):
                         if(not p17u.isvalidp17(p17)):
                             logging.debug("invalid p17 code(%s) in %s" % (p17, fn))
                             continue
-                        jn = _fmtjono(tr[tm["jono"]]) if tm.has_key("jono") else None
+                        jn = fmtjono(tr[tm["jono"]]) if tm.has_key("jono") else None
                         if(not jn):
                             jns = self._getjonos(p17, invno)
                             if(jns): jn = jns[0]

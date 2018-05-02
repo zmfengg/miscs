@@ -1,3 +1,4 @@
+# coding=utf-8
 '''
 Created on Apr 23, 2018
 module try to read data from quo catalog

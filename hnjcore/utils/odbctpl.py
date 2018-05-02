@@ -1,4 +1,4 @@
-# coding = utf-8
+# coding=utf-8
 '''
 Created on Apr 19, 2018
 help to easily get odbc connection to:
