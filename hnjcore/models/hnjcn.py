@@ -6,7 +6,7 @@ models for hnjcn
 '''
 
 #from main import hnjcnCtx
-from utils import JOElement,StyElement
+from .utils import JOElement,StyElement
 from sqlalchemy.sql.schema import Column, UniqueConstraint, ForeignKey
 from sqlalchemy.sql.sqltypes import Integer, VARCHAR, Float
 from sqlalchemy.orm import composite

@@ -13,12 +13,12 @@ def fmtjono(jn):
     """ turn a numeric JO# into string one, mainly removing the decimal point """
     
     import numbers
-    if(isinstance(jn, numbers.Number)):
+    if isinstance(jn, numbers.Number):
         jn = "%d" % jn
     else:
-        if(jn):
+        if jn:
             jn = jn.strip()
-            if(not _joptn_.match(jn)): jn = None
+            if not _joptn_.match(jn): jn = None
     return jn
 
 ''' failed

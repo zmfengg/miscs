@@ -74,6 +74,13 @@ class JOElement(object):
     def value(self):
         return self.__str__()
     
+    @property
+    def name(self):
+        return self.__str__()
+    
+    def isvalid(self):
+        return self.alpha and self.digit
+    
     def __composite_values__(self):
         return self.alpha,self.digit        
     

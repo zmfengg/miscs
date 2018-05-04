@@ -18,20 +18,20 @@ from xlwings.constants import LookAt
 
 import logging as logging
 from models.utils import JOElement
-from utils import p17u
-from utils import xwu
+from hnjutils import p17u
+from hnjutils import xwu
 import xlwings.constants as const
 from _utils import fmtjono
 
 
 def _accdstr(dt):
     """ make a date into an access date """ 
-    return dt.strftime('%Y-%m-%d %H:%M:%S') if(dt and isinstance(dt, date)) else dt
+    return dt.strftime('%Y-%m-%d %H:%M:%S') if dt and isinstance(dt, date) else dt
 
 
 def _removenonascii(s0):
     """remove thos non ascii characters from given string"""
-    if(isinstance(s0, basestring)): return "".join([x for x in s0 if ord(x) > 31 and ord(x) < 127])
+    if isinstance(s0, basestring): return "".join([x for x in s0 if ord(x) > 31 and ord(x) < 127])
     return s0
 
 
@@ -47,10 +47,10 @@ def _getjoids(jonos, hnjhkdb):
         try:
             cur.execute(s0)
             rows = cur.fetchall()
-            if(rows):
+            if rows:
                 rc = dict((JOElement(x.alpha, x.digit).value, x.joid) for x in rows)
         finally:
-            if(cur): cur.close()
+            if cur: cur.close()
         return rc
 
 
@@ -74,21 +74,21 @@ class ShpReader:
             rfn = os.path.basename(fn).replace("_", "")
             cur.execute(r"SELECT max(lastModified) from jotop17 where fn='%s'" % rfn)
             row = cur.fetchone()
-            if(row and row[0]):
-                rc = 2 if(row[0] < datetime.fromtimestamp(os.path.getmtime(fn)).replace(microsecond=0))\
+            if row and row[0]:
+                rc = 2 if row[0] < datetime.fromtimestamp(os.path.getmtime(fn)).replace(microsecond=0)\
                     else 1
         except BaseException as e:
             rc = -1
             print(e)
         finally:
-            if(cur): cur.close()
+            if cur: cur.close()
         return rc
     
     def _getshpdate(self, fn):
         """extract the shipdate from file name"""
         import datetime as dt
         mt = self._ptnfd.search(os.path.basename(fn))
-        if(mt and len(mt.groups()) == 3):
+        if mt and len(mt.groups()) == 3:
             dg = mt.groups()
             return dt.date(int(dg[0]), int(dg[1]), int(dg[2]))
 
@@ -98,7 +98,7 @@ class ShpReader:
         @param qmap: the dict with p17 as key and (goldwgt,stwgt) as value
         """
         rng = xwu.find(sht, "Item*No", lookat=LookAt.xlPart)
-        if(not rng): return
+        if not rng: return
         # because there is merged cells rng.expand('table').value 
         # or sht.range(rng.end('right'),rng.end('down')).value failed
         vvs = sht.range(rng, rng.current_region.last_cell).value 
@@ -107,13 +107,13 @@ class ShpReader:
         for it in {"stone":re.compile(r"stone\s*weight", re.I), \
             "metal":re.compile(r"metal\s*weight", re.I)}.iteritems():            
             cns = [x for x in range(len(tr)) if it[1].search(tr[x])]
-            if(len(cns) > 0): nmap[it[0]] = cns[0]            
+            if len(cns) > 0: nmap[it[0]] = cns[0]            
         for x in range(1, len(vvs)):
             tr = vvs[x]
             p17 = tr[nmap["p17"]]
-            if(not p17): continue
-            if(p17u.isvalidp17(p17) and not qmap.has_key(p17)):
-                sw = 0 if(not tr[nmap["stone"]]) else \
+            if not p17: continue
+            if p17u.isvalidp17(p17) and not qmap.has_key(p17):
+                sw = 0 if not tr[nmap["stone"]] else \
                     sum([float(x) for x in self._ptnswt.findall(tr[nmap['stone']])])
                 mw = sum([float(x) for x in self._ptngwt.findall(tr[nmap['metal']])])
                 qmap[p17] = (mw, sw)
@@ -124,16 +124,16 @@ class ShpReader:
         @param items: all the ShipItems that need to be persisted
         """
         
-        if(len(dups) + len(items) <= 0): return 0, None
+        if len(dups) + len(items) <= 0: return 0, None
         dbs = (self._accessdb, self._hnjhkdb)
         curs = [x.cursor() for x in dbs]
         e = None
         try:
-            if(len(dups) > 0):
+            if dups:
                 curs[0].execute("delete from jotoP17 where fn in ('%s')" % "','".join(dups))
                 curs[1].execute("delete from pajshp where fn in ('%s')" % "','".join([_removenonascii(x) for x in dups])) 
             
-            if(len(items) > 0):
+            if items:
                 dcts = list([x._asdict() for x in items.values()])
                 jns = [JOElement(x.jono) for x in items.values()]
                 jns = _getjoids(jns, self._hnjhkdb)                
@@ -154,14 +154,14 @@ class ShpReader:
             pass
         finally:
             for cur in curs:
-                if(cur): cur.close()
-            if(e):
+                if cur: cur.close()
+            if e:
                 for db in dbs:
                     db.rollback()                
             else:
                 for db in dbs:
                     db.commit()
-        return -1 if(e) else 1 , e
+        return -1 if e else 1 , e
     
     def read(self, fldr):
         """
@@ -172,7 +172,7 @@ class ShpReader:
         ptn = re.compile("HNJ\s*\d*-", re.IGNORECASE)
         root = fldr + os.path.sep if fldr[len(fldr) - 1] <> os.path.sep else ""
         fns = [root + unicode(x, sys.getfilesystemencoding()) for x in os.listdir(fldr) if ptn.match(x)]
-        if(len(fns) == 0): return
+        if not fns: return
         errors = list()
         killxls, app = xwu.app(False)
         PajShpItem = namedtuple("PajShpItem", "fn,ordno,jono,qty,p17,invno,invDate" + \
@@ -181,10 +181,10 @@ class ShpReader:
             for fn in fns:
                 idx = self._hasread(fn)
                 toRv = list();items = {}
-                if(idx == 1):
+                if idx == 1:
                     # logging.debug("%s has been read" % fn)
                     continue
-                elif(idx == 2):
+                elif idx == 2:
                     logging.debug("%s is expired" % fn)
                     toRv.append(fn)
                 logging.debug("processing file(%s)" % fn)
@@ -195,8 +195,8 @@ class ShpReader:
                     qmap = {}
                     for sht in wb.sheets:
                         rng = xwu.find(sht, u"十七*", lookat=LookAt.xlPart)
-                        if(not rng): rng = xwu.find(sht, u"物料", lookat=LookAt.xlPart)
-                        if(not rng): continue
+                        if not rng: rng = xwu.find(sht, u"物料", lookat=LookAt.xlPart)
+                        if not rng: continue
                         # don't use this, sometimes the stupid user skip some table header
                         # vvs = rng.end('left').expand("table").value
                         vvs = xwu.usedrange(sht).value
@@ -205,26 +205,26 @@ class ShpReader:
                             u"平均单件石头,XXX":"stwgt", u"发票号":"invno", u"订单号序号":"ordno", u"十七位,十七":"p17", \
                             u"平均单件金,XX":"mtlwgt", u"工单,job":"jono", u"数量":"qty"})
                         x = [x for x in "invno,p17,jono,qty,invdate".split(",") if not tm.has_key(x)]
-                        if(len(x) > 0):
+                        if x:
                             logging.debug("failed to find key columns(%s) in sheet(%s)" % (x, sht.name))
                             continue                        
                         bfn = os.path.basename(fn).replace("_", "")
-                        if(tm.has_key("mtlwgt")):                            
+                        if tm.has_key("mtlwgt"):                            
                             for ridx in range(1, len(vvs)):
                                 tr = vvs[ridx]
-                                if(not tr[tm['p17']]): break
+                                if not tr[tm['p17']]: break
                                 mwgt = tr[tm["mtlwgt"]]
-                                if(not (isinstance(mwgt, numbers.Number) and mwgt > 0)): continue 
+                                if not (isinstance(mwgt, numbers.Number) and mwgt > 0): continue 
                                 invno = tr[tm["invno"]] if [tm["invno"]] else "N/A"
-                                if(tm.has_key('ordno')):
+                                if tm.has_key('ordno'):
                                     odno = tr[tm['ordno']]
-                                elif(tm.has_key('odx') and tm.has_key('odseq')):
+                                elif tm.has_key('odx') and tm.has_key('odseq'):
                                     odno = tr[tm['odx']] + "-" + tr[tm["odseq"]]                       
                                 else:
                                     odno = "N/A"
                                 # 'use fn+JO#+P17+invno as map key
                                 thekey = bfn + "," + tr[tm['p17']] + "," + invno
-                                if(items.has_key(thekey)):
+                                if items.has_key(thekey):
                                     si = items[thekey]
                                     items[thekey] = si._replace(qty=si.qty + tr[tm["qty"]]) 
                                 else:
@@ -234,16 +234,16 @@ class ShpReader:
                                     items[thekey] = si
                         else:
                             # new sample case, extract weight data from
-                            if(len(qmap) == 0):
+                            if not qmap:
                                 for x in [xx for xx in wb.sheets if xx.name.lower().find('dl_quotation') >= 0]:
                                     self._readquodata(x, qmap)
-                            if(len(qmap) > 0):
+                            if qmap:
                                 import random
                                 for x in range(1, len(vvs)):
                                     tr = vvs[x]
                                     odno = tr[tm['ordno']] if tm.has_key('ordno') else "N/A"
                                     p17 = tr[tm['p17']]
-                                    if(not p17): break                                    
+                                    if not p17: break                                    
                                     si = PajShpItem(bfn, odno, fmtjono(tr[tm["jono"]]), tr[tm["qty"]], p17, tr[tm["invno"]], \
                                         _accdstr(tr[tm['invdate']]), qmap[p17][0], qmap[p17][1], \
                                         _accdstr(self._getshpdate(bfn)), lmd, _accdstr(datetime.today()))
@@ -252,11 +252,11 @@ class ShpReader:
                             else:
                                 qmap["_SIGN_"] = 0
                 finally:
-                    if(wb): wb.close()
+                    if wb: wb.close()
                 x = self._persist(toRv, items)
-                if(x[0] <> 1): errors.append(x[1])
+                if x[0] <> 1: errors.append(x[1])
         finally:
-            if(killxls): app.quit()
+            if killxls: app.quit()
         return -1 if len(errors) > 0 else 1, errors
 
 
@@ -287,11 +287,11 @@ class InvReader(object):
         try:
             cur.execute(r"select lastModified from PajInv where invno = '%s'" % self._getinv(fn))
             row = cur.fetchone()
-            if(row and row[0]):
-                rc = 2 if(row[0] < \
-                    datetime.fromtimestamp(os.path.getmtime(fn)).replace(microsecond=0)) else 1
+            if row and row[0]:
+                rc = 2 if row[0] < \
+                    datetime.fromtimestamp(os.path.getmtime(fn)).replace(microsecond=0) else 1
         finally:
-            if(cur): cur.close()
+            if cur: cur.close()
         return rc
     
     def _getjonos(self, p17, invno):
@@ -304,9 +304,9 @@ class InvReader(object):
         try:
             cur.execute("select jono from jotop17 where p17 = '%s' and invno = '%s'" % (p17, invno))
             rows = cur.fetchall()
-            rc = set(x.jono.trim() for x in rows) if(rows) else None
+            rc = set(x.jono.trim() for x in rows) if rows else None
         finally:
-            if(cur): cur.close()
+            if cur: cur.close()
         return rc
     
     def _persist(self, dups, items):
@@ -316,15 +316,15 @@ class InvReader(object):
         """ 
         x = (len(dups), len(items))
         e = None
-        if(sum(x) > 0):
+        if any(x):
             try:
                 dbs = (self._accessdb, self._hnjhkdb) 
                 curs = [db.cursor() for db in dbs]
                 
-                if(x[0]):
+                if x[0]:
                     for x0 in ["delete from PajInv where invno = '%s'" % x0 for x0 in dups]:
                         curs[0].execute(x0)
-                if(x[1]):                
+                if x[1]:                
                     dcts = list([x0._asdict() for x0 in items.values()])
                     jns = [JOElement(x0.jono) for x0 in items.values()]
                     jns = _getjoids(jns, self._hnjhkdb)
@@ -341,12 +341,12 @@ class InvReader(object):
                 logging.debug("Error occur in InvRdr:%s" % e)                
             finally:
                 for cur in curs: cur.close()
-                if(not e):                    
+                if not e:                    
                     for db in dbs: db.commit()                        
                 else:
                     for db in dbs: db.rollback()
                     
-        return (0 if sum(x) == 0 else -1 if e else 1) , e
+        return 0 if sum(x) == 0 else -1 if e else 1 , e
     
     def read(self, invfldr, writeJOBack=True):
         """
@@ -355,24 +355,24 @@ class InvReader(object):
         @param writeJOBack: write the JO# back to the source sheet 
         """
         
-        if(not os.path.exists(invfldr)): return
+        if not os.path.exists(invfldr): return
         invs = {};errs = list()
         PajInvItem = namedtuple("PajInvItem", "invno,p17,jono,qty,price,mps,stone,lastmodified")
-        if(invfldr[len(invfldr) - 1:] <> os.path.sep): invfldr += os.path.sep
+        if invfldr[len(invfldr) - 1:] <> os.path.sep: invfldr += os.path.sep
         fns = [invfldr + unicode(x, sys.getfilesystemencoding()) for x in os.listdir(invfldr) \
             if x.lower()[2:4] == "pm" and x.lower().find(".xls")]
-        if(not len(fns)): return
+        if not fns: return
         killexcel, app = xwu.app(False)
         
         for fn in fns:  
             invno = self._getinv(fn).upper()
-            if(invs.has_key(invno)): continue            
+            if invs.has_key(invno): continue            
             dups = ()
             idx = self._hasread(fn)
-            if(idx == 1):
+            if idx == 1:
                 # logging.debug("%s has been read" % fn)
                 continue
-            elif(idx == 2):
+            elif idx == 2:
                 logging.debug("%s is expired" % fn)
                 dups.append(invno)
             lmd = _accdstr(datetime.fromtimestamp(os.path.getmtime(fn)))
@@ -381,42 +381,42 @@ class InvReader(object):
             try:
                 for sh in wb.sheets:
                     rng = xwu.find(sh, "Invo No:")
-                    if(not rng): continue
+                    if not rng: continue
                     rng = xwu.find(sh, "Item*No", lookat=const.LookAt.xlWhole)
-                    if(not rng): continue
+                    if not rng: continue
                     rng = rng.expand("table")
                     vals = rng.value
                     # table header map
                     tm = {}
-                    tm["p17"] = 0
                     tr = [xx.lower() for xx in vals[0]]
                     tm = xwu.listodict(tr, {"gold,":"gold","silver,":"silver", u"job#,工单":"jono", \
                         "price,":"price", "unit,":"qty", "stone,":"stone"})
+                    tm["p17"] = 0
                     x = [x for x in "price,qty,stone".split(",") if not tm.has_key(x)]
-                    if(len(x)):
+                    if x:
                         logging.info("key columns(%s) missing in sheet('%s') of file (%s)" % (x, sh.name, fn))
                         continue
                     for jj in range(1, len(vals)):
                         tr = vals[jj]
-                        if(not tr[tm["price"]]): continue
+                        if not tr[tm["price"]]: continue
                         p17 = tr[tm["p17"]]
-                        if(not p17u.isvalidp17(p17)):
+                        if not p17u.isvalidp17(p17):
                             logging.debug("invalid p17 code(%s) in %s" % (p17, fn))
                             continue
                         jn = fmtjono(tr[tm["jono"]]) if tm.has_key("jono") else None
-                        if(not jn):
+                        if not jn:
                             jns = self._getjonos(p17, invno)
-                            if(jns): jn = jns[0]
-                            if(jn and writeJOBack):
+                            if jns: jn = jns[0]
+                            if jn and writeJOBack:
                                 sh.range(rng.row + jj, rng.column + tm["jono"]).value = jn
                                 updcnt += 1
                         else:
-                            jn = "%d" % jn if(isinstance(jn, numbers.Number)) else jn.strip()
-                        if(not jn):
+                            jn = "%d" % jn if isinstance(jn, numbers.Number) else jn.strip()
+                        if not jn:
                             logging.debug("No JO# found for p17(%s) in file %s" % (tr[tm["p17"]], fn))
                             continue
                         key = invno + "," + jn
-                        if(items.has_key(key)):
+                        if items.has_key(key):
                             it = items[key]
                             items[key] = it._replace(qty=it.qty + tr[tm["qty"]])
                         else:
@@ -432,8 +432,8 @@ class InvReader(object):
                 errs.append(x[1])
             else:
                 logging.debug("invoice (%s) processed" % fn + ("" if x[0] else " but all are repairing"))
-        if(killexcel): app.quit()
-        return x[0], items if(x[0] == 1) else () if x[0] == 0  else x[1]    
+        if killexcel: app.quit()
+        return x[0], items if x[0] == 1 else () if x[0] == 0  else x[1]    
     
     '''
     def __del__(self):

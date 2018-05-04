@@ -7,7 +7,7 @@ need to be able to read the 2 kinds of files: C1's original and calculator file
 '''
 
 from collections import namedtuple
-from utils import xwu
+from hnjutils import xwu
 from xlwings import constants
 from _utils import fmtjono
 import os, sys
@@ -35,11 +35,11 @@ class InvRdr():
         @return: a list of C1InvItem
         """
          
-        if(not os.path.exists(fldr)): return
+        if not os.path.exists(fldr): return
         root = fldr + os.path.sep if fldr[len(fldr) - 1] <> os.path.sep else ""
         fns = [root + x for x in \
-            os.listdir(fldr) if(x.lower().find("_f") > 0)]
-        if(len(fns) == 0): return
+            os.listdir(fldr) if x.lower().find("_f") > 0]
+        if not fns: return
         killxw, app = xwu.app(False);wb = None
         try:
             cnsc1 = u"工单号,镶工,胚底,备注".split(",")
@@ -51,20 +51,20 @@ class InvRdr():
                     rngs = list()
                     for s0 in cnsc1:
                         rng = xwu.find(sht, s0, lookat=constants.LookAt.xlPart)
-                        if(rng): rngs.append(rng)
-                    if(len(cnsc1) == len(rngs)):
+                        if rng: rngs.append(rng)
+                    if len(cnsc1) == len(rngs):
                         items.append(self._readc1(sht, rngs[0].row))
                     else:
                         for s0 in cnscc:
                             rng = xwu.find(sht, s0, lookat=constants.LookAt.xlWhole)
-                            if(rng): rngs.append(rng)
-                        if(len(cnsc1) == len(rngs)): items.append(self._readcalc(sht))                           
+                            if rng: rngs.append(rng)
+                        if len(cnsc1) == len(rngs): items.append(self._readcalc(sht))                           
         finally:            
-            if(killxw): app.quit()
+            if killxw: app.quit()
     
     def _makec1stone(self, tr, tm, joqty):
         """ make a c1 stone based on the row data and mapping """
-        if(not tr[tm["stqty"]]): return None
+        if not tr[tm["stqty"]]: return None
         return self.C1InvStone(tr[tm["stname"]], tr[tm["stqty"]] / joqty, tr[tm["stwgt"]] / joqty, "N/A")
     
     def _makec1item(self,em):
@@ -85,7 +85,7 @@ class InvRdr():
         km = {u"工单号":"jono", u"镶工":"setting", u"胚底,":"labor", u"备注,":"remark", u"数量":"joqty" \
             , u"石名称":"stname", u"粒数":"stqty", u"石重,":"stwgt"}
         tm = xwu.listodict(tr, km)
-        if(len(tm) < len(km)):
+        if len(tm) < len(km):
             logging.debug("key columns(%s) not found in sheet(%s)", (tm, sht.name))
             return None
         
@@ -94,24 +94,24 @@ class InvRdr():
         for ridx in range(1, len(vvs)):
             tr = vvs[ridx]
             s0 = tr[tm["jono"]]
-            if(isinstance(s0, basestring)):
+            if isinstance(s0, basestring):
                 s0 = s0.strip()
-                if(s0 == ""): s0 = None
+                if not s0: s0 = None
             jn = fmtjono(tr[tm["jono"]])
-            if(jn):
-                if(em):
+            if jn:
+                if em:
                     items.append(self._makec1item(em))
                 em = {"jono":jn, "setting":tr[tm["setting"]], "labor":tr[tm["labor"]], \
                     "remark":tr[tm["remark"]], "qty":tr[tm["joqty"]], "stones":list()}
             else:
-                if(s0 and not jn):
+                if s0 and not jn:
                     em = None
-            if(em):
+            if em:
                 st = self._makec1stone(tr, tm, em["qty"])
-                if(st): em["stones"].append(st)
-        if(em): items.append(self._makec1item(em))
+                if st: em["stones"].append(st)
+        if em: items.append(self._makec1item(em))
         
-        if(self._c1log and len(items) > 0):        
+        if self._c1log and len(items) > 0:        
             import csv, codecs, datetime
             #fc = "utf-8"
             #with codecs.open(self._c1log, "a+b", encoding=fc) as f: #failed

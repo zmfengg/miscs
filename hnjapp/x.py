@@ -4,7 +4,7 @@
  
 """
 
-def xdir(obj,args = None):
+def dir(obj,args = None):
     if(obj == None):
         rc = None
     else:
@@ -21,4 +21,4 @@ def xdir(obj,args = None):
 if(__name__ == "__name__"):
     print("x.xdir(obj,[args]) help to show items in the obj for example: %s shows " % 
           '"xdir("","trans"))')
-    xdir("","trans")
+    dir("","trans")
