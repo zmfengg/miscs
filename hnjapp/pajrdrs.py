@@ -10,18 +10,21 @@ in PAJQuickCost.xls#InvMatcher
 
 from collections import namedtuple
 from datetime import datetime, date
+import datetime as dtm
 import numbers
 import os, sys
 import re
+from decimal import Decimal
 
 from xlwings.constants import LookAt
 
 import logging as logging
 from models.utils import JOElement
-from hnjutils import p17u
-from hnjutils import xwu
+from hnjutils import p17u, appathsep
+from hnjutils import xwu,appathsep
 import xlwings.constants as const
 from _utils import fmtjono
+from quordrs import DAO
 
 
 def _accdstr(dt):
@@ -170,8 +173,7 @@ class ShpReader:
         """
         
         ptn = re.compile("HNJ\s*\d*-", re.IGNORECASE)
-        root = fldr + os.path.sep if fldr[len(fldr) - 1] <> os.path.sep else ""
-        fns = [root + unicode(x, sys.getfilesystemencoding()) for x in os.listdir(fldr) if ptn.match(x)]
+        fns = [appathsep(fldr) + unicode(x, sys.getfilesystemencoding()) for x in os.listdir(fldr) if ptn.match(x)]
         if not fns: return
         errors = list()
         killxls, app = xwu.app(False)
@@ -233,7 +235,7 @@ class ShpReader:
                                         _accdstr(self._getshpdate(bfn)), lmd, _accdstr(datetime.today()))
                                     items[thekey] = si
                         else:
-                            # new sample case, extract weight data from
+                            # new sample case, extract weight data from the quo sheet
                             if not qmap:
                                 for x in [xx for xx in wb.sheets if xx.name.lower().find('dl_quotation') >= 0]:
                                     self._readquodata(x, qmap)
@@ -257,12 +259,12 @@ class ShpReader:
                 if x[0] <> 1: errors.append(x[1])
         finally:
             if killxls: app.quit()
-        return -1 if len(errors) > 0 else 1, errors
+        return -1 if errors > 0 else 1, errors
 
 
 class InvReader(object):
     """
-    read invoices from folder
+    read the invoices(17PMXXX or alike) from given folder
     """
     
     def __init__(self, accdb, hnjhkdb):
@@ -358,8 +360,7 @@ class InvReader(object):
         if not os.path.exists(invfldr): return
         invs = {};errs = list()
         PajInvItem = namedtuple("PajInvItem", "invno,p17,jono,qty,price,mps,stone,lastmodified")
-        if invfldr[len(invfldr) - 1:] <> os.path.sep: invfldr += os.path.sep
-        fns = [invfldr + unicode(x, sys.getfilesystemencoding()) for x in os.listdir(invfldr) \
+        fns = [appathsep(invfldr) + unicode(x, sys.getfilesystemencoding()) for x in os.listdir(invfldr) \
             if x.lower()[2:4] == "pm" and x.lower().find(".xls")]
         if not fns: return
         killexcel, app = xwu.app(False)
@@ -389,7 +390,7 @@ class InvReader(object):
                     # table header map
                     tm = {}
                     tr = [xx.lower() for xx in vals[0]]
-                    tm = xwu.listodict(tr, {"gold,":"gold","silver,":"silver", u"job#,工单":"jono", \
+                    tm = xwu.listodict(tr, {"gold,":"gold", "silver,":"silver", u"job#,工单":"jono", \
                         "price,":"price", "unit,":"qty", "stone,":"stone"})
                     tm["p17"] = 0
                     x = [x for x in "price,qty,stone".split(",") if not tm.has_key(x)]
@@ -442,3 +443,117 @@ class InvReader(object):
             self._accessdb.close()
             logging.debug("database close()")
     '''
+
+
+class PAJCReader(object):
+    """class to create the PAJ JOCost file for HK accountant"""    
+
+    def __init__(self, hkdb=None, pydb=None, bcdb=None):
+        self._hkdb = hkdb
+        self._bcdb = bcdb
+        self._pydb = pydb
+    
+    def run(self, year, month, tplfn=None,tarfldr = None):
+        """ create report file of given year/month"""
+        def _makemap(sht=None):
+            coldefs = (u"invoice date=invdate;invoice no.=invno;order no.=orderno;customer=cstname;"
+                u"job no.=jono;style no.=styno;running no.=running;paj item no.=pcode;karat=karat;"
+                u"描述=cdesc;in english=edesc;job quantity=joqty;quantity received=shpqty;"
+                u"total cost=ttlcost;cost=uprice;平均单件金银重g=umtlwgt;平均单件石头重g=ustwgt;石头=stspec;"
+                u"mm program in#=iono;jmp#=jmpno;date=shpdate;remark=rmk;has dia=hasdia")
+            vvs = sht.range("A1").expand("right").value
+            vvs = [x.lower() if isinstance(x,basestring) else x for x in vvs]
+            imap = {};nmap = {}
+            for s0 in coldefs.split(";"):            
+                ss0 = s0.split("=")
+                x = [x for x in range(len(vvs)) if x not in imap and vvs[x].find(ss0[0]) >= 0]
+                if x:
+                    imap[x[0]] = ss0[1]
+                    nmap[ss0[1]] = x[0]
+                else:
+                    print("failed to get colname %s" % s0)
+                    
+            return nmap, imap
+        dfmt = "%Y/%m/%d"
+        df = dtm.date(year, month, 1)
+        month += 1
+        if month > 12:
+            year += 1; month = 1
+        dt = dtm.date(year, month, 1)
+        # test only, get 5 days for better speed
+        if False:
+            td = dtm.timedelta(2)
+            dt = df + td
+        
+        runns = set();jes = set()
+        dao = DAO(self._hkdb, self._pydb, self._bcdb)        
+        
+        mms = dao.getshpforjc(df, dt)        
+        for x in mms:
+            rn = str(x.running)
+            if rn not in runns: runns.add(rn)
+            je = JOElement(x.joalpha, x.jodigit)
+            if je not in jes: jes.add(je)
+        runns = tuple(runns)
+        bcs = dict([(x.runn.strip(), x.desc.strip()) for x 
+            in dao.getbcsforjc(runns)])        
+        pajs = dict([("%s,%s" % (JOElement(x.alpha, x.digit), x.invdate.strftime(dfmt)), x) for x 
+            in dao.getpjforjc(jes)])
+        ios = dict([("%s,%s,%s" % (x.running, x.jmp, x.shpdate.strftime(dfmt)), x) for x 
+            in dao.getmmioforjc(df, dt, runns)])
+        killxls, app = xwu.app(False)
+        lst = []
+        fn = None
+        try:
+            wb = xwu.fromtemplate(tplfn, app)
+            sht = wb.sheets("Data")
+            nmps = _makemap(sht)
+            ss = ("cstname,cstname,karat,karat,cdesc,description,joqty,quantity"
+                ",jmpno,docno,shpdate,refdate,shpqty,shpqty").split(",")
+            dtmap0 = dict(zip(ss[0:len(ss) - 1:2], ss[1:len(ss):2]))
+            ss = ("invdate,invdate,invno,invno,orderno,orderno,pcode,pcode,uprice"
+                ",uprice,umtlwgt,mtlwgt,ustwgt,stwgt,stspec,stspec").split(",")
+            dtmap1 = dict(zip(ss[0:len(ss) - 1:2], ss[1:len(ss):2]))
+            for row in mms:
+                mp = {}
+                rn = str(row.running);jn = JOElement(row.joalpha, row.jodigit).value
+                for x in dtmap0.iteritems():
+                    mp[x[0]] = row.__getattribute__(x[1])
+                mp["running"] = rn
+                mp["jono"] = "'" + jn
+                mp["styno"] = JOElement(row.alpha, row.digit).value
+                mp["edesc"] = bcs[rn] if rn in bcs else "N/A"
+                key = "%s,%s" % (jn, mp["shpdate"].strftime(dfmt))
+                if key in pajs:
+                    x = pajs[key]
+                    for y in dtmap1.iteritems():
+                        mp[y[0]] = x.__getattribute__(y[1])
+                    mp["ttlcost"] = mp["uprice"]*mp["shpqty"]                    
+                else:
+                    for x in dtmap1.keys():
+                        mp[x] = None
+                    mp["ttlcost"] = None
+                key = "%s,%s,%s" % (rn, mp["jmpno"], mp["shpdate"].strftime(dfmt))
+                mp["rmk"] = ("QtyError" if not (mp["joqty"] and mp["shpqty"]) else 
+                    "" if mp["joqty"] == mp["shpqty"] else "Partial")
+                mp["iono"] = ios[key].inoutno if key in ios else "N/A"
+                hasdia = (mp["cdesc"].find(u"钻") >= 0 or mp["cdesc"].find(u"占") >= 0 or
+                    (mp["edesc"] and mp["edesc"].lower().find("dia") >= 0))
+                mp["hasdia"] = "D" if hasdia else "N"
+                
+                x = [mp[nmps[1][x]] for x in range(len(nmps[1]))]
+                lst.append(["" if not y else y.strip() if isinstance(y,basestring) else 
+                    y.strftime(dfmt) if isinstance(y,datetime) else float(y) if isinstance(y,Decimal) else
+                    y for y in x])                   
+            sht.range("A2").value = lst
+            for x in [x for x in wb.sheets if x != sht]:
+                x.delete()
+            if tarfldr:
+                fn = appathsep(tarfldr) + df.strftime("%Y%m")
+                wb.save(fn)
+        finally:
+            if killxls and not wb:
+                app.quit()
+            else:
+                app.visible = True
+        return lst,fn

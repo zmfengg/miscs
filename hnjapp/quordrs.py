@@ -17,6 +17,9 @@ from pajcc import MPS
 import csv
 import numbers
 from hnjutils import xwu
+from hnjutils import appathsep
+import hnjutils as hnju
+import math
 
 
 def _checkfile(fn, fns):
@@ -30,10 +33,6 @@ def _checkfile(fn, fns):
             ld = path.getmtime(fn)
             flag = ld > max([path.getmtime(x) for x in fns])
     return flag
-
-
-def _appsep(fldr):
-    return fldr + path.sep if fldr[len(fldr) - 1:] != path.sep else fldr 
 
 
 def _getexcels(fldr):
@@ -137,7 +136,6 @@ def readagq(fn):
         v0.value = vals
     finally:
         wb.close()
-        if kxl: app.books[0].close()
         if not wb1 and kxl:
             app.quit()
         else:
@@ -150,7 +148,7 @@ def readquoprice(fldr, rstfn="costs.dat"):
     @return: the result file name or None if nothing is returned  
     """
     if not fldr: return
-    fldr = _appsep(fldr)
+    fldr = appathsep(fldr)
     kxl, app = xwu.app(False)
     ptnRunn = re.compile("running\s?:\s?(\d*)", re.IGNORECASE)
     ptnCost = re.compile("cost\s?(\w*)\s?:", re.IGNORECASE)
@@ -221,16 +219,20 @@ class DAO(object):
     """
     _ptnmit = re.compile("^M[A-Z]T")
     _silveralphas = set(("4", "5"))
+    _querysize = 20  # batch query's batch, don't be too large
 
-    def __init__(self, db):
-        self.hnjhkdb = db
+    def __init__(self, hkdb, pydb=None, bcdb=None):
+        """ dbs won't be closed by me, the caller do it """
+        self._hkdb = hkdb
+        if pydb: self._pydb = pydb
+        if bcdb: self._bcdb = bcdb        
     
     def _samekarat(self, srcje, tarje):
         return srcje.alpha == tarje.alpha or (srcje.alpha in self._silveralphas and tarje.alpha in self._silveralphas)
     
     def getjo(self, je):        
         knws = [None, None, None];jo = None
-        cur = self.hnjhkdb.cursor()
+        cur = self._hkdb.cursor()
         try:            
             # wgt info including mit
             if isinstance(je, basestring): je = JOElement(je)
@@ -275,7 +277,7 @@ class DAO(object):
             return dict(zip("jono,pcode,uprice,mps".split(","), (je, x.pcode.strip(), x.uprice, x.mps)))
         
         ups = None
-        cur = self.hnjhkdb.cursor()
+        cur = self._hkdb.cursor()
         try:
             je = jo["name"]
             cur.execute(("select pcode,inv.uprice,inv.mps from jo inner join pajshp shp on jo.joid = shp.joid"
@@ -283,19 +285,6 @@ class DAO(object):
                 " and shp.invno = inv.invno order by shp.shpdate desc") % (je.alpha, je.digit))
             rows = cur.fetchall()
             ups = [_mapx(x, je) for x in rows if x.uprice and x.mps] if(rows) else None
-            '''
-            if not ups and jo["skuno"]:
-                # find using the SKU#
-                print("Getting Wgt of JO#(%s)" % je.name)
-                cur.execute("select jo.alpha,jo.digit,pcode,inv.uprice,inv.mps from jo inner join"
-                    " po on jo.poid = po.poid and po.skuno = '%s' inner join pajshp shp on"
-                    " jo.joid = shp.joid inner join pajinv inv on shp.joid = inv.joid and inv.invno = shp.invno"
-                    " order by shp.shpdate desc" % jo["skuno"])
-                rows = cur.fetchall()
-                ups = [_mapx(x, JOElement(x.alpha, x.digit)) for x in rows if(x.uprice and x.mps)] if(rows) else None
-                logging.debug("No paj data found for JO#(%s), using sku#(%s) to search and find %s" % 
-                    (je.value, jo["skuno"], "%d records" % len(ups) if ups else "Nothing"))
-            '''
         finally:
             cur.close()
         return ups
@@ -303,7 +292,7 @@ class DAO(object):
     def getrevcn(self, pcode):
         """return the revised for given pcode"""
         revcn = 0
-        cur = self.hnjhkdb.cursor()
+        cur = self._hkdb.cursor()
         try:
             cur.execute("select top 2 uprice from pajcnrev where pcode = '%s' order by tag" % pcode)
             rows = cur.fetchall()
@@ -319,7 +308,7 @@ class DAO(object):
                         1 for extract karat match
                         1+ for extract style match
         """ 
-        cur = self.hnjhkdb.cursor()  
+        cur = self._hkdb.cursor()  
         rc = None;level = 0 if level < 0 else level
         try:
             s0 = ("select distinct jo.alpha,jo.digit,po.skuno from jo inner join orderma od on" 
@@ -339,10 +328,9 @@ class DAO(object):
         return [self.getjo(x) for x in rc] if rc else None
     
     def getjosbyrunns(self, runns):
-        # 20 runnings per run
         logging.debug("begin to fetch JO#s for running, count = %d" % len(runns))
-        cur = self.hnjhkdb.cursor()
-        stp = 20;cnt = len(runns) / stp + 1
+        cur = self._hkdb.cursor()
+        stp = self._querysize;cnt = math.ceil(1.0 * len(runns) / stp)
         mp = {}        
         try:            
             for x in [",".join(runns[x * stp:(x + 1) * stp]) for x in range(cnt)]:
@@ -377,6 +365,84 @@ class DAO(object):
         rmap["china"] = pc.newchina(revcn, jo["wgts"]) if revcn else \
             pc.PajCalc.calchina(jo["wgts"], float(ups[0]["uprice"]), MPS(ups[0]["mps"]))        
         return rmap
+    
+    def getshpforjc(self, df, dt):
+        """return py shipment data for PAJCReader
+        @param df: start date(include) a date ot datetime object
+        @param dt: end date(exclude) a date or datetime object 
+        """
+        s0 = ("select jo.jsid,ma.refdate,c.cstname,cstbldid_alpha as joalpha"
+            ",jo.cstbldid_digit as jodigit,sty.alpha,sty.digit,jo.running,jo.karat"
+            ",jo.description,jo.quantity,mm.qty as shpqty,mm.docno"
+            " from mm inner join mmma ma on mm.refid = ma.refid inner join b_cust_bill jo"
+            " on mm.jsid = jo.jsid inner join cstinfo c on c.cstid = jo.cstid"
+            " inner join styma sty on jo.styid = sty.styid"
+            " where ma.refdate >= '%s' and ma.refdate < '%s'")
+        s0 = s0 % tuple(x.strftime("%Y/%m/%d") for x in (df, dt))
+        lst = None
+        cur = self._pydb.cursor()
+        try:
+            cur.execute(s0)
+            lst = cur.fetchall()
+        finally:
+            if cur: cur.close()
+        return lst
+    
+    def getmmioforjc(self, df, dt, runns):
+        """return the mmstock's I/O# for PAJCReader"""
+        s0 = ("select sm.running,remark1 as jmp,iv.docdate as shpdate,iv.inoutno"
+            " from stockobjectma sm inner join invoicedtl dt on dt.srid = sm.srid"
+            " inner join invoicema iv on dt.invid = iv.invid and iv.inoutno like 'N%%'"
+            " and remark1 <> '' where iv.docdate >= '%s' and iv.docdate < '%s' and sm.running in ('%s')")
+        lst = list();dft = [x.strftime("%Y/%m/%d") for x in (df, dt)]
+        if not isinstance(runns[0],basestring): runns = [str(x) for x in runns]
+        cur = self._hkdb.cursor()
+        try:
+            for x in hnju.splitarray(runns, self._querysize):
+                rns = "','".join(x)
+                cur.execute(s0 % (dft[0], dft[1], rns))
+                rows = cur.fetchall()
+                if rows: lst.extend(rows)
+        finally:
+            if cur: cur.close()
+        return lst
+    
+    def getbcsforjc(self, runns):
+        """return running and description from bc with given runnings """
+        if not runns: return
+        if not isinstance(runns[0],basestring): runns = [str(x) for x in runns]
+        s0 = "select runn,desc from stocks where runn in (%s)";lst = []
+        cur = self._bcdb.cursor()
+        try:
+            for x in hnju.splitarray(runns, self._querysize):
+                cur.execute(s0 % ("'" + "','".join(x) + "'"))
+                rows = cur.fetchall()
+                if rows: lst.extend(rows)
+        finally:
+            if cur: cur.close()
+        return lst
+    
+    def getpjforjc(self, jes):
+        """ get the paj data for jocost
+        @param jes: a set of JOElement
+        """
+        
+        if not jes: return
+        lst = []
+        s0 = ("select jo.alpha,jo.digit,s.invdate, s.invno, s.orderno, s.pcode, s.qty, i.uprice"
+            ",s.mtlwgt, s.stwgt, i.stspec,s.shpdate from jo inner join pajshp s"
+            " on jo.joid = s.joid inner join pajinv i on"
+            " (s.joid = i.joid) and (s.invno = i.invno) where (%s)")
+        jns = ["alpha = '%s' and digit = %d" % (x.alpha,x.digit) for x in jes]
+        cur = self._hkdb.cursor()        
+        try:
+            for ii in hnju.splitarray(jns, self._querysize):
+                cur.execute(s0 % (") or (".join([str(x) for x in ii])))
+                rows = cur.fetchall()
+                if rows: lst.extend(rows)
+        finally:
+            if cur: cur.close()
+        return lst
 
 
 class PajDataByRunn(object):
@@ -441,7 +507,7 @@ class PajDataByRunn(object):
         """
         
         mp = {};fns = _getexcels(fldr)
-        fldr = _appsep(fldr)
+        fldr = appathsep(fldr)
         fn = fldr + (okfn if okfn else "runOKs.dat")
         if _checkfile(fn, fns):
             with open(fn, "r") as f:
@@ -513,7 +579,7 @@ class PajDataByRunn(object):
                 if k in mp: del mp[k]
         return mp
     
-    def run(self, fldr, defaultmps = None, okfn="OKs.dat", errfn="Errs.dat", 
+    def run(self, fldr, defaultmps=None, okfn="OKs.dat", errfn="Errs.dat",
             runokfn="runOKs.dat", runerrfn="runErrs.dat"):
         """do folder \\172.16.8.46\pb\dptfile\quotation\date\Date2018\0502\(2) quote to customer\ PAJ cost calculation
             find the JO of given running, then do the calc based on S=20;G=1350
@@ -566,7 +632,7 @@ class PajDataByRunn(object):
             ferrs.flush()
             return wtrerrs, ferrs
             
-        fldr = _appsep(fldr)
+        fldr = appathsep(fldr)
         ttroks = "Runn,OrgJO#,Sty#,Cstname,JO#,SKU#,PCode,ttcost,mtlcost,mps,rmks,discount".split(",")
         ttrerrs = "Runn,OrgJO#,mainWgt,auxWgt,partWgt,mps".split(",")
         errs = [];hiserrs = None;wtrerrs = None;ferrs = None
@@ -636,7 +702,8 @@ class PajDataByRunn(object):
             if foks: foks.close()
             if ferrs: ferrs.close()
         
-        return fnoks,fnerrs
+        return fnoks, fnerrs
+
 
 if __name__ == "__main__":
     for x in (r'd:\temp\1200&15.xls', r'd:\temp\1300&20.xls'):

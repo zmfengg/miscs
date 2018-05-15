@@ -7,15 +7,16 @@ Utils for xlwings's not implemented but useful function
 @author: zmFeng
 '''
 import xlwings.constants as const
+import xlwings
+import os
 
 
 def app(vis=True):    
     """ launch an excel or connect to existing one """
     
-    import xlwings
     flag = xlwings.apps.count == 0
     return flag, \
-        xlwings.apps.active if not flag else xlwings.App(visible=vis)
+        xlwings.apps.active if not flag else xlwings.App(visible=vis, add_book=False)
 
 
 def usedrange(sh):
@@ -51,21 +52,32 @@ def find(sh, val, aftr=None, matchCase=False, lookat=const.LookAt.xlPart, \
     return apiRng
 
 
-def listodict(lst,trmap = None):
+def listodict(lst, trmap=None):
     """ turn a list into zero-id based, name -> id lookup map 
     @param lst: the list or one-dim array containing the strings that need to do the name-> pos map
     @param trmap: An translation map, make the description -> name translation, if ommitted, description become name
                   if the description is not sure, split them with candidates, for example, "Job,JS":"jono"
     @return: a dict with name -> id map   
     """
-    if(len(lst) == 0): return None,None
+    if(len(lst) == 0): return None, None
     lstl = [x.lower() for x in lst]
     if(not trmap): trmap = {}
     for x in [x for x in trmap.keys() if(x.find(",") >= 0)]:
         for y in x.split(","):
-            cnds = [x0 for x0 in lstl if(len(y) >0 and x0.find(y) >= 0)]
+            cnds = [x0 for x0 in lstl if(len(y) > 0 and x0.find(y) >= 0)]
             if(len(cnds) > 0):
                 trmap[cnds[0]] = trmap[x]
                 break
-    return dict(zip([trmap[x] if(x in trmap) else x for x in lstl],range(len(lstl))))
-    
+    return dict(zip([trmap[x] if(x in trmap) else x for x in lstl], range(len(lstl))))
+
+
+def fromtemplate(tplfn, app=None):
+    """new a workbook based on the tmpfn template
+        @param tplfn: the template file
+        @param app: the app you want to new workbook on 
+    """
+    if not os.path.exists(tplfn): return
+    if not app:
+        app = xlwings.App() if not xlwings.apps else xlwings.apps(0)
+    app.api.Application.Workbooks.Add(tplfn)
+    return app.books.active

@@ -1,4 +1,6 @@
 eclipse.preferences.version=1
+encoding//hnjutils/odbctpl.py=utf-8
+encoding//hnjutils/xwu.py=utf-8
 encoding//models/__init__.py=utf-8
 encoding//models/hnjcn.py=utf-8
 encoding//models/utils.py=utf-8
