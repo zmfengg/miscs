@@ -62,7 +62,7 @@ class MPS():
         return self._slots[2]
     
     def __str__(self):
-        return self._slots[2] if self._slots[2] else "N/A"
+        return self._slots[2] if self._slots[2] else ""
     
     def __repr__(self):
         return repr(self._slots)
