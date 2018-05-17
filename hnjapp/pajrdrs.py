@@ -20,8 +20,7 @@ from xlwings.constants import LookAt
 
 import logging as logging
 from models.utils import JOElement
-from hnjutils import p17u, appathsep
-from hnjutils import xwu,appathsep
+from hnjutils import p17u,xwu,appathsep
 import xlwings.constants as const
 from _utils import fmtjono
 from quordrs import DAO
