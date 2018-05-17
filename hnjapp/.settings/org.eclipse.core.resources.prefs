@@ -1,17 +1,10 @@
 =\=\=\=\=\=\=
 <<<<<<<=HEAD
->>>>>>>=branch 'master' of https\://github.com/zmfengg/miscs.git
+>>>>>>>=refs/remotes/origin/master
 eclipse.preferences.version=1
-<<<<<<< HEAD
 encoding/__init__.py=utf-8
-encoding/_utils.py=utf-8
 encoding/c1rdrs.py=utf-8
 encoding/pajcc.py=utf-8
-=======
->>>>>>> refs/remotes/origin/master
 encoding/pajrdrs.py=utf-8
-<<<<<<< HEAD
 encoding/quordrs.py=utf-8
 encoding/x.py=utf-8
-=======
->>>>>>> refs/remotes/origin/master

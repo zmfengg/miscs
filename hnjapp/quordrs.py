@@ -6,20 +6,21 @@ module try to read data from quo catalog
 '''
 
 from collections import namedtuple
-from models.utils import JOElement
 import logging
 from os import path
 import os
 import sys
 import re
 import pajcc as pc
-from pajcc import MPS
 import csv
 import numbers
-from hnjutils import xwu
-from hnjutils import appathsep
-import hnjutils as hnju
 import math
+
+from hnjcore import xwu
+from hnjcore import utils as hnju
+from hnjcore.utils import appathsep
+from hnjcore import JOElement
+from hnjapp.pajcc import MPS
 
 
 def _checkfile(fn, fns):
@@ -39,6 +40,71 @@ def _getexcels(fldr):
     if fldr:
         return [fldr + unicode(x, sys.getfilesystemencoding()) 
                     for x in os.listdir(fldr) if x.lower().find("xls") >= 0]
+
+def readsignetcn(fldr):
+    """ read file format like \\172.16.8.46\pb\dptfile\quotation\date\Date2018\0521\123
+    for signet's "RETURN TO VENDOR" sheet
+    """
+    if not os.path.exists(fldr): return
+    fldr = hnju.appathsep(fldr)
+    fns = [unicode(x, sys.getfilesystemencoding()) 
+        for x in os.listdir(fldr) if x.lower().find("txt") >= 0]
+    ptncn = re.compile("CN\d{3,}")
+    ptndec = re.compile("\d*\.\d+")
+    ptnsty = re.compile("[\w/\.]+\s+")
+    ptndscerr = re.compile("\(?[\w/\.]+\)?(\s{4,})")
+    styPFX = "YOUR STYLE: ";lnPFX = len(styPFX)
+    ttlPFX = "STYLE TOT"; lnTtlPFX = len(ttlPFX)
+    lstall = []
+    cnt = 0
+    for fn in fns:
+        cnt = cnt + 1
+        with open(fldr + fn,"rb") as fh:
+            cn = None;stage = 0
+            lstfn = [];dct = None
+            for ln in fh:
+                if not cn:
+                    mt = ptncn.search(ln)
+                    if mt: cn = mt.group()
+                else:
+                    if stage >= 3 or stage <= 0:
+                        idx = ln.find(styPFX)                            
+                        if idx >= 0:
+                            ln = ln[idx + lnPFX:]
+                            idx = ln.find(" ")
+                            mt = ptnsty.search(ln)
+                            mt1 = ptndscerr.search(ln[mt.end():])                                
+                            if mt1:
+                                idx1 = mt1.end() + mt.end()
+                            else:
+                                idx1 = mt.end()                                
+                            dct = {"cn":cn,"styno": ln[:idx1].strip(),"fn":fn}
+                            dct["description"] = ln[idx1:].strip()
+                            lstfn.append(dct)
+                            stage = 1
+                    elif stage == 1:
+                        if ptndec.search(ln): stage += 1
+                    elif stage == 2:
+                        idx = ln.find(ttlPFX)
+                        mt = ptndec.search(ln)
+                        if idx >= 0 and mt:
+                            dct["ttl"] = float(mt.group())
+                            dct["qty"] = float(ln[idx + lnTtlPFX + 1:mt.start()].strip())
+                            stage += 1
+                    else:
+                        pass
+            if lstfn: lstall.extend(lstfn)                    
+    if lstall:
+        app = xwu.app(True)[1]
+        wb = app.books.add()
+        lstfn = []
+        for x in lstall:
+            if "qty" in x:
+                lstfn.append((x["styno"],x["qty"],x["cn"],x["description"],"",x["ttl"],x["fn"]))
+            else:
+                print("data error:(%s)" % x)
+        rng = wb.sheets(1).range("A1")
+        rng.value = lstfn
 
 
 def readagq(fn):
@@ -140,78 +206,6 @@ def readagq(fn):
             app.quit()
         else:
             if wb1: app.visible = True
-
-
-def readquoprice(fldr, rstfn="costs.dat"):
-    """read simple quo file which contains Running:xxx, Cost XX: excel
-    @param fldr: the folder to read files from
-    @return: the result file name or None if nothing is returned  
-    """
-    if not fldr: return
-    fldr = appathsep(fldr)
-    kxl, app = xwu.app(False)
-    ptnRunn = re.compile("running\s?:\s?(\d*)", re.IGNORECASE)
-    ptnCost = re.compile("cost\s?(\w*)\s?:", re.IGNORECASE)
-    lst = []
-    try:
-        for fn in _getexcels(fldr):
-            wb = app.books.open(fn)
-            for sh in wb.sheets:
-                phase = 0;runns = {};costs = {};rowrunn = 0;lastii = 0
-                vvs = xwu.usedrange(sh).value
-                for hh in range(len(vvs)):
-                    tr = vvs[hh]
-                    for ii in range(len(tr)):
-                        if not tr[ii]: continue
-                        x = str(tr[ii])
-                        if phase <= 1:
-                            mt = ptnRunn.search(x)
-                            if mt:
-                                if phase <> 1: 
-                                    phase = 1
-                                    rowrunn = hh
-                                runns[ii] = mt.group(1)
-                                lastii = ii
-                                continue
-                        if phase >= 1:
-                            mt = ptnCost.search(x)
-                            if mt:
-                                cost = 0
-                                for jj in range(ii + 1, len(tr)):
-                                    if isinstance(tr[jj], numbers.Number):
-                                        cost = tr[jj]
-                                        break
-                                if phase <> 2 and hh != rowrunn: phase = 2
-                                kk = ii if hh <> rowrunn else lastii                                       
-                                if kk in runns:
-                                    costs[kk] = (mt.group(1) , cost, fn)
-                                else:
-                                    print("error, no running found for cost %s" % cost)
-                                    print("file(%s)" % fn)
-                                    print("row(%d), data = %s " % (hh + 1, tr))                                        
-                    if phase == 2:
-                        for ii in runns.keys():
-                            if ii in costs:
-                                cost = costs[ii]
-                                lst.append((runns[ii], cost[0], cost[1], cost[2]))
-                        phase = 0
-                        runns = {};costs = {}
-            wb.close()
-    except Exception as e:
-        print(e)
-        print(fn)
-        print(tr)
-    finally:
-        if kxl: app.quit()
-    fn = fldr + rstfn if rstfn else "costs.dat"
-    if lst:
-        with open(fn, "w") as f:
-            wtr = csv.writer(f, dialect="excel")
-            wtr.writerow("runn,karat,cost,file".split(","))
-            for x in lst:
-                wtr.writerow(x)
-    return fn
-
 
 class DAO(object):
     """a handy Hnjhk dao for data access in this tests
@@ -330,11 +324,10 @@ class DAO(object):
     def getjosbyrunns(self, runns):
         logging.debug("begin to fetch JO#s for running, count = %d" % len(runns))
         cur = self._hkdb.cursor()
-        stp = self._querysize;cnt = math.ceil(1.0 * len(runns) / stp)
         mp = {}        
         try:            
-            for x in [",".join(runns[x * stp:(x + 1) * stp]) for x in range(cnt)]:
-                cur.execute("select running,alpha,digit from jo where running in (%s)" % x)
+            for x in hnju.splitarray(runns, self._querysize):
+                cur.execute("select running,alpha,digit from jo where running in (%s)" % (",".join(x)))
                 rows = cur.fetchall()
                 if(rows):
                     for pr in [(JOElement(row.alpha, row.digit), str(row.running)) for row in rows]:
@@ -395,7 +388,7 @@ class DAO(object):
             " inner join invoicema iv on dt.invid = iv.invid and iv.inoutno like 'N%%'"
             " and remark1 <> '' where iv.docdate >= '%s' and iv.docdate < '%s' and sm.running in ('%s')")
         lst = list();dft = [x.strftime("%Y/%m/%d") for x in (df, dt)]
-        if not isinstance(runns[0],basestring): runns = [str(x) for x in runns]
+        if not isinstance(runns[0], basestring): runns = [str(x) for x in runns]
         cur = self._hkdb.cursor()
         try:
             for x in hnju.splitarray(runns, self._querysize):
@@ -410,7 +403,7 @@ class DAO(object):
     def getbcsforjc(self, runns):
         """return running and description from bc with given runnings """
         if not runns: return
-        if not isinstance(runns[0],basestring): runns = [str(x) for x in runns]
+        if not isinstance(runns[0], basestring): runns = [str(x) for x in runns]
         s0 = "select runn,desc from stocks where runn in (%s)";lst = []
         cur = self._bcdb.cursor()
         try:
@@ -433,7 +426,7 @@ class DAO(object):
             ",s.mtlwgt, s.stwgt, i.stspec,s.shpdate from jo inner join pajshp s"
             " on jo.joid = s.joid inner join pajinv i on"
             " (s.joid = i.joid) and (s.invno = i.invno) where (%s)")
-        jns = ["alpha = '%s' and digit = %d" % (x.alpha,x.digit) for x in jes]
+        jns = ["alpha = '%s' and digit = %d" % (x.alpha, x.digit) for x in jes]
         cur = self._hkdb.cursor()        
         try:
             for ii in hnju.splitarray(jns, self._querysize):
@@ -446,12 +439,29 @@ class DAO(object):
 
 
 class PajDataByRunn(object):
+    """
+    class to read such file as \\172.16.8.46\pb\dptfile\quotation\date\
+    Date2018\0502\(2) quote to customer\*.xls which has:
+      .A field contains \d{6}, which will be treated as a running
+      .Sth. like Silver@20.00/oz in the first 10 rows as MPS, if no, use the 
+         caller's MPS as default MPS
+         
+    If inside the folder, there is file named "runOKs.dat", excel files
+    won't be processed, this class use it as source running.
+    
+    return a csv file with below fields:
+        Runn,OrgJO#,Sty#,Cstname,JO#,SKU#,PCode,ttcost,mtlcost,mps,rmks,discount
+    
+    An example to read data from folder "d:\temp"
+        PajDataByRunn(hkdb).run(r"d:\temp", defaultmps=pajcc.MPS("S=20;G=1350"))
+    """
     _ptnrunn = re.compile("\d{6}")
     _duprunn = False
 
     def __init__(self, db):
         self.dao = DAO(db)
     
+    '''
     def _write(self, runn, srcjono, wnc, tarmps, f, rmk=None):
         flag = wnc["jo"] and wnc["china"]
         if flag:
@@ -466,7 +476,8 @@ class PajDataByRunn(object):
             rmk = rmk + ";" if rmk else "" + "Failed" 
             f.write(",".join((runn, rmk, str(wnc["jo"]["wgts"]))) + "\n")
         return flag
-    
+    '''
+
     def _readMPS(self, rows):
         """try to parse out the MPS from the first 5 rows of an excel
         the rows should be obtained by xwu.usedranged(sht).value
@@ -503,7 +514,8 @@ class PajDataByRunn(object):
         @param hiserrs: the original error result, should not be returned. A map or set with runn+","+mps as key
         @param okfn: the preferred file name for the OK runnings
         @param errfn: the preferred file name for the error runnings 
-        @return: a map with runn+","+mps as key and a map with key(mps/runn) as value 
+        @return: a map with runn+","+mps as key and a map with a dict with (runn/mps) as value
+                where the mps is an MPS object, not string  
         """
         
         mp = {};fns = _getexcels(fldr)
@@ -527,10 +539,7 @@ class PajDataByRunn(object):
                         vvs = xwu.usedrange(sht).value
                         if not vvs: continue
                         mps1 = self._readMPS(vvs)
-                        if not mps1:
-                            mps1 = mps if mps else pc.PAJCHINAMPS
-                        else:
-                            mps = mps1
+                        if not mps1: mps1 = mps if mps else pc.PAJCHINAMPS
                         for row in vvs:
                             for x in [x for x in row if(x and isinstance(x, basestring) and x.lower().find("runn") >= 0)]:
                                 mt = self._ptnrunn.search(x)
@@ -553,7 +562,7 @@ class PajDataByRunn(object):
                     with open(fn, "w") as f:
                         wtr = None
                         for x in maps[0].iteritems():
-                            it = mp[x[0] + "," + rtomps[x[0]]];it["jono"] = x[1];it["mps"] = rtomps[x[0]]
+                            it = mp[x[0] + "," + rtomps[x[0]]];it["jono"] = x[1];
                             if not wtr: 
                                 wtr = csv.DictWriter(f, it.keys())
                                 wtr.writeheader()
@@ -563,18 +572,14 @@ class PajDataByRunn(object):
                         key = x + "," + rtomps[x]
                         if key in mp: del mp[key]
             except Exception as e:
-                print(e)
+                logging.debug(e)
                 raise e
             finally:
                 if(killxls): app.quit()
         rmvs = (hisoks, hiserrs)
         if mp and any(rmvs):
-            # what is the fucking problem below!!
-            ks = set()            
-            kk = [x.keys() for x in rmvs if x]
-            for x in [x for x in kk]:
-                for y in x:
-                    ks.add(y)
+            ks = set()
+            [ks.update(x.keys()) for x in rmvs if x]
             for k in ks:
                 if k in mp: del mp[k]
         return mp
@@ -703,8 +708,78 @@ class PajDataByRunn(object):
             if ferrs: ferrs.close()
         
         return fnoks, fnerrs
-
-
+    
+    @classmethod
+    def readquoprice(self,fldr, rstfn="costs.dat"):
+        """read simple quo file which contains Running:xxx, Cost XX: excel
+        @param fldr: the folder to read files from
+        @return: the result file name or None if nothing is returned  
+        """
+        if not fldr: return
+        fldr = appathsep(fldr)
+        kxl, app = xwu.app(False)
+        ptnRunn = re.compile("running\s?:\s?(\d*)", re.IGNORECASE)
+        ptnCost = re.compile("cost\s?(\w*)\s?:", re.IGNORECASE)
+        lst = []
+        try:
+            for fn in _getexcels(fldr):
+                wb = app.books.open(fn)
+                for sh in wb.sheets:
+                    phase = 0;runns = {};costs = {};rowrunn = 0;lastii = 0
+                    vvs = xwu.usedrange(sh).value
+                    for hh in range(len(vvs)):
+                        tr = vvs[hh]
+                        for ii in range(len(tr)):
+                            if not tr[ii]: continue
+                            x = str(tr[ii])
+                            if phase <= 1:
+                                mt = ptnRunn.search(x)
+                                if mt:
+                                    if phase <> 1: 
+                                        phase = 1
+                                        rowrunn = hh
+                                    runns[ii] = mt.group(1)
+                                    lastii = ii
+                                    continue
+                            if phase >= 1:
+                                mt = ptnCost.search(x)
+                                if mt:
+                                    cost = 0
+                                    for jj in range(ii + 1, len(tr)):
+                                        if isinstance(tr[jj], numbers.Number):
+                                            cost = tr[jj]
+                                            break
+                                    if phase <> 2 and hh != rowrunn: phase = 2
+                                    kk = ii if hh <> rowrunn else lastii                                       
+                                    if kk in runns:
+                                        costs[kk] = (mt.group(1) , cost, fn)
+                                    else:
+                                        print("error, no running found for cost %s" % cost)
+                                        print("file(%s)" % fn)
+                                        print("row(%d), data = %s " % (hh + 1, tr))                                        
+                        if phase == 2:
+                            for ii in runns.keys():
+                                if ii in costs:
+                                    cost = costs[ii]
+                                    lst.append((runns[ii], cost[0], cost[1], cost[2]))
+                            phase = 0
+                            runns = {};costs = {}
+                wb.close()
+        except Exception as e:
+            print(e)
+            print(fn)
+            print(tr)
+        finally:
+            if kxl: app.quit()
+        fn = fldr + rstfn if rstfn else "costs.dat"
+        if lst:
+            with open(fn, "w") as f:
+                wtr = csv.writer(f, dialect="excel")
+                wtr.writerow("runn,karat,cost,file".split(","))
+                for x in lst:
+                    wtr.writerow(x)
+        return fn
+    
 if __name__ == "__main__":
     for x in (r'd:\temp\1200&15.xls', r'd:\temp\1300&20.xls'):
         readagq(x)

@@ -3,7 +3,6 @@
 	<name>hnjapp</name>
 	<comment></comment>
 	<projects>
-		<project>hnjcore</project>
 	</projects>
 	<buildSpec>
 		<buildCommand>

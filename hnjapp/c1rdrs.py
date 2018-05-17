@@ -7,9 +7,9 @@ need to be able to read the 2 kinds of files: C1's original and calculator file
 '''
 
 from collections import namedtuple
-from hnjutils import xwu
+from hnjcore.utils import xwu
 from xlwings import constants
-from _utils import fmtjono
+from hnjcore import JOElement
 import os, sys
 import logging
 import numbers
@@ -97,7 +97,7 @@ class InvRdr():
             if isinstance(s0, basestring):
                 s0 = s0.strip()
                 if not s0: s0 = None
-            jn = fmtjono(tr[tm["jono"]])
+            jn = JOElement(tr[tm["jono"]]).value
             if jn:
                 if em:
                     items.append(self._makec1item(em))

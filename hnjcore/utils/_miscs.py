@@ -1,14 +1,12 @@
+# coding=utf-8
 '''
-Created on Apr 19, 2018
+Created on 2018-05-18
 
 @author: zmFeng
 '''
 
-from hnjutils import p17u
-from . import odbctpl
-from hnjutils import xwu
-import math
 from os import path
+import math
 
 def splitarray(arr, logsize = 100):
     """split an array into arrays whose len is less or equal than logsize

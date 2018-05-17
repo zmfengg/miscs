@@ -19,11 +19,9 @@ from decimal import Decimal
 from xlwings.constants import LookAt
 
 import logging as logging
-from models.utils import JOElement
-from hnjutils import p17u, appathsep
-from hnjutils import xwu,appathsep
+from hnjcore import JOElement
+from hnjcore import xwu,p17u, appathsep
 import xlwings.constants as const
-from _utils import fmtjono
 from quordrs import DAO
 
 
@@ -230,7 +228,7 @@ class ShpReader:
                                     si = items[thekey]
                                     items[thekey] = si._replace(qty=si.qty + tr[tm["qty"]]) 
                                 else:
-                                    si = PajShpItem(bfn, odno, fmtjono(tr[tm["jono"]]) , tr[tm["qty"]], tr[tm['p17']], \
+                                    si = PajShpItem(bfn, odno, JOElement(tr[tm["jono"]]).value , tr[tm["qty"]], tr[tm['p17']], \
                                         invno, _accdstr(tr[tm['invdate']]), mwgt, tr[tm['stwgt']], \
                                         _accdstr(self._getshpdate(bfn)), lmd, _accdstr(datetime.today()))
                                     items[thekey] = si
@@ -246,7 +244,7 @@ class ShpReader:
                                     odno = tr[tm['ordno']] if tm.has_key('ordno') else "N/A"
                                     p17 = tr[tm['p17']]
                                     if not p17: break                                    
-                                    si = PajShpItem(bfn, odno, fmtjono(tr[tm["jono"]]), tr[tm["qty"]], p17, tr[tm["invno"]], \
+                                    si = PajShpItem(bfn, odno, JOElement(tr[tm["jono"]]).value, tr[tm["qty"]], p17, tr[tm["invno"]], \
                                         _accdstr(tr[tm['invdate']]), qmap[p17][0], qmap[p17][1], \
                                         _accdstr(self._getshpdate(bfn)), lmd, _accdstr(datetime.today()))
                                     # new sample won't have duplicated items                                    
@@ -404,7 +402,7 @@ class InvReader(object):
                         if not p17u.isvalidp17(p17):
                             logging.debug("invalid p17 code(%s) in %s" % (p17, fn))
                             continue
-                        jn = fmtjono(tr[tm["jono"]]) if tm.has_key("jono") else None
+                        jn = JOElement(tr[tm["jono"]]).value if tm.has_key("jono") else None
                         if not jn:
                             jns = self._getjonos(p17, invno)
                             if jns: jn = jns[0]

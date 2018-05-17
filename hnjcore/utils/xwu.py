@@ -10,6 +10,7 @@ import xlwings.constants as const
 import xlwings
 import os
 
+__all__ = ["app","find","fromtemplate","listodict","usedrange"]
 
 def app(vis=True):    
     """ launch an excel or connect to existing one """

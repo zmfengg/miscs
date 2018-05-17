@@ -11,11 +11,13 @@ all weight related field are GM based
 '''
 
 from collections import namedtuple
+import logging
 
 # the fineness map for this calculation
 _fineness = {8:33.3, 81:33.3, 88:33.3, 9:37.5, 91:37.5, 98:37.5, 10:41.7, 101:41.7, 108:41.7, 14:58.5, 141:58.5, 148:58.5, \
     18:75.0, 181:75.0, 188:75.0, 200:100, "925PAJ":95.0, "925":92.5, 9925:0.95}
 
+MPSINVALID = -10000.00
 
 # karat and weight
 class WgtInfo(namedtuple("WgtInfo", "karat,wgt")):
@@ -147,8 +149,12 @@ class PajCalc():
         lr0 = lossrate if lossrate else self.calclossrate(prdwgt) ; r0 = 0
         for idx in hix:
             x = kws[idx]
-            r0 += x.wgt * self.getfiness(x.karat, vendor) * (lr0 if idx < 2 else 1.0) * \
-                (mps.silver if x.karat == 925 else 0 if x.karat == 200 else mps.gold) / 31.1035        
+            mp = mps.silver if x.karat == 925 else 0 if x.karat == 200 else mps.gold
+            if not mp and x.karat != 200:
+                r0 = MPSINVALID
+                break
+            r0 += (x.wgt * self.getfiness(x.karat, vendor) * (lr0 if idx < 2 else 1.0) *
+                mp / 31.1035)
         return round(r0, 2)
     
     @classmethod
@@ -181,6 +187,13 @@ class PajCalc():
                 g += r0;
     
         return Increment(prdwgt, s, g, lossrate)
+    
+    @classmethod
+    def _checkargs(cls,incr,refmps,tarmps):
+        """check if incr/mpss is valid"""
+        if not incr: return True
+        return (not incr.gold or incr.gold and tarmps.gold and refmps.gold) and \
+            (not incr.silver or incr.silver and tarmps.silver and refmps.silver)
 
     @classmethod
     def calchina(self, prdwgt, refup, refmps, tarmps=None, lossrate=None):
@@ -197,9 +210,14 @@ class PajCalc():
         # the discount ratio, when there is silver, follow silver, silver = 0.9 while gold = 0.85
         incr = self.calcincrement(prdwgt, None, "PAJ");
         dc = self.calcdiscount(prdwgt)
-        cn = refup / dc + incr.gold * (tarmps.gold - refmps.gold) * 1.25 \
-            + incr.silver * (tarmps.silver - refmps.silver) * 1.25
-        mc = self.calcmtlcost(prdwgt, tarmps, incr.lossrate, "PAJ")
+        if not self._checkargs(incr, refmps, tarmps):
+            cn = MPSINVALID
+            mc = MPSINVALID
+            logging.debug("MPS(%s) not enough for calculating increment(%s)" % (tarmps.value,str(incr)))
+        else:
+            cn = refup / dc + incr.gold * (tarmps.gold - refmps.gold) * 1.25 \
+                + incr.silver * (tarmps.silver - refmps.silver) * 1.25
+            mc = self.calcmtlcost(prdwgt, tarmps, incr.lossrate, "PAJ")
         return PajChina(round(cn, 2), incr, tarmps, dc, mc)
     
     @classmethod
@@ -211,11 +229,16 @@ class PajCalc():
         """
         
         if isinstance(tarmps,basestring): tarmps = MPS(tarmps)
-        inc = cn.increment
-        r0 = cn.china + (tarmps.gold - cn.mps.gold) * inc.gold * 1.25 \
-            + (tarmps.silver - cn.mps.silver) * inc.silver * 1.25
-        r0 = round(r0 * cn.discount, 2)
-        mc = self.calcmtlcost(inc.wgts, tarmps, inc.lossrate, "PAJ")
+        incr = cn.increment
+        if not self._checkargs(incr, cn.mps, tarmps):
+            r0 = MPSINVALID
+            mc = MPSINVALID
+            logging.debug("MPS(%s) not enough for calculating increment(%s)" % (tarmps.value,str(incr)))
+        else:
+            r0 = cn.china + (tarmps.gold - cn.mps.gold) * incr.gold * 1.25 \
+                + (tarmps.silver - cn.mps.silver) * incr.silver * 1.25
+            r0 = round(r0 * cn.discount, 2)
+            mc = self.calcmtlcost(incr.wgts, tarmps, incr.lossrate, "PAJ")
         return PajChina(r0, cn.increment, tarmps, cn.discount, mc)
 
 

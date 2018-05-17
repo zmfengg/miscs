@@ -2,16 +2,21 @@
 '''
 Created on Apr 17, 2018
 
+
+
 @author: zmFeng
 '''
+
+__all__ = ["JOElement","StyElement"]
+
 class JOElement(object):
     """ 
     representation of Alpha + digit composite key
     the constructor method can be one of:
     
-    JOElement("A1234BC")
-    
+    JOElement("A1234BC")    
     JOElement("A",123,"BC")
+    JOElement(12345.0)
     
     JOElement(alpha = "A",digit = 123,suffix = "BC")
     """    
@@ -28,8 +33,10 @@ class JOElement(object):
             self._reset_()
     
     def _parse_(self,jono):
+        from numbers import Number        
         stg = 0
         strs = ["","",""]
+        if isinstance(jono,Number): jono = "%d" % jono
         jono = jono.strip()
         for i in range(len(jono)):
             if(jono[i].isalpha()):
