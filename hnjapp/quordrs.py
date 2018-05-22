@@ -783,3 +783,4 @@ class PajDataByRunn(object):
 if __name__ == "__main__":
     for x in (r'd:\temp\1200&15.xls', r'd:\temp\1300&20.xls'):
         readagq(x)
+        pass
