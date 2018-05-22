@@ -19,8 +19,13 @@ from decimal import Decimal
 from xlwings.constants import LookAt
 
 import logging as logging
+<<<<<<< HEAD
 from hnjcore import JOElement
 from hnjcore import xwu,p17u, appathsep
+=======
+from models.utils import JOElement
+from hnjutils import p17u,xwu,appathsep
+>>>>>>> refs/remotes/origin/master
 import xlwings.constants as const
 from quordrs import DAO
 
