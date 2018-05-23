@@ -86,7 +86,7 @@ class InvRdr():
             , u"石名称":"stname", u"粒数":"stqty", u"石重,":"stwgt"}
         tm = xwu.listodict(tr, km)
         if len(tm) < len(km):
-            logging.debug("key columns(%s) not found in sheet(%s)", (tm, sht.name))
+            logging.debug("key columns(%s) not found in sheet(%s)" % (tm, sht.name))
             return None
         
         items = list()
