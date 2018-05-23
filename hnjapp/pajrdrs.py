@@ -19,13 +19,8 @@ from decimal import Decimal
 from xlwings.constants import LookAt
 
 import logging as logging
-<<<<<<< HEAD
 from hnjcore import JOElement
-from hnjcore import xwu,p17u, appathsep
-=======
-from models.utils import JOElement
-from hnjutils import p17u,xwu,appathsep
->>>>>>> refs/remotes/origin/master
+from hnjcore import xwu, p17u, appathsep
 import xlwings.constants as const
 from quordrs import DAO
 
@@ -65,7 +60,7 @@ class ShpReader:
     def __init__(self, accdb, hnjhkdb):
         self._accessdb = accdb
         self._hnjhkdb = hnjhkdb
-        self._ptnfd = re.compile(r"(\d{2,4})-(\d{1,2})-(\d{1,2})")
+        self._ptnfd = re.compile(r"\d+")
         self._ptngwt = re.compile(r"(\d*\.\d*)\s*[gG]+")
         self._ptnswt = re.compile(r"\d*\.\d*")
     
@@ -90,13 +85,30 @@ class ShpReader:
             if cur: cur.close()
         return rc
     
-    def _getshpdate(self, fn):
+    def _getshpdate(self, fn, isfile=True):
         """extract the shipdate from file name"""
         import datetime as dt
-        mt = self._ptnfd.search(os.path.basename(fn))
-        if mt and len(mt.groups()) == 3:
-            dg = mt.groups()
-            return dt.date(int(dg[0]), int(dg[1]), int(dg[2]))
+        parts = self._ptnfd.findall(os.path.basename(fn))
+        if not parts: return
+        
+        try:
+            d0 = None
+            parts = [int(x) for x in parts];lg = len(parts)
+            if lg >= 3:
+                d0 = dt.date(parts[0], parts[1], parts[2])
+                # mm-ddxxxx_01.xlsx case, the first not year
+                if d0.year < 2017:
+                    parts = (parts[0], parts[1]);lg = 2;d0 = None
+            if lg == 2 and isfile:
+                # only month/date,guess the year
+                d1 = dt.date.fromtimestamp(os.path.getmtime(fn))
+                d0 = dt.date(d1.year, parts[0], parts[1])
+                df = d1 - d0
+                if df.days < -3:
+                    d0 = dt.date(d0.year - 1, d0.month, d0.day)                
+        except:
+            d0 = None
+        return d0
 
     def _readquodata(self, sht, qmap):
         """extract gold/stone weight data from the QUOXX sheet
@@ -118,10 +130,11 @@ class ShpReader:
             tr = vvs[x]
             p17 = tr[nmap["p17"]]
             if not p17: continue
-            if p17u.isvalidp17(p17) and not qmap.has_key(p17):
+            if p17u.isvalidp17(p17) and not p17 in qmap:
                 sw = 0 if not tr[nmap["stone"]] else \
                     sum([float(x) for x in self._ptnswt.findall(tr[nmap['stone']])])
-                mw = sum([float(x) for x in self._ptngwt.findall(tr[nmap['metal']])])
+                mtls = tr[nmap['metal']]                
+                mw = mtls if isinstance(mtls, numbers.Number) else sum([float(x) for x in self._ptngwt.findall(mtls)])
                 qmap[p17] = (mw, sw)
                 
     def _persist(self, dups, items):
@@ -136,9 +149,9 @@ class ShpReader:
         e = None
         try:
             if dups:
-                curs[0].execute("delete from jotoP17 where fn in ('%s')" % "','".join(dups))
-                curs[1].execute("delete from pajshp where fn in ('%s')" % "','".join([_removenonascii(x) for x in dups])) 
-            
+                curs[0].execute("delete from jotoP17 where fn in ('%s')" % "','".join([os.path.basename(x) for x in dups]))
+                lst = ["fn like '" + x[:x.find(".")] + "%'" for x in [_removenonascii(os.path.basename(x)) for x in dups]]
+                curs[1].execute("delete from pajshp where %s" % (" or ".join(lst)))
             if items:
                 dcts = list([x._asdict() for x in items.values()])
                 jns = [JOElement(x.jono) for x in items.values()]
@@ -175,7 +188,7 @@ class ShpReader:
         @param fldr: the folder contains the files. sub-folders will be ignored 
         """
         
-        ptn = re.compile("HNJ\s*\d*-", re.IGNORECASE)
+        ptn = re.compile("HNJ\s+\d*-", re.IGNORECASE)
         fns = [appathsep(fldr) + unicode(x, sys.getfilesystemencoding()) for x in os.listdir(fldr) if ptn.match(x)]
         if not fns: return
         errors = list()
@@ -183,6 +196,7 @@ class ShpReader:
         PajShpItem = namedtuple("PajShpItem", "fn,ordno,jono,qty,p17,invno,invDate" + \
             ",mtlWgt,stWgt,shpDate,lastModified,fillDate")
         try:
+            td0 = _accdstr(datetime.today())
             for fn in fns:
                 idx = self._hasread(fn)
                 toRv = list();items = {}
@@ -192,66 +206,81 @@ class ShpReader:
                 elif idx == 2:
                     logging.debug("%s is expired" % fn)
                     toRv.append(fn)
-                logging.debug("processing file(%s)" % fn)
                 lmd = _accdstr(datetime.fromtimestamp(os.path.getmtime(fn)))
+                shd1 = self._getshpdate(fn);shd0 = _accdstr(shd1)
+                logging.debug("processing file(%s) of date(%s)" % (fn, shd0))
                 wb = app.books.open(fn)
                 try:
                     # in new sample case, use DL_QUOXXX sheet's weight, so prepare it if there is
                     qmap = {}
                     for sht in wb.sheets:
+                        if sht.name.find(u"返修") >= 0: continue
                         rng = xwu.find(sht, u"十七*", lookat=LookAt.xlPart)
-                        if not rng: rng = xwu.find(sht, u"物料", lookat=LookAt.xlPart)
+                        if not rng: rng = xwu.find(sht, u"物料*", lookat=LookAt.xlPart)
                         if not rng: continue
                         # don't use this, sometimes the stupid user skip some table header
                         # vvs = rng.end('left').expand("table").value
                         vvs = xwu.usedrange(sht).value
                         th = vvs[0]
                         tm = xwu.listodict(th, {u"订单号":"odx", u"发票日期":"invdate", u"订单序号":"odseq", \
-                            u"平均单件石头,XXX":"stwgt", u"发票号":"invno", u"订单号序号":"ordno", u"十七位,十七":"p17", \
-                            u"平均单件金,XX":"mtlwgt", u"工单,job":"jono", u"数量":"qty"})
-                        x = [x for x in "invno,p17,jono,qty,invdate".split(",") if not tm.has_key(x)]
+                            u"平均单件石头,XXX":"stwgt", u"发票号":"invno", u"订单号序号":"ordno", u"十七位,十七,物料":"p17", \
+                            u"平均单件金,XX":"mtlwgt", u"工单,job":"jono", u"数量":"qty", u"cost":"cost"})
+                        x = [x for x in "invno,p17,jono,qty,invdate".split(",") if x not in tm]
                         if x:
                             logging.debug("failed to find key columns(%s) in sheet(%s)" % (x, sht.name))
                             continue                        
                         bfn = os.path.basename(fn).replace("_", "")
-                        if tm.has_key("mtlwgt"):                            
+                        shd = self._getshpdate(sht.name, False)
+                        if shd:
+                            df = shd - shd1
+                            shd = _accdstr(shd) if abs(df.days) <= 7 else shd0
+                        else:
+                            shd = shd0
+                        # finally I give up, don't use the shipdate, use invdate as shipdate
+                        if "mtlwgt" in tm:                            
                             for ridx in range(1, len(vvs)):
                                 tr = vvs[ridx]
                                 if not tr[tm['p17']]: break
                                 mwgt = tr[tm["mtlwgt"]]
                                 if not (isinstance(mwgt, numbers.Number) and mwgt > 0): continue 
                                 invno = tr[tm["invno"]] if [tm["invno"]] else "N/A"
-                                if tm.has_key('ordno'):
+                                if 'ordno' in tm:
                                     odno = tr[tm['ordno']]
-                                elif tm.has_key('odx') and tm.has_key('odseq'):
+                                elif len([1 for x in "odx,odseq".split(",") if x in tm]) == 2:
                                     odno = tr[tm['odx']] + "-" + tr[tm["odseq"]]                       
                                 else:
                                     odno = "N/A"
-                                # 'use fn+JO#+P17+invno as map key
-                                thekey = bfn + "," + tr[tm['p17']] + "," + invno
+                                if not tr[tm["stwgt"]]: tr[tm["stwgt"]] = 0
+                                jono = JOElement(tr[tm["jono"]]).value
+                                thekey = jono + "," + tr[tm['p17']] + "," + invno
                                 if items.has_key(thekey):
                                     si = items[thekey]
                                     items[thekey] = si._replace(qty=si.qty + tr[tm["qty"]]) 
                                 else:
-                                    si = PajShpItem(bfn, odno, JOElement(tr[tm["jono"]]).value , tr[tm["qty"]], tr[tm['p17']], \
-                                        invno, _accdstr(tr[tm['invdate']]), mwgt, tr[tm['stwgt']], \
-                                        _accdstr(self._getshpdate(bfn)), lmd, _accdstr(datetime.today()))
+                                    ivd = _accdstr(tr[tm['invdate']])
+                                    si = PajShpItem(bfn, odno, jono , tr[tm["qty"]], tr[tm['p17']],
+                                        invno, ivd, mwgt, tr[tm['stwgt']], ivd, lmd, td0)
                                     items[thekey] = si
                         else:
                             # new sample case, extract weight data from the quo sheet
                             if not qmap:
-                                for x in [xx for xx in wb.sheets if xx.name.lower().find('dl_quotation') >= 0]:
+                                for x in [xx for xx in wb.sheets if xx.api.Visible == -1 and xx.name.lower().find('dl_quotation') >= 0]:
                                     self._readquodata(x, qmap)
                             if qmap:
                                 import random
                                 for x in range(1, len(vvs)):
                                     tr = vvs[x]
+                                    # no cost item means repairing
+                                    if "cost" in tm and not tr[tm["cost"]]: continue
                                     odno = tr[tm['ordno']] if tm.has_key('ordno') else "N/A"
                                     p17 = tr[tm['p17']]
-                                    if not p17: break                                    
-                                    si = PajShpItem(bfn, odno, JOElement(tr[tm["jono"]]).value, tr[tm["qty"]], p17, tr[tm["invno"]], \
-                                        _accdstr(tr[tm['invdate']]), qmap[p17][0], qmap[p17][1], \
-                                        _accdstr(self._getshpdate(bfn)), lmd, _accdstr(datetime.today()))
+                                    if not p17: break
+                                    if p17 in qmap:
+                                        ivd = _accdstr(tr[tm['invdate']])
+                                        si = PajShpItem(bfn, odno, JOElement(tr[tm["jono"]]).value, tr[tm["qty"]], p17,
+                                            tr[tm["invno"]], ivd, qmap[p17][0], qmap[p17][1], ivd, lmd, td0)
+                                    else:
+                                        logging.critical("failed to get quoinfo for pcode(%s)" % p17)
                                     # new sample won't have duplicated items                                    
                                     items[random.random()] = si
                             else:
@@ -259,15 +288,17 @@ class ShpReader:
                 finally:
                     if wb: wb.close()
                 x = self._persist(toRv, items)
-                if x[0] <> 1: errors.append(x[1])
+                if x[0] <> 1:
+                    errors.append(x[1])
+                    logging.critical("file(%s) contains errors" % os.path.basename(fn))
+                    logging.critical(x[1])
         finally:
             if killxls: app.quit()
         return -1 if errors > 0 else 1, errors
 
-
 class InvReader(object):
     """
-    read the invoices(17PMXXX or alike) from given folder
+    read the invoices(17PMXXX or alike) from given folder, generate data for hk
     """
     
     def __init__(self, accdb, hnjhkdb):
@@ -337,9 +368,9 @@ class InvReader(object):
                         dct["joid"] = jns[dct["jono"]]
                         dct["china"] = 0  # todo::make the china value for the user
                         ss = (("insert into PajInv(Invno,Jono,StSpec,Qty,UPrice,Mps,LastModified) values" \
-                            + "('%(invno)s','%(jono)s','%(stone)s',%(qty)f,%(price)f,'%(mps)s',#%(lastmodified)s#)") % dct, \
+                            +"('%(invno)s','%(jono)s','%(stone)s',%(qty)f,%(price)f,'%(mps)s',#%(lastmodified)s#)") % dct, \
                             ("insert into pajinv(invno,joid,stspec,qty,uprice,mps,lastmodified,china) values" \
-                            + "('%(invno)s',%(joid)d,'%(stone)s',%(qty)f,%(price)f,'%(mps)s','%(lastmodified)s',%(china)f)") % dct)
+                            +"('%(invno)s',%(joid)d,'%(stone)s',%(qty)f,%(price)f,'%(mps)s','%(lastmodified)s',%(china)f)") % dct)
                         for ii in range(len(curs)):
                             curs[ii].execute(ss[ii])
             except BaseException as e:  # there might be pyodbc.IntegrityError if dup found
@@ -370,8 +401,8 @@ class InvReader(object):
         
         for fn in fns:  
             invno = self._getinv(fn).upper()
-            if invs.has_key(invno): continue            
-            dups = ()
+            if invno in invs: continue            
+            dups = []
             idx = self._hasread(fn)
             if idx == 1:
                 # logging.debug("%s has been read" % fn)
@@ -447,7 +478,6 @@ class InvReader(object):
             logging.debug("database close()")
     '''
 
-
 class PAJCReader(object):
     """class to create the PAJ JOCost file for HK accountant"""    
 
@@ -456,8 +486,9 @@ class PAJCReader(object):
         self._bcdb = bcdb
         self._pydb = pydb
     
-    def run(self, year, month, tplfn=None,tarfldr = None):
+    def run(self, year, month, tplfn=None, tarfldr=None):
         """ create report file of given year/month"""
+
         def _makemap(sht=None):
             coldefs = (u"invoice date=invdate;invoice no.=invno;order no.=orderno;customer=cstname;"
                 u"job no.=jono;style no.=styno;running no.=running;paj item no.=pcode;karat=karat;"
@@ -465,7 +496,7 @@ class PAJCReader(object):
                 u"total cost=ttlcost;cost=uprice;平均单件金银重g=umtlwgt;平均单件石头重g=ustwgt;石头=stspec;"
                 u"mm program in#=iono;jmp#=jmpno;date=shpdate;remark=rmk;has dia=hasdia")
             vvs = sht.range("A1").expand("right").value
-            vvs = [x.lower() if isinstance(x,basestring) else x for x in vvs]
+            vvs = [x.lower() if isinstance(x, basestring) else x for x in vvs]
             imap = {};nmap = {}
             for s0 in coldefs.split(";"):            
                 ss0 = s0.split("=")
@@ -477,16 +508,13 @@ class PAJCReader(object):
                     print("failed to get colname %s" % s0)
                     
             return nmap, imap
+
         dfmt = "%Y/%m/%d"
         df = dtm.date(year, month, 1)
         month += 1
         if month > 12:
             year += 1; month = 1
         dt = dtm.date(year, month, 1)
-        # test only, get 5 days for better speed
-        if False:
-            td = dtm.timedelta(2)
-            dt = df + td
         
         runns = set();jes = set()
         dao = DAO(self._hkdb, self._pydb, self._bcdb)        
@@ -495,13 +523,19 @@ class PAJCReader(object):
         for x in mms:
             rn = str(x.running)
             if rn not in runns: runns.add(rn)
-            je = JOElement(x.joalpha, x.jodigit)
-            if je not in jes: jes.add(je)
+            jn = JOElement(x.joalpha, x.jodigit)
+            if jn not in jes: jes.add(jn)
         runns = tuple(runns)
         bcs = dict([(x.runn.strip(), x.desc.strip()) for x 
-            in dao.getbcsforjc(runns)])        
-        pajs = dict([("%s,%s" % (JOElement(x.alpha, x.digit), x.invdate.strftime(dfmt)), x) for x 
-            in dao.getpjforjc(jes)])
+            in dao.getbcsforjc(runns)])
+        lst = dao.getpjforjc(jes);pajs = {};pajsjn = {}        
+        for x in lst:
+            jn = JOElement(x.alpha, x.digit)
+            pajs["%s,%s" % (jn, x.invdate.strftime(dfmt))] = x
+            jn = jn.value
+            if jn not in pajsjn: pajsjn[jn] = []
+            lst1 =pajsjn[jn]
+            lst1.append(x)            
         ios = dict([("%s,%s,%s" % (x.running, x.jmp, x.shpdate.strftime(dfmt)), x) for x 
             in dao.getmmioforjc(df, dt, runns)])
         killxls, app = xwu.app(False)
@@ -526,13 +560,33 @@ class PAJCReader(object):
                 mp["jono"] = "'" + jn
                 mp["styno"] = JOElement(row.alpha, row.digit).value
                 mp["edesc"] = bcs[rn] if rn in bcs else "N/A"
-                key = "%s,%s" % (jn, mp["shpdate"].strftime(dfmt))
+                
+                key1 = jn; key = "%s,%s" % (jn, mp["shpdate"].strftime(dfmt))
+                fnd = False
                 if key in pajs:
                     x = pajs[key]
                     for y in dtmap1.iteritems():
                         mp[y[0]] = x.__getattribute__(y[1])
-                    mp["ttlcost"] = mp["uprice"]*mp["shpqty"]                    
-                else:
+                    mp["ttlcost"] = mp["uprice"] * mp["shpqty"]
+                    fnd = True
+                elif key1 in pajsjn:
+                    lst1 = pajsjn[key1]
+                    if lst1: 
+                        hts = []; shpd = mp["shpdate"]
+                        for x in lst1:
+                            if (x.shpdate.year == shpd.year and x.shpdate.month == shpd.month
+                                and abs(x.qty - float(mp["shpqty"])) < 0.1):
+                                hts.append(x)
+                                for y in dtmap1.iteritems():
+                                    mp[y[0]] = x.__getattribute__(y[1])
+                                mp["ttlcost"] = mp["uprice"] * mp["shpqty"]
+                                fnd = True
+                                break
+                        if hts:
+                            for x in hts:
+                                lst1.remove(x)
+                        if not lst1: del pajsjn[key1] 
+                if not fnd:
                     for x in dtmap1.keys():
                         mp[x] = None
                     mp["ttlcost"] = None
@@ -545,8 +599,8 @@ class PAJCReader(object):
                 mp["hasdia"] = "D" if hasdia else "N"
                 
                 x = [mp[nmps[1][x]] for x in range(len(nmps[1]))]
-                lst.append(["" if not y else y.strip() if isinstance(y,basestring) else 
-                    y.strftime(dfmt) if isinstance(y,datetime) else float(y) if isinstance(y,Decimal) else
+                lst.append(["" if not y else y.strip() if isinstance(y, basestring) else 
+                    y.strftime(dfmt) if isinstance(y, datetime) else float(y) if isinstance(y, Decimal) else
                     y for y in x])                   
             sht.range("A2").value = lst
             for x in [x for x in wb.sheets if x != sht]:
@@ -559,4 +613,4 @@ class PAJCReader(object):
                 app.quit()
             else:
                 app.visible = True
-        return lst,fn
+        return lst, fn
