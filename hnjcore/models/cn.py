@@ -5,18 +5,19 @@ models for hnjcn
 @author: zmFeng
 '''
 
-#from main import hnjcnCtx
-from .utils import JOElement,StyElement
-from sqlalchemy.sql.schema import Column, UniqueConstraint, ForeignKey
-from sqlalchemy.sql.sqltypes import Integer, VARCHAR, Float
-from sqlalchemy.orm import composite
 #from sqlalchemy.orm import relationship, relation
 from sqlalchemy.ext.declarative.api import declarative_base
+from sqlalchemy.orm import composite
+from sqlalchemy.sql.schema import Column, ForeignKey, UniqueConstraint
+from sqlalchemy.sql.sqltypes import VARCHAR, Float, Integer
+
+#from main import hnjcnCtx
+from .utils import JOElement, StyElement
 
 #Base = hnjcnCtx.base
-Base = declarative_base()
+CNBase = declarative_base()
 
-class JOcn(Base):
+class JO(CNBase):
     """ b_cust_bill table """
     __tablename__ = "b_cust_bill"
     id = Column(Integer,name = "jsid",primary_key = True)
@@ -28,8 +29,8 @@ class JOcn(Base):
     _styid = Column(Integer, ForeignKey("styma.id"), name="styid")
     _cstid = Column(Integer, ForeignKey("customer.id"), name="cstid")
     
-    customer = relationship('Customercn', lazy = 'joined')
-    customer = relation("Customercn",backref="cstinfo")
+    customer = relationship('Customer', lazy = 'joined')
+    customer = relation("Customer",backref="cstinfo")
     style = relation('Style', backref='style')    
     '''
     styid = Column(Integer,ForeignKey('styma.id'))
@@ -39,7 +40,7 @@ class JOcn(Base):
    
     UniqueConstraint(alpha,digit,name = 'idx_jono')
 
-class Stylecn(Base):
+class Style(CNBase):
     """ the styma table """    
     __tablename__ = "styma"
     id = Column(Integer,name = "styid",primary_key = True)
@@ -51,8 +52,7 @@ class Stylecn(Base):
         
     UniqueConstraint(alpha,digit,name = 'idx_styno')
     
-class Customercn(Base):
+class Customer(CNBase):
     __tablename__ = "cstinfo"
     id = Column(Integer,name = "cstid",primary_key = True)
     name = Column(VARCHAR(15), unique = True, nullable = False,name = 'cstname')
-    
