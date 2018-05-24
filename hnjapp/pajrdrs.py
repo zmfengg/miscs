@@ -614,3 +614,26 @@ class PAJCReader(object):
             else:
                 app.visible = True
         return lst, fn
+
+class PriceTracker(object):
+    """ class to keep track of Pcode price changes
+    to use this method, put a dat file inside a folder which should contains sty#
+    then I will read and show the price trends
+    """
+    def __init__(self,hkdb):
+        self._hkdb = hkdb
+
+    def read(self, fldr):
+        if not fldr: return
+        fldr = appathsep(fldr)
+        fns = [unicode(x,sys.getfilesystemencoding()) for x in os.listdir(fldr)
+            if x.lower().find("dat") >= 0]
+        if not fns: return
+        stynos = set()
+        for x in fns:
+            with open(fldr + x,"wb") as fh:
+                for ln in fh:
+                    je = JOElement(ln)
+                    if je.isvalid and not je in stynos: stynos.add(je)
+        dao = DAO(self._hkdb)
+        lst = dao.getpajprices(stynos)

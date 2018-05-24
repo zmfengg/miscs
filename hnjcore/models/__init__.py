@@ -1,4 +1,4 @@
 # coding=utf-8
 
-from . import hnjcn
+from . import cn
 from .utils import *

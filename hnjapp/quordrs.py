@@ -437,10 +437,25 @@ class DAO(object):
             if cur: cur.close()
         return lst
 
+    def getpajprices(self, styno):
+        """return a list by PajRevcn as first element, then the cost sorted by joData"""
+        cur = self._hkdb.cursor()
+        try:
+            #todo::
+            s0 = ("select sty.alpha,sty.digit,shp.pcode,jo.joalpha,jo.jodigit,shp.shpdate" 
+                " from styma sty inner orderma od on sty.styid = od.styid"
+                " inner join jo on od.orderid = jo.orderid inner join pajshp shp "
+                " on jo.joid = shp.joid where (%s) order by jo.shipdate")
+            cur.execute("select from")
+            #lst = cur.fetchall()
+        finally:
+            if cur: cur.close()
+        
+
 
 class PajDataByRunn(object):
-    """
-    class to read such file as \\172.16.8.46\pb\dptfile\quotation\date\
+    r"""
+    class to read such file as \\172.16.8.46\pb\dptfile\quotation\date
     Date2018\0502\(2) quote to customer\*.xls which has:
       .A field contains \d{6}, which will be treated as a running
       .Sth. like Silver@20.00/oz in the first 10 rows as MPS, if no, use the 
@@ -455,7 +470,7 @@ class PajDataByRunn(object):
     An example to read data from folder "d:\temp"
         PajDataByRunn(hkdb).run(r"d:\temp", defaultmps=pajcc.MPS("S=20;G=1350"))
     """
-    _ptnrunn = re.compile("\d{6}")
+    _ptnrunn = re.compile(r"\d{6}")
     _duprunn = False
 
     def __init__(self, db):
