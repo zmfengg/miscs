@@ -124,7 +124,7 @@ def readagq(fn):
         Point = namedtuple("Point", "x,y")
         val = "styno,idx,type,mps,uprice,remarks"
         Item = namedtuple("Item", val)
-        pt = re.compile("cost\s*:", re.IGNORECASE)        
+        pt = re.compile(r"cost\s*:", re.IGNORECASE)        
         items = list()
         items.append(Item._make(val.split(",")))        
         hts = list()

@@ -8,6 +8,8 @@ Created on 2018-05-18
 from os import path
 import math
 
+_silveralphas = set(("4", "5"))
+
 def splitarray(arr, logsize = 100):
     """split an array into arrays whose len is less or equal than logsize
     @param arr: the sequence object that need to split
@@ -20,3 +22,8 @@ def splitarray(arr, logsize = 100):
 def appathsep(fldr):
     """append a path sep into given path if there is not"""
     return fldr + path.sep if fldr[len(fldr) - 1:] != path.sep else fldr
+
+def samekarat(srcje, tarje):
+    """ detect if the given 2 JOElement are of the same karat """
+    if not (srcje and tarje): return
+    return srcje.alpha == tarje.alpha or (srcje.alpha in _silveralphas and tarje.alpha in _silveralphas)
