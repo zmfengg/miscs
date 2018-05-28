@@ -42,8 +42,13 @@ class MPS():
                 idx = 0 if ps[0] == "S" or ps[0] == "SILVER" else 1 if ps[0] == "G" or ps[0] == "GOLD" else -1
                 if idx >= 0:
                     self._slots[idx] = float(ps[1])
-                    tarmps = tarmps + ";" if tarmps else ""
-                    tarmps += ("S" if idx == 0 else "G") + "=" + ps[1]
+            ps = self._slots[:2]
+        if any(ps):
+            ttls = ("S","G")
+            for idx in range(len(ps)):
+                if not ps[idx]: continue
+                tarmps = tarmps + ";"  if tarmps else ""
+                tarmps += "%s=%4.2f" % (ttls[idx],ps[idx])                    
         self._slots[3] = bool(tarmps)        
         if tarmps: self._slots[2] = tarmps
 
@@ -170,7 +175,7 @@ class PajCalc():
             @param vendor: PAJ or Non-PAJ or None
         """
         kws = prdwgt.wgts
-        s = g = 0;
+        s = 0; g = 0
         hix = [ii for ii in range(len(kws)) if kws[ii] and kws[ii].wgt > 0]
         
         if not lossrate:

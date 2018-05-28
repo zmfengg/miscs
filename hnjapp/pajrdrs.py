@@ -517,9 +517,9 @@ class PAJCReader(object):
         dt = dtm.date(year, month, 1)
         
         runns = set();jes = set()
-        dao = DAO(self._hkdb, self._pydb, self._bcdb)        
+        dao = DAO(self._hkdb, self._pydb, self._bcdb)
         
-        mms = dao.getshpforjc(df, dt)        
+        mms = dao.getshpforjc(df, dt)
         for x in mms:
             rn = str(x.running)
             if rn not in runns: runns.add(rn)

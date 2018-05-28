@@ -9,7 +9,7 @@ from sqlalchemy.ext.declarative.api import declarative_base
 from sqlalchemy.sql.sqltypes import Integer, VARCHAR, Float, DateTime, DECIMAL, Numeric
 from sqlalchemy.sql.schema import Column, UniqueConstraint, ForeignKey
 from sqlalchemy.orm import composite, relationship
-from hnjcore import JOElement, StyElement
+from .utils import JOElement, StyElement
 
 HKBase = declarative_base()
 
@@ -188,3 +188,12 @@ class PajInv(HKBase):
 
     joid = Column(Integer, ForeignKey("jo.joid"), name="joid")
     jo = relationship("JO")
+
+class PajCnRev(HKBase):
+    __tablename__ = "pajcnrev"
+    id = Column(Integer, name = "id", primary_key = True)
+    pcode = Column(VARCHAR(30), name = "pcode")
+    uprice = Column(DECIMAL, name = "uprice")
+    revdate = Column(DateTime, name = "revdate")
+    filldate = Column(DateTime, name = "filldate")
+    tag = Column(Integer, name = "tag")

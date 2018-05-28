@@ -9,7 +9,7 @@ models for hnjcn
 from sqlalchemy.ext.declarative.api import declarative_base
 from sqlalchemy.orm import composite,relationship
 from sqlalchemy.sql.schema import Column, ForeignKey, UniqueConstraint
-from sqlalchemy.sql.sqltypes import VARCHAR, Float, Integer
+from sqlalchemy.sql.sqltypes import VARCHAR, Float, Integer, DateTime, DECIMAL
 
 #from main import hnjcnCtx
 from .utils import JOElement, StyElement
@@ -51,3 +51,23 @@ class JO(CNBase):
     
    
     UniqueConstraint(alpha,digit,name = 'idx_jono')
+
+class MMMa(CNBase):
+    __tablename__ = "mmma"
+    id = Column(Integer, name = "refid", primary_key = True, autoincrement = False)
+    name = Column(VARCHAR(11), name = "refno")
+    karat = Column(Integer, name = "karat")
+    refdate = Column(DateTime, name = "refdate")
+    tag = Column(Integer, name = "tag")
+
+class MM(CNBase):
+    __tablename__ = "mm"
+    id = Column(Integer, name = "mmid", primary_key = True, autoincrement = False)
+    refid = Column(Integer, ForeignKey("mmma.refid"), name = "refid")
+    
+    name = Column(VARCHAR(8), name = "docno")
+    jsid = Column(Integer, ForeignKey("b_cust_bill.jsid"), name = "jsid")
+
+    qty = Column(DECIMAL, name = "qty")
+    tag = Column(Integer, name = "tag")
+
