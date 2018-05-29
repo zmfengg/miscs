@@ -32,7 +32,7 @@ class SvcBase(object):
         self._logger = Logger(self.__class__.__name__)
 
     def _newSess(self):
-        return self._newSess()
+        return Session(self._engine)
 
 class HKSvc(SvcBase):
     
