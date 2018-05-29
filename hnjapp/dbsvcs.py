@@ -13,29 +13,39 @@ from logging import Logger
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, desc
 import pajcc as pc
+from pajcc import MPS
 from hnjcore import JOElement
 from hnjcore.models.hk import JO, Customer, Style, Orderma, JOItem as JI
 from hnjcore.models.hk import POItem, PajShp, PajInv, PajCnRev
+from hnjcore.models.cn import JO as JOcn, Customer as Customercn,Style as Stylecn
+from hnjcore.models.cn import MMMa,MM
 from hnjcore.utils import samekarat, splitarray
 
 
 __all__ = ["HKSvc", "CNSvc"]
 
-
-class HKSvc(object):
+class SvcBase(object):
     _querysize = 20
-    _logger = Logger(__name__)
+    
+    def __init__(self,sqleng):
+        self._engine = sqleng
+        self._logger = Logger(self.__class__.__name__)
 
+    def _newSess(self):
+        return self._newSess()
+
+class HKSvc(SvcBase):
+    
     def __init__(self, sqleng):
         """ init me with a sqlalchemy's engine """
-        self._engine = sqleng
+        super(HKSvc,self).__init__(sqleng)
         self._ptnmit = re.compile("^M[A-Z]T")
 
     def getjo(self, je):
         """todo:: rename this function to sth. else, for example, prdwgt"""
         knws = [None, None, None]
         jo = None
-        cur = Session(self._engine)
+        cur = self._newSess()
         try:
             # wgt info including mit
             if isinstance(je, basestring):
@@ -86,7 +96,7 @@ class HKSvc(object):
             return dict(zip("jono,pcode,uprice,mps".split(","), (je, x.pcode.strip(), x.uprice, x.mps)))
 
         ups = None
-        cur = Session(self._engine)
+        cur = self._newSess()
         try:
             je = jo["name"]
             q = cur.query(PajShp.pcode, PajInv.uprice, PajInv.mps).join(JO, JO.id == PajShp.joid) \
@@ -102,7 +112,7 @@ class HKSvc(object):
     def getrevcn(self, pcode):
         """return the revised for given pcode"""
         revcn = 0
-        cur = Session(self._engine)
+        cur = self._newSess()
         try:
             q = cur.query(PajCnRev.uprice).order_by(desc(PajCnRev.tag))\
                 .filter(PajCnRev.pcode == pcode).limit(2)
@@ -122,7 +132,7 @@ class HKSvc(object):
         """ 
         rc = None;level = 0 if level < 0 else level
         je = jo["name"];jns = None
-        cur = Session(self._engine)        
+        cur = self._newSess()        
         try:
             rows = cur.query(JO.name,POItem.skuno).join(Orderma).join(POItem,JO.poid == POItem.id)\
                 .filter(Orderma.styid == jo["styid"]).all()
@@ -141,8 +151,12 @@ class HKSvc(object):
         return [self.getjo(x) for x in rc] if rc else None
 
     def getjosbyrunns(self, runns):
+        """ get JO by runnings, return a tuple 
+        the first element is a map with [Running:JOElement]
+        the second element is a set of Integer runnings who does not exist in JO
+        """
         self._logger.debug("begin to fetch JO#s for running, count = %d" % len(runns))
-        cur = Session(self._engine)
+        cur = self._newSess()
         mp = {}        
         try:            
             for x in splitarray(runns, self._querysize):
@@ -159,6 +173,53 @@ class HKSvc(object):
         df = runns.difference(mp.keys()) if len(runns) > len(mp) else None
         self._logger.debug("Running -> JO done")
         return mp if mp else None, df
+    
+    def getjoandchina(self, je):
+        """ get the weight of given JO# and calc the china
+            return a map with keys (jo,china,paj)
+         """        
+        if(isinstance(je, basestring)): je = JOElement(je)
+        rmap = {"jo":None, "china":None, "paj":None}
+        if(not je.isvalid): return rmap
+        
+        jo = self.getjo(je)
+        if not jo: return rmap
+        rmap["jo"] = jo
+        ups = self.getpaj(jo) if jo else None
+        if not ups: return rmap
+        rmap["paj"] = ups[0]        
+        revcn = self.getrevcn(ups[0]["pcode"])    
+        
+        rmap["china"] = pc.newchina(revcn, jo["wgts"]) if revcn else \
+            pc.PajCalc.calchina(jo["wgts"], float(ups[0]["uprice"]), MPS(ups[0]["mps"]))        
+        return rmap
+    
+class CNSvc(SvcBase):
 
-class CNSvc(object):
-    pass
+    def getshpforjc(self, df, dt):
+        """return py shipment data for PAJCReader
+        @param df: start date(include) a date ot datetime object
+        @param dt: end date(exclude) a date or datetime object 
+        """
+        
+        s0 = ("select jo.jsid,ma.refdate,c.cstname,cstbldid_alpha as joalpha"
+            ",jo.cstbldid_digit as jodigit,sty.alpha,sty.digit,jo.running,jo.karat"
+            ",jo.description,jo.quantity,mm.qty as shpqty,mm.docno"
+            " from mm inner join mmma ma on mm.refid = ma.refid inner join b_cust_bill jo"
+            " on mm.jsid = jo.jsid inner join cstinfo c on c.cstid = jo.cstid"
+            " inner join styma sty on jo.styid = sty.styid"
+            " where ma.refdate >= '%s' and ma.refdate < '%s'")
+        
+        s0 = s0 % tuple(x.strftime("%Y/%m/%d") for x in (df, dt))
+        lst = None
+        cur = self._newSess()        
+        try:
+            q = cur.query(JOcn.id,MMMa.refdate,Customercn.name,JOcn.name\
+                ,JOcn.name,Stylecn.name,JOcn.running,JOcn.karat,JOcn.description\
+                ,JOcn.qty,MM.qty,MM.name).join(Customercn).join(Stylecn)\
+                .join(MM).join(MMMa)
+            lst = q.all()
+        finally:
+            if cur: cur.close()
+        return lst
+
