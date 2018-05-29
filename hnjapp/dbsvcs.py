@@ -10,8 +10,8 @@
 import re
 from logging import Logger
 
-from sqlalchemy.orm import Session
-from sqlalchemy import and_, desc
+from sqlalchemy.orm import Session,Query
+from sqlalchemy import and_, desc, or_, true
 import pajcc as pc
 from pajcc import MPS
 from hnjcore import JOElement
@@ -36,12 +36,27 @@ class SvcBase(object):
         return Session(self._engine)
 
 class HKSvc(SvcBase):
+    _qcaches = {}
     
     def __init__(self, sqleng):
         """ init me with a sqlalchemy's engine """
         super(HKSvc,self).__init__(sqleng)
         self._ptnmit = re.compile("^M[A-Z]T")
+    
+    def _pjq(self):
+        """ return a cached JO -> PajShp -> PajInv query """
+        return self._qcaches.setdefault("jopajshp&inv", \
+            Query([PajShp, JO, PajInv]).join(JO, JO.id == PajShp.joid) \
+                .join(PajInv, and_(PajShp.joid == PajInv.joid, PajShp.invno == PajInv.invno)))
+    
+    def _pjsq(self):
+        """ return a cached Style -> JO -> PajShp -> PajInv query """
+        return self._qcaches.setdefault("jopajshp&inv", \
+            Query([PajShp, JO, Style, Orderma, PajInv]).join(JO, JO.id == PajShp.joid) \
+                .join(PajInv, and_(PajShp.joid == PajInv.joid, PajShp.invno == PajInv.invno)))
 
+
+                
     def getjo(self, je):
         """todo:: rename this function to sth. else, for example, prdwgt"""
         knws = [None, None, None]
@@ -87,28 +102,18 @@ class HKSvc(SvcBase):
             cur.close()
         return jo
 
-    def getpaj(self, jo):
+    def getpaj(self, je):
         """ return the je,pcode,uprice,mps
         @param jo: a dict contains jo data, the dict can be returned by this.getjo(je)
         @return:  a map with keys(jono,pcode,uprice,mps)  
         todo:: change jo type to JE
         """
-        def _mapx(x, je):
-            return dict(zip("jono,pcode,uprice,mps".split(","), (je, x.pcode.strip(), x.uprice, x.mps)))
-
-        ups = None
         cur = self._newSess()
         try:
-            je = jo["name"]
-            q = cur.query(PajShp.pcode, PajInv.uprice, PajInv.mps).join(JO, JO.id == PajShp.joid) \
-                .join(PajInv, and_(PajShp.joid == PajInv.joid, PajShp.invno == PajInv.invno)) \
-                .filter(JO.name == je)
-            rows = q.all()
-            ups = [_mapx(x, je)
-                   for x in rows if x.uprice and x.mps] if(rows) else None
+            rows = self._pjq().filter(JO.name == je).with_session(cur).all()
         finally:
             cur.close()
-        return ups
+        return rows
 
     def getrevcn(self, pcode):
         """return the revised for given pcode"""
@@ -203,7 +208,7 @@ class HKSvc(SvcBase):
         try:
             for x in splitarray(runns, self._querysize):
                 q = cur.query(SO.running, IV.remark1.label("jmp"), IV.docdate.label("shpdate") \
-                    ,IV.inoutno).join(IV).join(IVI).filter(IV.inoutno.like("N%"))\
+                    ,IV.inoutno).join(IVI).join(IV).filter(IV.inoutno.like("N%"))\
                     .filter(IV.remark1 != "").filter(and_(IV.docdate >= df,IV.docdate < dt))\
                     .filter(SO.running.in_(x))
                 rows = q.all()
@@ -211,6 +216,42 @@ class HKSvc(SvcBase):
         finally:
             if cur: cur.close()
         return lst
+    
+    def getpjforjc(self, jes):
+        """ get the paj data for jocost
+        @param jes: a set of JOElement
+        """
+        
+        if not jes: return
+        lst = []
+        cur = self._newSess()
+        try:
+            q0 = self._pjq()
+            for ii in splitarray(jes, self._querysize):
+                q = JO.name == ii[0]
+                for yy in ii[1:]:
+                    q = or_(JO.name == yy,q)
+                q = q0.filter(q).with_session(cur)
+                rows = q.all()
+                if rows: lst.extend(rows)
+        finally:
+            if cur: cur.close()
+        return lst
+    
+    def getpajprices(self, styno):
+        """return a list by PajRevcn as first element, then the cost sorted by joData"""
+        cur = self._newSess()
+        try:
+            #todo::
+            s0 = ("select sty.alpha,sty.digit,shp.pcode,jo.joalpha,jo.jodigit,shp.shpdate" 
+                " from styma sty inner orderma od on sty.styid = od.styid"
+                " inner join jo on od.orderid = jo.orderid inner join pajshp shp "
+                " on jo.joid = shp.joid where (%s) order by jo.shipdate")
+            cur.execute("select from")
+            #lst = cur.fetchall()
+        finally:
+            if cur: cur.close()
+ 
     
 class CNSvc(SvcBase):
 

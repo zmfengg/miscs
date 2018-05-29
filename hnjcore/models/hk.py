@@ -229,7 +229,7 @@ class InvoiceItem(HKBase):
     invid = Column(Integer, ForeignKey("invoicema.invid"), name = "invid")
     jono = Column(VARCHAR(20), name = "jono")
     srid = Column(Integer, ForeignKey("stockobjectma.srid"), name = "srid")
-    stockobject = relationship("StockObject")
+    stockobject = relationship("StockObjectMa")
     qty = Column(DECIMAL, name = "qty")
     lastuserid = Column(Integer, name = "lastuserid")
     lastupdate = Column(DateTime, name = "lastupdate")
