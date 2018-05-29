@@ -1,0 +1,516 @@
+!_TAG_FILE_FORMAT	2	/extended format; --format=1 will not append ;" to lines/
+!_TAG_FILE_SORTED	1	/0=unsorted, 1=sorted, 2=foldcase/
+!_TAG_PROGRAM_AUTHOR	Darren Hiebert	/dhiebert@users.sourceforge.net/
+!_TAG_PROGRAM_NAME	Exuberant Ctags	//
+!_TAG_PROGRAM_URL	http://ctags.sourceforge.net	/official site/
+!_TAG_PROGRAM_VERSION	5.8	//
+Address	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\alchemyxmp.py	/^class Address(Base):$/;"	kind:class	line:16
+Base	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\alchemyxmp.py	/^Base = declarative_base()$/;"	kind:variable	line:14
+C1InvItem	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\c1rdrs.py	/^    C1InvItem = namedtuple("C1InvItem", "source,jono,labor,setting,remarks,stones,parts")$/;"	kind:variable	line:24
+C1InvStone	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\c1rdrs.py	/^    C1InvStone = namedtuple("C1InvStone", "stone,qty,wgt,remark")$/;"	kind:variable	line:25
+CNBase	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^CNBase = declarative_base()$/;"	kind:variable	line:18
+CNSvc	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\dbsvcs.py	/^class CNSvc(SvcBase):$/;"	kind:class	line:197
+Column	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\alchemyxmp.py	/^from sqlalchemy.sql.schema import Column,ForeignKey$/;"	kind:namespace	line:10
+Column	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^from sqlalchemy.sql.schema import Column, ForeignKey, UniqueConstraint$/;"	kind:namespace	line:11
+Column	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^from sqlalchemy.sql.schema import Column, UniqueConstraint, ForeignKey$/;"	kind:namespace	line:10
+Customer	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\dbsvcs.py	/^from hnjcore.models.hk import JO, Customer, Style, Orderma, JOItem as JI$/;"	kind:namespace	line:18
+Customer	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^class Customer(CNBase):$/;"	kind:class	line:32
+Customer	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^class Customer(HKBase):$/;"	kind:class	line:17
+Customercn	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\dbsvcs.py	/^from hnjcore.models.cn import JO as JOcn, Customer as Customercn,Style as Stylecn$/;"	kind:namespace	line:20
+DAO	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^from quordrs import DAO$/;"	kind:namespace	line:25
+DAO	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^class DAO(object):$/;"	kind:class	line:210
+DECIMAL	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^from sqlalchemy.sql.sqltypes import VARCHAR, Float, Integer, DateTime, DECIMAL$/;"	kind:namespace	line:12
+DECIMAL	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^from sqlalchemy.sql.sqltypes import Integer, VARCHAR, Float, DateTime, DECIMAL, Numeric$/;"	kind:namespace	line:9
+DateTime	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^from sqlalchemy.sql.sqltypes import VARCHAR, Float, Integer, DateTime, DECIMAL$/;"	kind:namespace	line:12
+DateTime	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^from sqlalchemy.sql.sqltypes import Integer, VARCHAR, Float, DateTime, DECIMAL, Numeric$/;"	kind:namespace	line:9
+Decimal	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^from decimal import Decimal$/;"	kind:namespace	line:17
+Float	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^from sqlalchemy.sql.sqltypes import VARCHAR, Float, Integer, DateTime, DECIMAL$/;"	kind:namespace	line:12
+Float	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^from sqlalchemy.sql.sqltypes import Integer, VARCHAR, Float, DateTime, DECIMAL, Numeric$/;"	kind:namespace	line:9
+ForeignKey	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\alchemyxmp.py	/^from sqlalchemy.sql.schema import Column,ForeignKey$/;"	kind:namespace	line:10
+ForeignKey	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^from sqlalchemy.sql.schema import Column, ForeignKey, UniqueConstraint$/;"	kind:namespace	line:11
+ForeignKey	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^from sqlalchemy.sql.schema import Column, UniqueConstraint, ForeignKey$/;"	kind:namespace	line:10
+HKBase	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^HKBase = declarative_base()$/;"	kind:variable	line:14
+HKSvc	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\dbsvcs.py	/^class HKSvc(SvcBase):$/;"	kind:class	line:37
+Increment	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajcc.py	/^Increment = namedtuple("Increment", "wgts,silver,gold,lossrate")$/;"	kind:variable	line:78
+Integer	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\alchemyxmp.py	/^from sqlalchemy.sql.sqltypes import Integer,String$/;"	kind:namespace	line:9
+Integer	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^from sqlalchemy.sql.sqltypes import VARCHAR, Float, Integer, DateTime, DECIMAL$/;"	kind:namespace	line:12
+Integer	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^from sqlalchemy.sql.sqltypes import Integer, VARCHAR, Float, DateTime, DECIMAL, Numeric$/;"	kind:namespace	line:9
+InvRdr	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\c1rdrs.py	/^class InvRdr():$/;"	kind:class	line:18
+InvReader	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^class InvReader(object):$/;"	kind:class	line:299
+JI	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\dbsvcs.py	/^from hnjcore.models.hk import JO, Customer, Style, Orderma, JOItem as JI$/;"	kind:namespace	line:18
+JO	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\dbsvcs.py	/^from hnjcore.models.hk import JO, Customer, Style, Orderma, JOItem as JI$/;"	kind:namespace	line:18
+JO	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^class JO(CNBase):$/;"	kind:class	line:37
+JO	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^class JO(HKBase):$/;"	kind:class	line:98
+JOElement	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\c1rdrs.py	/^from hnjcore import JOElement$/;"	kind:namespace	line:12
+JOElement	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\dbsvcs.py	/^from hnjcore import JOElement$/;"	kind:namespace	line:17
+JOElement	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^from hnjcore import JOElement$/;"	kind:namespace	line:22
+JOElement	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^from hnjcore import JOElement$/;"	kind:namespace	line:22
+JOElement	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^from .utils import JOElement, StyElement$/;"	kind:namespace	line:15
+JOElement	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^from .utils import JOElement, StyElement$/;"	kind:namespace	line:12
+JOElement	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\utils.py	/^class JOElement(object):$/;"	kind:class	line:12
+JOItem	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^class JOItem(HKBase):$/;"	kind:class	line:144
+JOcn	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\dbsvcs.py	/^from hnjcore.models.cn import JO as JOcn, Customer as Customercn,Style as Stylecn$/;"	kind:namespace	line:20
+Logger	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\dbsvcs.py	/^from logging import Logger$/;"	kind:namespace	line:11
+LookAt	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^from xlwings.constants import LookAt$/;"	kind:namespace	line:19
+MM	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\dbsvcs.py	/^from hnjcore.models.cn import MMMa,MM$/;"	kind:namespace	line:21
+MM	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^class MM(CNBase):$/;"	kind:class	line:65
+MMMa	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\dbsvcs.py	/^from hnjcore.models.cn import MMMa,MM$/;"	kind:namespace	line:21
+MMMa	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^class MMMa(CNBase):$/;"	kind:class	line:57
+MPS	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\dbsvcs.py	/^from pajcc import MPS$/;"	kind:namespace	line:16
+MPS	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajcc.py	/^class MPS():$/;"	kind:class	line:30
+MPS	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^from hnjapp.pajcc import MPS$/;"	kind:namespace	line:23
+MPSINVALID	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajcc.py	/^MPSINVALID = -10000.00$/;"	kind:variable	line:20
+Number	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\utils.py	/^        from numbers import Number        $/;"	kind:namespace	line:36
+Numeric	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^from sqlalchemy.sql.sqltypes import Integer, VARCHAR, Float, DateTime, DECIMAL, Numeric$/;"	kind:namespace	line:9
+Orderma	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\dbsvcs.py	/^from hnjcore.models.hk import JO, Customer, Style, Orderma, JOItem as JI$/;"	kind:namespace	line:18
+Orderma	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^class Orderma(HKBase):$/;"	kind:class	line:46
+P17Decoder	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajcc.py	/^class P17Decoder():$/;"	kind:class	line:250
+PAJCHINAMPS	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajcc.py	/^PAJCHINAMPS = MPS("S=30;G=1500")$/;"	kind:variable	line:114
+PAJCReader	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^class PAJCReader(object):$/;"	kind:class	line:481
+PO	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^class PO(HKBase):$/;"	kind:class	line:69
+POItem	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\dbsvcs.py	/^from hnjcore.models.hk import POItem, PajShp, PajInv, PajCnRev$/;"	kind:namespace	line:19
+POItem	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^class POItem(HKBase):$/;"	kind:class	line:83
+PajCalc	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajcc.py	/^class PajCalc():$/;"	kind:class	line:127
+PajChina	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajcc.py	/^class PajChina(namedtuple("PajChina", "china,increment,mps,discount,metalcost")):$/;"	kind:class	line:82
+PajCnRev	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\dbsvcs.py	/^from hnjcore.models.hk import POItem, PajShp, PajInv, PajCnRev$/;"	kind:namespace	line:19
+PajCnRev	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^class PajCnRev(HKBase):$/;"	kind:class	line:192
+PajDataByRunn	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^class PajDataByRunn(object):$/;"	kind:class	line:456
+PajInv	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\dbsvcs.py	/^from hnjcore.models.hk import POItem, PajShp, PajInv, PajCnRev$/;"	kind:namespace	line:19
+PajInv	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^class PajInv(HKBase):$/;"	kind:class	line:178
+PajShp	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\dbsvcs.py	/^from hnjcore.models.hk import POItem, PajShp, PajInv, PajCnRev$/;"	kind:namespace	line:19
+PajShp	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^class PajShp(HKBase):$/;"	kind:class	line:159
+PrdWgt	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajcc.py	/^class PrdWgt(namedtuple("PrdWgt", "main,aux,part")):$/;"	kind:class	line:93
+PriceTracker	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^class PriceTracker(object):$/;"	kind:class	line:618
+Session	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\dbsvcs.py	/^from sqlalchemy.orm import Session$/;"	kind:namespace	line:13
+ShpReader	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^class ShpReader:$/;"	kind:class	line:58
+String	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\alchemyxmp.py	/^from sqlalchemy.sql.sqltypes import Integer,String$/;"	kind:namespace	line:9
+StyElement	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^from .utils import JOElement, StyElement$/;"	kind:namespace	line:15
+StyElement	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^from .utils import JOElement, StyElement$/;"	kind:namespace	line:12
+StyElement	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\utils.py	/^class StyElement(JOElement):$/;"	kind:class	line:106
+Style	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\dbsvcs.py	/^from hnjcore.models.hk import JO, Customer, Style, Orderma, JOItem as JI$/;"	kind:namespace	line:18
+Style	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^class Style(CNBase):$/;"	kind:class	line:20
+Style	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^class Style(HKBase):$/;"	kind:class	line:30
+Stylecn	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\dbsvcs.py	/^from hnjcore.models.cn import JO as JOcn, Customer as Customercn,Style as Stylecn$/;"	kind:namespace	line:20
+SvcBase	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\dbsvcs.py	/^class SvcBase(object):$/;"	kind:class	line:27
+UniqueConstraint	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^from sqlalchemy.sql.schema import Column, ForeignKey, UniqueConstraint$/;"	kind:namespace	line:11
+UniqueConstraint	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^from sqlalchemy.sql.schema import Column, UniqueConstraint, ForeignKey$/;"	kind:namespace	line:10
+User	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\alchemyxmp.py	/^class User(Base):$/;"	kind:class	line:27
+VARCHAR	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^from sqlalchemy.sql.sqltypes import VARCHAR, Float, Integer, DateTime, DECIMAL$/;"	kind:namespace	line:12
+VARCHAR	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^from sqlalchemy.sql.sqltypes import Integer, VARCHAR, Float, DateTime, DECIMAL, Numeric$/;"	kind:namespace	line:9
+WgtInfo	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajcc.py	/^class WgtInfo(namedtuple("WgtInfo", "karat,wgt")):$/;"	kind:class	line:23
+__all__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\dbsvcs.py	/^__all__ = ["HKSvc", "CNSvc"]$/;"	kind:variable	line:25
+__all__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\x.py	/^__all__ = ["dir"]$/;"	kind:variable	line:11
+__all__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\utils.py	/^__all__ = ["JOElement","StyElement"]$/;"	kind:variable	line:10
+__all__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\utils\__init__.py	/^__all__ = ["p17u", "odbctpl", "xwu", "appathsep", "splitarray", "samekarat"]/;"	kind:variable	line:11
+__all__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\utils\xwu.py	/^__all__ = ["app","find","fromtemplate","listodict","usedrange"]$/;"	kind:variable	line:13
+__composite_values__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\utils.py	/^    def __composite_values__(self):$/;"	kind:member	line:107
+__composite_values__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\utils.py	/^    def __composite_values__(self):$/;"	kind:member	line:91
+__eq__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\utils.py	/^    def __eq__(self, other):$/;"	kind:member	line:111
+__eq__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\utils.py	/^    def __eq__(self,other):$/;"	kind:member	line:94
+__ge__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\utils.py	/^    def __ge__(self,other):$/;"	kind:member	line:101
+__init__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\c1rdrs.py	/^    def __init__(self, c1log=None, cclog=None):$/;"	kind:member	line:27
+__init__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\dbsvcs.py	/^    def __init__(self, sqleng):$/;"	kind:member	line:39
+__init__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\dbsvcs.py	/^    def __init__(self,sqleng):$/;"	kind:member	line:30
+__init__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajcc.py	/^    def __init__(self):$/;"	kind:member	line:253
+__init__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajcc.py	/^    def __init__(self, mps):$/;"	kind:member	line:32
+__init__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^    def __init__(self, accdb, hnjhkdb):$/;"	kind:member	line:304
+__init__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^    def __init__(self, accdb, hnjhkdb):$/;"	kind:member	line:60
+__init__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^    def __init__(self, hkdb=None, pydb=None, bcdb=None):$/;"	kind:member	line:484
+__init__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^    def __init__(self,hkdb):$/;"	kind:member	line:623
+__init__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^    def __init__(self, db):$/;"	kind:member	line:476
+__init__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^    def __init__(self, hkdb, pydb=None, bcdb=None):$/;"	kind:member	line:218
+__init__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\utils.py	/^    def __init__(self, *args, **kwargs):$/;"	kind:member	line:24
+__init__.py	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\__init__.py	1;"	kind:file	line:1
+__init__.py	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\__init__.py	1;"	kind:file	line:1
+__init__.py	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\__init__.py	1;"	kind:file	line:1
+__init__.py	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\utils\__init__.py	1;"	kind:file	line:1
+__minlen__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\utils.py	/^    __minlen__ = 5$/;"	kind:variable	line:23
+__ne__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\utils.py	/^    def __ne__(self,other):$/;"	kind:member	line:98
+__new__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajcc.py	/^    def __new__(_cls, karat, wgt):$/;"	kind:member	line:25
+__new__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajcc.py	/^    def __new__(_cls, main, aux=None, part=None):$/;"	kind:member	line:97
+__repr__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajcc.py	/^    def __repr__(self):$/;"	kind:member	line:74
+__repr__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\alchemyxmp.py	/^     def __repr__(self):$/;"	kind:member	line:24
+__repr__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\alchemyxmp.py	/^     def __repr__(self):$/;"	kind:member	line:35
+__repr__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\utils.py	/^    def __repr__(self, *args, **kwargs):$/;"	kind:member	line:70
+__slots__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajcc.py	/^    __slots__ = ()$/;"	kind:variable	line:94
+__str__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajcc.py	/^    def __str__(self):$/;"	kind:member	line:71
+__str__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\utils.py	/^    def __str__(self, *args, **kwargs):$/;"	kind:member	line:73
+__tablename__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\alchemyxmp.py	/^     __tablename__ = 'addresses'$/;"	kind:variable	line:17
+__tablename__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\alchemyxmp.py	/^     __tablename__ = 'users'$/;"	kind:variable	line:28
+__tablename__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^    __tablename__ = "b_cust_bill"$/;"	kind:variable	line:39
+__tablename__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^    __tablename__ = "cstinfo"$/;"	kind:variable	line:33
+__tablename__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^    __tablename__ = "mm"$/;"	kind:variable	line:66
+__tablename__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^    __tablename__ = "mmma"$/;"	kind:variable	line:58
+__tablename__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^    __tablename__ = "styma"$/;"	kind:variable	line:22
+__tablename__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    __tablename__ = "cstdtl"$/;"	kind:variable	line:145
+__tablename__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    __tablename__ = "cstinfo"$/;"	kind:variable	line:18
+__tablename__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    __tablename__ = "jo"$/;"	kind:variable	line:100
+__tablename__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    __tablename__ = "orderma"$/;"	kind:variable	line:47
+__tablename__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    __tablename__ = "pajcnrev"$/;"	kind:variable	line:193
+__tablename__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    __tablename__ = "pajinv"$/;"	kind:variable	line:179
+__tablename__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    __tablename__ = "pajshp"$/;"	kind:variable	line:160
+__tablename__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    __tablename__ = "po"$/;"	kind:variable	line:84
+__tablename__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    __tablename__ = "poma"$/;"	kind:variable	line:70
+__tablename__	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    __tablename__ = "styma"$/;"	kind:variable	line:31
+_accdstr	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^def _accdstr(dt):$/;"	kind:function	line:28
+_checkargs	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajcc.py	/^    def _checkargs(cls,incr,refmps,tarmps):$/;"	kind:member	line:197
+_checkfile	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^def _checkfile(fn, fns):$/;"	kind:function	line:26
+_duprunn	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^    _duprunn = False$/;"	kind:variable	line:474
+_fineness	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajcc.py	/^    18:75.0, 181:75.0, 188:75.0, 200:100, "925PAJ":95.0, "925":92.5, 9925:0.95}$/;"	kind:variable	line:18
+_getdigits	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajcc.py	/^    def _getdigits(self, p17, digits):$/;"	kind:member	line:267
+_getexcels	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^def _getexcels(fldr):$/;"	kind:function	line:39
+_getinv	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^    def _getinv(self, fn):$/;"	kind:member	line:308
+_getjoids	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^def _getjoids(jonos, hnjhkdb):        $/;"	kind:function	line:39
+_getjonos	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^    def _getjonos(self, p17, invno):$/;"	kind:member	line:333
+_getp17cats	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajcc.py	/^    def _getp17cats(self):$/;"	kind:member	line:257
+_getpart	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajcc.py	/^    def _getpart(self, cat, code):$/;"	kind:member	line:278
+_getshpdate	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^    def _getshpdate(self, fn, isfile=True):$/;"	kind:member	line:88
+_hasread	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^    def _hasread(self, fn):$/;"	kind:member	line:316
+_hasread	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^    def _hasread(self, fn):$/;"	kind:member	line:67
+_makec1item	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\c1rdrs.py	/^    def _makec1item(self,em):$/;"	kind:member	line:70
+_makec1stone	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\c1rdrs.py	/^    def _makec1stone(self, tr, tm, joqty):$/;"	kind:member	line:65
+_makemap	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^        def _makemap(sht=None):$/;"	kind:function	line:492
+_mapx	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\dbsvcs.py	/^        def _mapx(x, je):$/;"	kind:function	line:95
+_mapx	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^        def _mapx(x, je):$/;"	kind:function	line:270
+_miscs.py	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\utils\_miscs.py	1;"	kind:file	line:1
+_newSess	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\dbsvcs.py	/^    def _newSess(self):$/;"	kind:member	line:34
+_parse	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajcc.py	/^    def _parse(self, mps):$/;"	kind:member	line:36
+_parse_	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\utils.py	/^    def _parse_(self,jono):$/;"	kind:member	line:35
+_persist	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^    def _persist(self, dups, items):$/;"	kind:member	line:140
+_persist	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^    def _persist(self, dups, items):$/;"	kind:member	line:348
+_ptnmit	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^    _ptnmit = re.compile("^M[A-Z]T")$/;"	kind:variable	line:214
+_ptnrunn	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^    _ptnrunn = re.compile(r"\\d{6}")$/;"	kind:variable	line:473
+_putmap	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^        def _putmap(wnc, runn, orgjn, tarmps, themap):$/;"	kind:function	line:617
+_querysize	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\dbsvcs.py	/^    _querysize = 20$/;"	kind:variable	line:28
+_querysize	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^    _querysize = 20  # batch query's batch, don't be too large$/;"	kind:variable	line:216
+_readMPS	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^    def _readMPS(self, rows):$/;"	kind:member	line:496
+_readc1	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\c1rdrs.py	/^    def _readc1(self, sht, hdrow):$/;"	kind:member	line:74
+_readcalc	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\c1rdrs.py	/^    def _readcalc(self, sht):$/;"	kind:member	line:133
+_readquodata	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^    def _readquodata(self, sht, qmap):$/;"	kind:member	line:113
+_removenonascii	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^def _removenonascii(s0):$/;"	kind:function	line:33
+_reset_	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\utils.py	/^    def _reset_(self):$/;"	kind:member	line:65
+_samekarat	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^    def _samekarat(self, srcje, tarje):$/;"	kind:member	line:224
+_silveralphas	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^    _silveralphas = set(("4", "5"))$/;"	kind:variable	line:215
+_silveralphas	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\utils\_miscs.py	/^_silveralphas = set(("4", "5"))$/;"	kind:variable	line:11
+_sybdrv	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\utils\odbctpl.py	/^_sybdrv = None$/;"	kind:variable	line:13
+_vfpdrv	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\utils\odbctpl.py	/^_vfpdrv = None$/;"	kind:variable	line:14
+_writeErrs	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^        def _writeErrs(wtrerrs, ferrs, fnerrs, ttrerrs, errs, hiserrs):$/;"	kind:function	line:641
+_writeOks	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^        def _writeOks(wtroks, foks, fn , ttroks, oks, hisoks):$/;"	kind:function	line:624
+addresses	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\alchemyxmp.py	/^     addresses = relationship("Address", order_by=Address.id, back_populates="user")$/;"	kind:variable	line:34
+alchemyxmp.py	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\alchemyxmp.py	1;"	kind:file	line:1
+alpha	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^    alpha = Column(VARCHAR(2), nullable = False,name = 'alpha')$/;"	kind:variable	line:24
+alpha	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^    alpha = Column(VARCHAR(2), nullable = False,name = 'cstbldid_alpha')$/;"	kind:variable	line:41
+alpha	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    alpha = Column(VARCHAR(2), nullable=False, name='alpha')$/;"	kind:variable	line:102
+alpha	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    alpha = Column(VARCHAR(5), name="alpha")$/;"	kind:variable	line:33
+and_	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\dbsvcs.py	/^from sqlalchemy import and_, desc$/;"	kind:namespace	line:14
+app	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\utils\xwu.py	/^def app(vis=True):    $/;"	kind:function	line:15
+appathsep	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^from hnjcore import xwu, p17u, appathsep$/;"	kind:namespace	line:23
+appathsep	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^from hnjcore.utils import appathsep$/;"	kind:namespace	line:21
+appathsep	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\utils\__init__.py	/^from ._miscs import appathsep, splitarray, samekarat$/;"	kind:namespace	line:9
+appathsep	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\utils\_miscs.py	/^def appathsep(fldr):$/;"	kind:function	line:22
+auxkarat	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    auxkarat = Column(Integer, name="auxkarat")$/;"	kind:variable	line:117
+auxwgt	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    auxwgt = Column(DECIMAL, name="auxwgt")$/;"	kind:variable	line:118
+bi	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\x.py	/^import __builtin__ as bi$/;"	kind:namespace	line:8
+c1rdrs	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\__init__.py	/^import c1rdrs$/;"	kind:namespace	line:8
+c1rdrs.py	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\c1rdrs.py	1;"	kind:file	line:1
+calcdiscount	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajcc.py	/^    def calcdiscount(self, prdwgt):$/;"	kind:member	line:166
+calchina	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajcc.py	/^    def calchina(self, prdwgt, refup, refmps, tarmps=None, lossrate=None):$/;"	kind:member	line:204
+calcincrement	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajcc.py	/^    def calcincrement(self, prdwgt, lossrate=None, vendor=None):$/;"	kind:member	line:172
+calclossrate	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajcc.py	/^    def calclossrate(self, prdwgt):$/;"	kind:member	line:142
+calcmtlcost	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajcc.py	/^    def calcmtlcost(self, prdwgt, mps, lossrate=None, vendor="PAJ"):$/;"	kind:member	line:147
+calctarget	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajcc.py	/^    def calctarget(self, cn, tarmps):$/;"	kind:member	line:229
+canceldate	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    canceldate = Column(DateTime, name = "cancel_date")$/;"	kind:variable	line:79
+china	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    china = Column(DECIMAL, name="china")$/;"	kind:variable	line:187
+cn	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\__init__.py	/^from . import cn$/;"	kind:namespace	line:3
+cn.py	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	1;"	kind:file	line:1
+codecs	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\c1rdrs.py	/^            import csv, codecs, datetime$/;"	kind:namespace	line:115
+composite	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^from sqlalchemy.orm import composite,relationship$/;"	kind:namespace	line:10
+composite	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^from sqlalchemy.orm import composite, relationship$/;"	kind:namespace	line:11
+const	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^import xlwings.constants as const$/;"	kind:namespace	line:24
+const	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\utils\xwu.py	/^import xlwings.constants as const$/;"	kind:namespace	line:9
+constants	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\c1rdrs.py	/^from xlwings import constants$/;"	kind:namespace	line:11
+createdate	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    createdate = Column(DateTime, name="createdate")$/;"	kind:variable	line:120
+cstid	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^    cstid = Column(Integer,ForeignKey('cstinfo.cstid'))$/;"	kind:variable	line:51
+cstid	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    cstid = Column(Integer, ForeignKey("cstinfo.cstid"), name = "cstid")    $/;"	kind:variable	line:72
+cstid	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    cstid = Column(Integer, ForeignKey("cstinfo.cstid"), name="cstid")$/;"	kind:variable	line:52
+csv	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\c1rdrs.py	/^            import csv, codecs, datetime$/;"	kind:namespace	line:115
+csv	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^import csv$/;"	kind:namespace	line:15
+customer	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^    customer = relationship("Customer")    $/;"	kind:variable	line:52
+customer	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    customer = relationship("Customer")$/;"	kind:variable	line:53
+customer	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    customer = relationship("Customer")$/;"	kind:variable	line:73
+customer	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    def customer(self):$/;"	kind:member	line:140
+date	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^from datetime import datetime, date$/;"	kind:namespace	line:12
+datetime	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\c1rdrs.py	/^            import csv, codecs, datetime$/;"	kind:namespace	line:115
+datetime	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^from datetime import datetime, date$/;"	kind:namespace	line:12
+dbsvcs	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\__init__.py	/^import dbsvcs/;"	kind:namespace	line:12
+dbsvcs.py	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\dbsvcs.py	1;"	kind:file	line:1
+deadline	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    deadline = Column(DateTime, name="deadline")$/;"	kind:variable	line:122
+declarative_base	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\alchemyxmp.py	/^from sqlalchemy.ext.declarative.api import declarative_base$/;"	kind:namespace	line:12
+declarative_base	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^from sqlalchemy.ext.declarative.api import declarative_base$/;"	kind:namespace	line:9
+declarative_base	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^from sqlalchemy.ext.declarative.api import declarative_base$/;"	kind:namespace	line:8
+decode	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajcc.py	/^    def decode(self, p17, parts=None, div=","):$/;"	kind:member	line:284
+desc	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\dbsvcs.py	/^from sqlalchemy import and_, desc$/;"	kind:namespace	line:14
+description	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^    description = Column(VARCHAR(50),name = "description", nullable = False)$/;"	kind:variable	line:26
+description	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^    description = Column(VARCHAR(50),name = "description", nullable = False)$/;"	kind:variable	line:45
+description	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    description = Column(VARCHAR(40), name="description")$/;"	kind:variable	line:21
+description	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    description = Column(VARCHAR(50), name = "description")$/;"	kind:variable	line:94
+description	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    description = Column(VARCHAR(50), name="description")$/;"	kind:variable	line:37
+description	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    description = Column(VARCHAR(50), name="description", nullable=False)$/;"	kind:variable	line:107
+digit	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^    digit = Column(Integer,name = "cstbldid_digit", nullable = False)$/;"	kind:variable	line:42
+digit	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^    digit = Column(Integer,name = "digit", nullable = False)$/;"	kind:variable	line:25
+digit	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    digit = Column(Integer, name="digit")$/;"	kind:variable	line:34
+digit	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    digit = Column(Integer, name="digit", nullable=False)$/;"	kind:variable	line:103
+dir	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\x.py	/^def dir(obj = None,args = None):$/;"	kind:function	line:13
+dt	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^        import datetime as dt$/;"	kind:namespace	line:90
+dtm	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^import datetime as dtm$/;"	kind:namespace	line:13
+edescription	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    edescription = Column(VARCHAR(255), name="edescription")$/;"	kind:variable	line:108
+edescription	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    edescription = Column(VARCHAR(50), name="edescription")$/;"	kind:variable	line:38
+email_address	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\alchemyxmp.py	/^     email_address = Column(String, nullable=False)$/;"	kind:variable	line:19
+extsearch	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\dbsvcs.py	/^    def extsearch(self, jo, level = 1):$/;"	kind:member	line:126
+extsearch	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^    def extsearch(self, jo, level=1):$/;"	kind:member	line:298
+filldate	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    filldate = Column(DateTime, name = "fill_date")$/;"	kind:variable	line:76
+filldate	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    filldate = Column(DateTime, name = "filldate")$/;"	kind:variable	line:198
+filldate	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    filldate = Column(DateTime, name="fill_date")$/;"	kind:variable	line:121
+filldate	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    filldate = Column(DateTime, name="fill_date")$/;"	kind:variable	line:40
+filldate	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    filldate = Column(DateTime, name="fill_date")$/;"	kind:variable	line:65
+filldate	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    filldate = Column(DateTime, name="filldate")$/;"	kind:variable	line:171
+find	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\utils\xwu.py	/^         sd=const.SearchDirection.xlNext,):$/;"	kind:function	line:37
+fn	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    fn = Column(VARCHAR(100), name="fn")$/;"	kind:variable	line:162
+fromtemplate	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\utils\xwu.py	/^def fromtemplate(tplfn, app=None):$/;"	kind:function	line:76
+fullname	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\alchemyxmp.py	/^     fullname = Column(String)$/;"	kind:variable	line:32
+getAccess	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\utils\odbctpl.py	/^def getAccess(fn, exclusive=False, uid=None, pwd=None):$/;"	kind:function	line:67
+getSybConn	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\utils\odbctpl.py	/^def getSybConn(addr, db, uid, pwd,$/;"	kind:function	line:61
+getSybCstr	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\utils\odbctpl.py	/^def getSybCstr(addr, db, uid, pwd,$/;"	kind:function	line:17
+getXBase	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\utils\odbctpl.py	/^def getXBase(fldr, exclusive=False):$/;"	kind:function	line:79
+getbcsforjc	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^    def getbcsforjc(self, runns):$/;"	kind:member	line:403
+getfiness	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajcc.py	/^    def getfiness(self, karat, vendor="PAJ"):$/;"	kind:member	line:131
+getjo	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\dbsvcs.py	/^    def getjo(self, je):$/;"	kind:member	line:44
+getjo	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^    def getjo(self, je):        $/;"	kind:member	line:227
+getjoandchina	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\dbsvcs.py	/^    def getjoandchina(self, je):$/;"	kind:member	line:177
+getjoandchina	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^    def getjoandchina(self, je):$/;"	kind:member	line:342
+getjosbyrunns	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\dbsvcs.py	/^    def getjosbyrunns(self, runns):$/;"	kind:member	line:153
+getjosbyrunns	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^    def getjosbyrunns(self, runns):$/;"	kind:member	line:324
+getmmioforjc	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^    def getmmioforjc(self, df, dt, runns):$/;"	kind:member	line:384
+getpaj	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\dbsvcs.py	/^    def getpaj(self, jo):$/;"	kind:member	line:89
+getpaj	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^    def getpaj(self, jo):$/;"	kind:member	line:264
+getpajprices	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^    def getpajprices(self, styno):$/;"	kind:member	line:440
+getpjforjc	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^    def getpjforjc(self, jes):$/;"	kind:member	line:418
+getrevcn	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\dbsvcs.py	/^    def getrevcn(self, pcode):$/;"	kind:member	line:112
+getrevcn	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^    def getrevcn(self, pcode):$/;"	kind:member	line:286
+getshpforjc	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\dbsvcs.py	/^    def getshpforjc(self, df, dt):$/;"	kind:member	line:199
+getshpforjc	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^    def getshpforjc(self, df, dt):$/;"	kind:member	line:362
+gold	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajcc.py	/^    def gold(self):$/;"	kind:member	line:60
+groupid	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    groupid = Column(Integer, name="groupid")$/;"	kind:variable	line:23
+hk	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\__init__.py	/^from . import hk$/;"	kind:namespace	line:4
+hk.py	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	1;"	kind:file	line:1
+hnju	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^from hnjcore import utils as hnju$/;"	kind:namespace	line:20
+id	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\alchemyxmp.py	/^     id = Column(Integer, primary_key=True)$/;"	kind:variable	line:18
+id	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\alchemyxmp.py	/^     id = Column(Integer, primary_key=True)$/;"	kind:variable	line:30
+id	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^    id = Column(Integer, name = "mmid", primary_key = True, autoincrement = False)$/;"	kind:variable	line:67
+id	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^    id = Column(Integer, name = "refid", primary_key = True, autoincrement = False)$/;"	kind:variable	line:59
+id	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^    id = Column(Integer,name = "cstid",primary_key = True)$/;"	kind:variable	line:34
+id	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^    id = Column(Integer,name = "jsid",primary_key = True)$/;"	kind:variable	line:40
+id	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^    id = Column(Integer,name = "styid",primary_key = True)$/;"	kind:variable	line:23
+id	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    id = Column(Integer, name = "id", primary_key = True)$/;"	kind:variable	line:194
+id	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    id = Column(Integer, name = "poid", primary_key = True)$/;"	kind:variable	line:85
+id	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    id = Column(Integer, name = "pomaid", primary_key = True)$/;"	kind:variable	line:71
+id	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    id = Column(Integer, name="cstid", primary_key=True, autoincrement=False)$/;"	kind:variable	line:19
+id	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    id = Column(Integer, name="joid", primary_key=True, autoincrement=False)$/;"	kind:variable	line:101
+id	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    id = Column(Integer, name="styid", primary_key=True, autoincrement=False)$/;"	kind:variable	line:32
+id	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    id = Column(Numeric(9, 0), name="id", primary_key=True)$/;"	kind:variable	line:161
+id	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    id = Column(Numeric(9, 0), name="id", primary_key=True)$/;"	kind:variable	line:180
+inspect	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\x.py	/^import inspect$/;"	kind:namespace	line:9
+invdate	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    invdate = Column(DateTime, name="invdate")$/;"	kind:variable	line:169
+invno	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    invno = Column(VARCHAR(10), name="invno")$/;"	kind:variable	line:164
+invno	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    invno = Column(VARCHAR(10), name="invno")$/;"	kind:variable	line:181
+isvalid	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajcc.py	/^    def isvalid(self):$/;"	kind:member	line:56
+isvalid	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\utils.py	/^    def isvalid(self):$/;"	kind:member	line:88
+isvalidp17	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\utils\p17u.py	/^def isvalidp17(p17):$/;"	kind:function	line:9
+jo	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    jo = relationship("JO")$/;"	kind:variable	line:149
+jo	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    jo = relationship("JO")$/;"	kind:variable	line:175
+jo	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    jo = relationship("JO")$/;"	kind:variable	line:190
+jofqty	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    jofqty = Column(DECIMAL, name="jofqty")$/;"	kind:variable	line:63
+joid	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    joid = Column(Integer, ForeignKey("jo.joid"), name="joid")$/;"	kind:variable	line:174
+joid	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    joid = Column(Integer, ForeignKey("jo.joid"), name="joid")$/;"	kind:variable	line:189
+joid	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    joid = Column(Integer, ForeignKey("jo.joid"), name="jsid",$/;"	kind:variable	line:147
+joprice	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    joprice = Column(DECIMAL, name="joprice")$/;"	kind:variable	line:64
+joqty	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    joqty = Column(DECIMAL, name = "joqty")$/;"	kind:variable	line:96
+joqty	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    joqty = Column(DECIMAL, name="joqty")$/;"	kind:variable	line:62
+jsid	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^    jsid = Column(Integer, ForeignKey("b_cust_bill.jsid"), name = "jsid")$/;"	kind:variable	line:71
+karat	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^    karat = Column(Integer, name = "karat")$/;"	kind:variable	line:61
+karat	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^    karat = Column(Integer,name = "karat")$/;"	kind:variable	line:47
+karat	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    def karat(self):$/;"	kind:member	line:114
+karat	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    karat = Column(Integer, name="karat")$/;"	kind:variable	line:57
+lastmodified	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    lastmodified = Column(DateTime, name="lastmodified")$/;"	kind:variable	line:172
+lastmodified	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    lastmodified = Column(DateTime, name="lastmodified")$/;"	kind:variable	line:186
+lastmodified	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    lastmodified = Column(DateTime, name="modi_date")$/;"	kind:variable	line:66
+lc	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\utils\odbctpl.py	/^import locale as lc$/;"	kind:namespace	line:10
+listodict	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\utils\xwu.py	/^def listodict(lst, trmap=None):$/;"	kind:function	line:57
+logger	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\c1rdrs.py	/^    logger = logging.getLogger(__name__)$/;"	kind:variable	line:23
+logging	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\c1rdrs.py	/^import logging$/;"	kind:namespace	line:14
+logging	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajcc.py	/^import logging$/;"	kind:namespace	line:14
+logging	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^import logging as logging$/;"	kind:namespace	line:21
+logging	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^import logging$/;"	kind:namespace	line:9
+lossrate	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajcc.py	/^    def lossrate(self):$/;"	kind:member	line:85
+math	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^import math$/;"	kind:namespace	line:17
+math	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\utils\_miscs.py	/^import math$/;"	kind:namespace	line:9
+mps	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    mps = Column(VARCHAR(50), name = "mps")$/;"	kind:variable	line:81
+mps	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    mps = Column(VARCHAR(50), name="mps")$/;"	kind:variable	line:184
+mtlwgt	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    mtlwgt = Column(Float, name="mtlwgt")$/;"	kind:variable	line:167
+name	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\alchemyxmp.py	/^     name = Column(String)$/;"	kind:variable	line:31
+name	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^    name = Column(VARCHAR(11), name = "refno")$/;"	kind:variable	line:60
+name	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^    name = Column(VARCHAR(15), unique = True, nullable = False,name = 'cstname')$/;"	kind:variable	line:35
+name	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^    name = Column(VARCHAR(8), name = "docno")$/;"	kind:variable	line:70
+name	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^    name = composite(JOElement,alpha,digit)$/;"	kind:variable	line:43
+name	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^    name = composite(StyElement,alpha,digit)$/;"	kind:variable	line:28
+name	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    name = Column(VARCHAR(30), name="cstname")$/;"	kind:variable	line:20
+name	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    name = Column(VARCHAR(50), name = "pono")$/;"	kind:variable	line:74
+name	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    name = composite(JOElement, alpha, digit)$/;"	kind:variable	line:104
+name	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    name = composite(StyElement, alpha, digit)$/;"	kind:variable	line:35
+name	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\utils.py	/^    def name(self):$/;"	kind:member	line:85
+name1	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    name1 = Column(VARCHAR(20), name="name1")$/;"	kind:variable	line:43
+namedtuple	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\c1rdrs.py	/^from collections import namedtuple$/;"	kind:namespace	line:9
+namedtuple	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajcc.py	/^from collections import namedtuple$/;"	kind:namespace	line:13
+namedtuple	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^from collections import namedtuple$/;"	kind:namespace	line:11
+namedtuple	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^from collections import namedtuple$/;"	kind:namespace	line:8
+newchina	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajcc.py	/^def newchina(cn, wgt):$/;"	kind:function	line:117
+numbers	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\c1rdrs.py	/^import numbers$/;"	kind:namespace	line:15
+numbers	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^import numbers$/;"	kind:namespace	line:14
+numbers	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^import numbers$/;"	kind:namespace	line:16
+odbctpl	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\utils\__init__.py	/^from . import odbctpl$/;"	kind:namespace	line:7
+odbctpl.py	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\utils\odbctpl.py	1;"	kind:file	line:1
+ordercnt	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    ordercnt = Column(Integer, name="ordercnt")$/;"	kind:variable	line:39
+orderdate	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    orderdate = Column(DateTime, name = "order_date")$/;"	kind:variable	line:77
+orderid	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    orderid = Column(Integer, ForeignKey("orderma.orderid"), name="orderid")$/;"	kind:variable	line:110
+orderid	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    orderid = Column(Integer, ForeignKey("orderma.orderid"), name="orderid")$/;"	kind:variable	line:88
+orderid	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    orderid = Column(Integer, name="orderid",$/;"	kind:variable	line:48
+orderma	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    orderma = relationship("Orderma")$/;"	kind:variable	line:111
+orderma	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    orderma = relationship("Orderma")$/;"	kind:variable	line:89
+orderno	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    orderno = Column(VARCHAR(20), name="orderno")$/;"	kind:variable	line:166
+orderno	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    orderno = Column(VARCHAR(50), name="orderno")$/;"	kind:variable	line:50
+ordertype	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    ordertype = Column(Integer, name = "ordertype")$/;"	kind:variable	line:75
+os	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\c1rdrs.py	/^import os, sys$/;"	kind:namespace	line:13
+os	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^import os, sys$/;"	kind:namespace	line:15
+os	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^import os$/;"	kind:namespace	line:11
+os	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\utils\xwu.py	/^import os$/;"	kind:namespace	line:11
+othercost	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajcc.py	/^    def othercost(self):$/;"	kind:member	line:88
+p17u	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^from hnjcore import xwu, p17u, appathsep$/;"	kind:namespace	line:23
+p17u	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\utils\__init__.py	/^from . import p17u$/;"	kind:namespace	line:6
+p17u.py	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\utils\p17u.py	1;"	kind:file	line:1
+pajcc	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\__init__.py	/^import pajcc$/;"	kind:namespace	line:9
+pajcc.py	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajcc.py	1;"	kind:file	line:1
+pajrdrs	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\__init__.py	/^import pajrdrs$/;"	kind:namespace	line:10
+pajrdrs.py	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	1;"	kind:file	line:1
+password	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\alchemyxmp.py	/^     password = Column(String)$/;"	kind:variable	line:33
+path	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^from os import path$/;"	kind:namespace	line:10
+path	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\utils\_miscs.py	/^from os import path$/;"	kind:namespace	line:8
+path	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\utils\odbctpl.py	/^from os import path$/;"	kind:namespace	line:11
+pc	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\dbsvcs.py	/^import pajcc as pc$/;"	kind:namespace	line:15
+pc	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^import pajcc as pc$/;"	kind:namespace	line:14
+pcode	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    pcode = Column(VARCHAR(30), name = "pcode")$/;"	kind:variable	line:195
+pcode	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    pcode = Column(VARCHAR(30), name="pcode")$/;"	kind:variable	line:163
+pcstid	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    pcstid = Column(Integer, ForeignKey("cstinfo.cstid"), name="pcstid")$/;"	kind:variable	line:26
+pcstinfo	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    pcstinfo = relationship("Customer")$/;"	kind:variable	line:27
+po	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    po = relationship("PO")$/;"	kind:variable	line:87
+po	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    po = relationship("POItem")$/;"	kind:variable	line:127
+poid	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    poid = Column(Integer, ForeignKey("po.poid"), name="poid")$/;"	kind:variable	line:126
+pomaid	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    pomaid = Column(Integer, ForeignKey("poma.pomaid"), name = "pomaid")$/;"	kind:variable	line:86
+ponohk	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    ponohk = Column(VARCHAR(10), name="ponohk")$/;"	kind:variable	line:128
+poprice	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    poprice = Column(DECIMAL, name="poprice")$/;"	kind:variable	line:61
+poqty	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    poqty = Column(DECIMAL, name="poqty")$/;"	kind:variable	line:60
+pyodbc	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\utils\odbctpl.py	/^import pyodbc$/;"	kind:namespace	line:9
+qty	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^    qty = Column(DECIMAL, name = "qty")$/;"	kind:variable	line:73
+qty	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^    qty = Column(Float,name = 'quantity')$/;"	kind:variable	line:46
+qty	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    qty = Column(DECIMAL, name = "qty")$/;"	kind:variable	line:90
+qty	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    qty = Column(Float, name="qty")$/;"	kind:variable	line:165
+qty	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    qty = Column(Float, name="qty")$/;"	kind:variable	line:182
+qty	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    qty = Column(Float, name='qty')$/;"	kind:variable	line:109
+qty	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    qty = Column(Integer, name="quantity")$/;"	kind:variable	line:154
+quordrs	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\__init__.py	/^import quordrs$/;"	kind:namespace	line:11
+quordrs.py	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	1;"	kind:file	line:1
+random	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^                                import random$/;"	kind:namespace	line:270
+range	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    range = Column(VARCHAR(20), name="range")$/;"	kind:variable	line:22
+re	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\dbsvcs.py	/^import re$/;"	kind:namespace	line:10
+re	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^import re$/;"	kind:namespace	line:16
+re	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^import re$/;"	kind:namespace	line:13
+re	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\x.py	/^import re$/;"	kind:namespace	line:7
+read	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\c1rdrs.py	/^    def read(self, fldr):$/;"	kind:member	line:31
+read	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^    def read(self, fldr):$/;"	kind:member	line:185
+read	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^    def read(self, fldr):$/;"	kind:member	line:626
+read	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^    def read(self, invfldr, writeJOBack=True):$/;"	kind:member	line:387
+read	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^    def read(self, fldr, mps=None, hisoks=None, hiserrs=None, okfn="runOKs.dat", errfn="runErrs.dat"):$/;"	kind:member	line:522
+readagq	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^def readagq(fn):$/;"	kind:function	line:110
+readquoprice	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^    def readquoprice(self,fldr, rstfn="costs.dat"):$/;"	kind:member	line:728
+readsignetcn	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^def readsignetcn(fldr):$/;"	kind:function	line:44
+receiptdate	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    receiptdate = Column(DateTime, name = "receipt_date")$/;"	kind:variable	line:78
+refdate	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^    refdate = Column(DateTime, name = "refdate")$/;"	kind:variable	line:62
+refid	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^    refid = Column(Integer, ForeignKey("mmma.refid"), name = "refid")$/;"	kind:variable	line:68
+relationship	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\alchemyxmp.py	/^from sqlalchemy.orm import relationship$/;"	kind:namespace	line:11
+relationship	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^from sqlalchemy.orm import composite,relationship$/;"	kind:namespace	line:10
+relationship	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^from sqlalchemy.orm import composite, relationship$/;"	kind:namespace	line:11
+remark	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    remark = Column(VARCHAR(250), name="remark")$/;"	kind:variable	line:129
+remark	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    remark = Column(VARCHAR(30), name="remark")$/;"	kind:variable	line:156
+revdate	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    revdate = Column(DateTime, name = "revdate")$/;"	kind:variable	line:197
+rmk	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    rmk = Column(VARCHAR(20), name = "rmk")$/;"	kind:variable	line:93
+run	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^    def run(self, year, month, tplfn=None, tarfldr=None):$/;"	kind:member	line:489
+run	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^    def run(self, fldr, defaultmps=None, okfn="OKs.dat", errfn="Errs.dat",$/;"	kind:member	line:602
+running	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^    running = Column(Integer,name = "running")$/;"	kind:variable	line:44
+running	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    running = Column(Integer, name="running")$/;"	kind:variable	line:106
+samekarat	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\dbsvcs.py	/^from hnjcore.utils import samekarat, splitarray$/;"	kind:namespace	line:22
+samekarat	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\utils\__init__.py	/^from ._miscs import appathsep, splitarray, samekarat$/;"	kind:namespace	line:9
+samekarat	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\utils\_miscs.py	/^def samekarat(srcje, tarje):$/;"	kind:function	line:26
+shipdate	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    shipdate = Column(DateTime, name="shipdate")$/;"	kind:variable	line:123
+shpdate	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    shpdate = Column(DateTime, name="shpdate")$/;"	kind:variable	line:170
+silver	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajcc.py	/^    def silver(self):$/;"	kind:member	line:64
+skuno	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    skuno = Column(VARCHAR(50), name = "skuno")$/;"	kind:variable	line:92
+snno	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    snno = Column(VARCHAR(250), name="snno")$/;"	kind:variable	line:130
+soid	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    soid = Column(Integer, name="soid")$/;"	kind:variable	line:125
+soprice	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    soprice = Column(DECIMAL, name="soprice")$/;"	kind:variable	line:59
+soqty	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    soqty = Column(DECIMAL, name="soqty")$/;"	kind:variable	line:58
+splitarray	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\dbsvcs.py	/^from hnjcore.utils import samekarat, splitarray$/;"	kind:namespace	line:22
+splitarray	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\utils\__init__.py	/^from ._miscs import appathsep, splitarray, samekarat$/;"	kind:namespace	line:9
+splitarray	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\utils\_miscs.py	/^def splitarray(arr, logsize = 100):$/;"	kind:function	line:13
+stname	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    stname = Column(VARCHAR(4), name="sttype")$/;"	kind:variable	line:151
+stsize	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    stsize = Column(VARCHAR(10), name="stsize")$/;"	kind:variable	line:152
+stspec	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    stspec = Column(VARCHAR(200), name="stspec")$/;"	kind:variable	line:185
+stwgt	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    stwgt = Column(Float, name="stwgt")$/;"	kind:variable	line:168
+styid	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^    styid = Column(Integer,ForeignKey('styma.styid'))$/;"	kind:variable	line:49
+styid	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    styid = Column(Integer, ForeignKey("styma.styid"), name="styid")$/;"	kind:variable	line:54
+style	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^    style = relationship("Style")$/;"	kind:variable	line:50
+style	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    def style(self):$/;"	kind:member	line:136
+style	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    style = relationship("Style")$/;"	kind:variable	line:55
+suffix	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    suffix = Column(VARCHAR(50), name="suffix")$/;"	kind:variable	line:42
+sys	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\c1rdrs.py	/^import os, sys$/;"	kind:namespace	line:13
+sys	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^import os, sys$/;"	kind:namespace	line:15
+sys	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^import sys$/;"	kind:namespace	line:12
+tag	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^    tag = Column(Integer, name = "tag")$/;"	kind:variable	line:63
+tag	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\cn.py	/^    tag = Column(Integer, name = "tag")$/;"	kind:variable	line:74
+tag	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    tag = Column(Integer, name = "tag")$/;"	kind:variable	line:199
+tag	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    tag = Column(Integer, name = "tag")$/;"	kind:variable	line:80
+tag	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    tag = Column(Integer, name = "tag")$/;"	kind:variable	line:95
+tag	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    tag = Column(Integer, name="tag")$/;"	kind:variable	line:131
+tag	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    tag = Column(Integer, name="tag")$/;"	kind:variable	line:24
+tag	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    tag = Column(Integer, name="tag")$/;"	kind:variable	line:41
+tag	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    tag = Column(Integer, name="tag")$/;"	kind:variable	line:67
+unitwgt	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    unitwgt = Column(DECIMAL, name="wgt")$/;"	kind:variable	line:153
+uprice	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    uprice = Column(DECIMAL, name = "uprice")$/;"	kind:variable	line:196
+uprice	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    uprice = Column(DECIMAL, name = "uprice")$/;"	kind:variable	line:91
+uprice	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    uprice = Column(DECIMAL, name="uprice")$/;"	kind:variable	line:183
+usedrange	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\utils\xwu.py	/^def usedrange(sh):$/;"	kind:function	line:24
+user	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\alchemyxmp.py	/^     user = relationship("User", back_populates="addresses")$/;"	kind:variable	line:22
+user_id	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\alchemyxmp.py	/^     user_id = Column(Integer, ForeignKey('users.id'))$/;"	kind:variable	line:20
+utils.py	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\utils.py	1;"	kind:file	line:1
+value	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajcc.py	/^    def value(self):$/;"	kind:member	line:68
+value	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\utils.py	/^    def value(self):$/;"	kind:member	line:81
+wgt	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    wgt = Column(DECIMAL, name="wgt")$/;"	kind:variable	line:116
+wgt	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\models\hk.py	/^    wgt = Column(DECIMAL, name="wgt_calc")$/;"	kind:variable	line:155
+wgts	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajcc.py	/^    def wgts(self):$/;"	kind:member	line:109
+x.py	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\x.py	1;"	kind:file	line:1
+xlwings	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^import xlwings.constants as const$/;"	kind:namespace	line:24
+xlwings	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\utils\xwu.py	/^import xlwings$/;"	kind:namespace	line:10
+xlwings	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\utils\xwu.py	/^import xlwings.constants as const$/;"	kind:namespace	line:9
+xwu	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\c1rdrs.py	/^from hnjcore.utils import xwu$/;"	kind:namespace	line:10
+xwu	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\pajrdrs.py	/^from hnjcore import xwu, p17u, appathsep$/;"	kind:namespace	line:23
+xwu	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjapp\quordrs.py	/^from hnjcore import xwu$/;"	kind:namespace	line:19
+xwu	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\utils\__init__.py	/^from . import xwu$/;"	kind:namespace	line:8
+xwu.py	\\172.16.8.46\pb\DptFile\EDP\git\miscs\hnjcore\utils\xwu.py	1;"	kind:file	line:1

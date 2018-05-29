@@ -18,6 +18,7 @@ from hnjcore import JOElement
 from hnjcore.models.hk import JO, Customer, Style, Orderma, JOItem as JI
 from hnjcore.models.hk import POItem, PajShp, PajInv, PajCnRev
 from hnjcore.models.cn import JO as JOcn, Customer as Customercn,Style as Stylecn
+from hnjcore.models.hk import StockObjectMa as SO,Invoice as IV ,InvoiceItem as IVI
 from hnjcore.models.cn import MMMa,MM
 from hnjcore.utils import samekarat, splitarray
 
@@ -193,6 +194,23 @@ class HKSvc(SvcBase):
         rmap["china"] = pc.newchina(revcn, jo["wgts"]) if revcn else \
             pc.PajCalc.calchina(jo["wgts"], float(ups[0]["uprice"]), MPS(ups[0]["mps"]))        
         return rmap
+
+    def getmmioforjc(self, df, dt, runns):
+        """return the mmstock's I/O# for PAJCReader"""
+        lst = list()
+        if not isinstance(runns[0], basestring): runns = [str(x) for x in runns]
+        cur = self._newSess()
+        try:
+            for x in splitarray(runns, self._querysize):
+                q = cur.query(SO.running, IV.remark1.label("jmp"), IV.docdate.label("shpdate") \
+                    ,IV.inoutno).join(IV).join(IVI).filter(IV.inoutno.like("N%"))\
+                    .filter(IV.remark1 != "").filter(and_(IV.docdate >= df,IV.docdate < dt))\
+                    .filter(SO.running.in_(x))
+                rows = q.all()
+                if rows: lst.extend(rows)
+        finally:
+            if cur: cur.close()
+        return lst
     
 class CNSvc(SvcBase):
 
@@ -201,23 +219,14 @@ class CNSvc(SvcBase):
         @param df: start date(include) a date ot datetime object
         @param dt: end date(exclude) a date or datetime object 
         """
-        
-        s0 = ("select jo.jsid,ma.refdate,c.cstname,cstbldid_alpha as joalpha"
-            ",jo.cstbldid_digit as jodigit,sty.alpha,sty.digit,jo.running,jo.karat"
-            ",jo.description,jo.quantity,mm.qty as shpqty,mm.docno"
-            " from mm inner join mmma ma on mm.refid = ma.refid inner join b_cust_bill jo"
-            " on mm.jsid = jo.jsid inner join cstinfo c on c.cstid = jo.cstid"
-            " inner join styma sty on jo.styid = sty.styid"
-            " where ma.refdate >= '%s' and ma.refdate < '%s'")
-        
-        s0 = s0 % tuple(x.strftime("%Y/%m/%d") for x in (df, dt))
         lst = None
         cur = self._newSess()        
         try:
-            q = cur.query(JOcn.id,MMMa.refdate,Customercn.name,JOcn.name\
-                ,JOcn.name,Stylecn.name,JOcn.running,JOcn.karat,JOcn.description\
-                ,JOcn.qty,MM.qty,MM.name).join(Customercn).join(Stylecn)\
-                .join(MM).join(MMMa)
+            q = cur.query(JOcn.id,MMMa.refdate,Customercn.name.label("cstname"),JOcn.name.label("jono")\
+                ,Stylecn.name.label("styno"),JOcn.running,JOcn.karat,JOcn.description\
+                ,JOcn.qty.label("joqty"),MM.qty.label("shpqty"),MM.name.label("mmno"))\
+                .join(Customercn).join(Stylecn).join(MM).join(MMMa)\
+                .filter(and_(MMMa.refdate >= df, MMMa.refdate < dt))
             lst = q.all()
         finally:
             if cur: cur.close()

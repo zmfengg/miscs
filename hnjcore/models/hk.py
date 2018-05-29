@@ -197,3 +197,42 @@ class PajCnRev(HKBase):
     revdate = Column(DateTime, name = "revdate")
     filldate = Column(DateTime, name = "filldate")
     tag = Column(Integer, name = "tag")
+
+class StockObjectMa(HKBase):
+    __tablename__ = "stockobjectma"
+    id = Column(Integer, name = "srid", primary_key = True, autoincrement = False)
+    styno = Column(VARCHAR(30), name = "styno")
+    running = Column(VARCHAR(30), name = "running")
+    name = Column(VARCHAR(60), name = "stockcode")
+    description = Column(VARCHAR(250), name = "description")
+    tag = Column(Integer, name = "tag")
+    qtyleft = Column(DECIMAL, name = "qtyleft")
+    tag = Column(Integer, name = "type")
+
+class Invoice(HKBase):
+    __tablename__ = "invoicema"
+    id = Column(Integer, name = "invid", primary_key = True, autoincrement = False)
+    inoutno = Column(VARCHAR(50), name = "inoutno")
+    docno = Column(VARCHAR(50), name = "docno")
+    docdate = Column(DateTime, name = "docdate")
+    locationidfrm = Column(Integer, name = "locationidfrm")
+    locationidto = Column(Integer, name = "locationidto")
+    remark1 = Column(VARCHAR(100), name = "remark1")
+    remark2 = Column(VARCHAR(100), name = "remark2")
+    lastuserid = Column(Integer, name = "lastuserid")
+    lastupdate = Column(DateTime, name = "lastupdate")
+    tag = Column(Integer, name = "tag")
+
+class InvoiceItem(HKBase):
+    __tablename__ = "invoicedtl"
+    id = Column(Integer, name = "invdid", primary_key = True, autoincrement = False)
+    invid = Column(Integer, ForeignKey("invoicema.invid"), name = "invid")
+    jono = Column(VARCHAR(20), name = "jono")
+    srid = Column(Integer, ForeignKey("stockobjectma.srid"), name = "srid")
+    stockobject = relationship("StockObject")
+    qty = Column(DECIMAL, name = "qty")
+    lastuserid = Column(Integer, name = "lastuserid")
+    lastupdate = Column(DateTime, name = "lastupdate")
+    tag = Column(Integer, name = "tag")
+
+

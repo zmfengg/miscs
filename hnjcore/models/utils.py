@@ -95,6 +95,10 @@ class JOElement(object):
         return isinstance(other,JOElement) and \
             self.alpha == other.alpha and \
             self.digit == other.digit
+
+    def __hash__(self):
+        return hash((self.alpha,self.digit))
+
     def __ne__(self,other):
         return not self.__eq__(other)
     

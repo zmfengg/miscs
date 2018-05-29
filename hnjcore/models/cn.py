@@ -41,8 +41,10 @@ class JO(CNBase):
     alpha = Column(VARCHAR(2), nullable = False,name = 'cstbldid_alpha')
     digit = Column(Integer,name = "cstbldid_digit", nullable = False)
     name = composite(JOElement,alpha,digit)
+    running = Column(Integer,name = "running")
     description = Column(VARCHAR(50),name = "description", nullable = False)
     qty = Column(Float,name = 'quantity')
+    karat = Column(Integer,name = "karat")
     
     styid = Column(Integer,ForeignKey('styma.styid'))
     style = relationship("Style")
