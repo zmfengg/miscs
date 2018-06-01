@@ -66,34 +66,37 @@ class Orderma(HKBase):
     lastmodified = Column(DateTime, name="modi_date")
     tag = Column(Integer, name="tag")
 
+
 class PO(HKBase):
     __tablename__ = "poma"
-    id = Column(Integer, name = "pomaid", primary_key = True)
-    cstid = Column(Integer, ForeignKey("cstinfo.cstid"), name = "cstid")    
+    id = Column(Integer, name="pomaid", primary_key=True)
+    cstid = Column(Integer, ForeignKey("cstinfo.cstid"), name="cstid")
     customer = relationship("Customer")
-    name = Column(VARCHAR(50), name = "pono")
-    ordertype = Column(Integer, name = "ordertype")
-    filldate = Column(DateTime, name = "fill_date")
-    orderdate = Column(DateTime, name = "order_date")
-    receiptdate = Column(DateTime, name = "receipt_date")
-    canceldate = Column(DateTime, name = "cancel_date")
-    tag = Column(Integer, name = "tag")
-    mps = Column(VARCHAR(50), name = "mps")
+    name = Column(VARCHAR(50), name="pono")
+    ordertype = Column(Integer, name="ordertype")
+    filldate = Column(DateTime, name="fill_date")
+    orderdate = Column(DateTime, name="order_date")
+    receiptdate = Column(DateTime, name="receipt_date")
+    canceldate = Column(DateTime, name="cancel_date")
+    tag = Column(Integer, name="tag")
+    mps = Column(VARCHAR(50), name="mps")
+
 
 class POItem(HKBase):
     __tablename__ = "po"
-    id = Column(Integer, name = "poid", primary_key = True)
-    pomaid = Column(Integer, ForeignKey("poma.pomaid"), name = "pomaid")
+    id = Column(Integer, name="poid", primary_key=True)
+    pomaid = Column(Integer, ForeignKey("poma.pomaid"), name="pomaid")
     po = relationship("PO")
     orderid = Column(Integer, ForeignKey("orderma.orderid"), name="orderid")
     orderma = relationship("Orderma")
-    qty = Column(DECIMAL, name = "qty")
-    uprice = Column(DECIMAL, name = "uprice")
-    skuno = Column(VARCHAR(50), name = "skuno")
-    rmk = Column(VARCHAR(20), name = "rmk")
-    description = Column(VARCHAR(50), name = "description")
-    tag = Column(Integer, name = "tag")
-    joqty = Column(DECIMAL, name = "joqty")
+    qty = Column(DECIMAL, name="qty")
+    uprice = Column(DECIMAL, name="uprice")
+    skuno = Column(VARCHAR(50), name="skuno")
+    rmk = Column(VARCHAR(20), name="rmk")
+    description = Column(VARCHAR(50), name="description")
+    tag = Column(Integer, name="tag")
+    joqty = Column(DECIMAL, name="joqty")
+
 
 class JO(HKBase):
     """ jo table """
@@ -110,9 +113,6 @@ class JO(HKBase):
     orderid = Column(Integer, ForeignKey("orderma.orderid"), name="orderid")
     orderma = relationship("Orderma")
 
-    @property
-    def karat(self):
-        return self.orderma.karat
     wgt = Column(DECIMAL, name="wgt")
     auxkarat = Column(Integer, name="auxkarat")
     auxwgt = Column(DECIMAL, name="auxwgt")
@@ -139,11 +139,19 @@ class JO(HKBase):
     @property
     def customer(self):
         return None if not self.orderma else self.orderma.customer
+    
+    @property
+    def karat(self):
+        return self.orderma.karat if self.orderma else None
+
+    @property
+    def styid(self):
+        return self.orderma.styid if self.orderma else None        
 
 
 class JOItem(HKBase):
     __tablename__ = "cstdtl"
-    #TODO this table's primary key is malform
+    # TODO this table's primary key is malform
     joid = Column(Integer, ForeignKey("jo.joid"), name="jsid",
                   primary_key=True, autoincrement=False)
     jo = relationship("JO")
@@ -158,7 +166,7 @@ class JOItem(HKBase):
 
 class PajShp(HKBase):
     __tablename__ = "pajshp"
-    id = Column(Numeric(9, 0), name="id", primary_key=True)
+    id = Column(Integer, name="id", primary_key=True, autoincrement=True)
     fn = Column(VARCHAR(100), name="fn")
     pcode = Column(VARCHAR(30), name="pcode")
     invno = Column(VARCHAR(10), name="invno")
@@ -177,7 +185,7 @@ class PajShp(HKBase):
 
 class PajInv(HKBase):
     __tablename__ = "pajinv"
-    id = Column(Numeric(9, 0), name="id", primary_key=True)
+    id = Column(Integer, name="id", primary_key=True, autoincrement=True)
     invno = Column(VARCHAR(10), name="invno")
     qty = Column(Float, name="qty")
     uprice = Column(DECIMAL, name="uprice")
@@ -189,50 +197,52 @@ class PajInv(HKBase):
     joid = Column(Integer, ForeignKey("jo.joid"), name="joid")
     jo = relationship("JO")
 
+
 class PajCnRev(HKBase):
     __tablename__ = "pajcnrev"
-    id = Column(Integer, name = "id", primary_key = True)
-    pcode = Column(VARCHAR(30), name = "pcode")
-    uprice = Column(DECIMAL, name = "uprice")
-    revdate = Column(DateTime, name = "revdate")
-    filldate = Column(DateTime, name = "filldate")
-    tag = Column(Integer, name = "tag")
+    id = Column(Integer, name="id", primary_key=True)
+    pcode = Column(VARCHAR(30), name="pcode")
+    uprice = Column(DECIMAL, name="uprice")
+    revdate = Column(DateTime, name="revdate")
+    filldate = Column(DateTime, name="filldate")
+    tag = Column(Integer, name="tag")
+
 
 class StockObjectMa(HKBase):
     __tablename__ = "stockobjectma"
-    id = Column(Integer, name = "srid", primary_key = True, autoincrement = False)
-    styno = Column(VARCHAR(30), name = "styno")
-    running = Column(VARCHAR(30), name = "running")
-    name = Column(VARCHAR(60), name = "stockcode")
-    description = Column(VARCHAR(250), name = "description")
-    tag = Column(Integer, name = "tag")
-    qtyleft = Column(DECIMAL, name = "qtyleft")
-    tag = Column(Integer, name = "type")
+    id = Column(Integer, name="srid", primary_key=True, autoincrement=False)
+    styno = Column(VARCHAR(30), name="styno")
+    running = Column(VARCHAR(30), name="running")
+    name = Column(VARCHAR(60), name="stockcode")
+    description = Column(VARCHAR(250), name="description")
+    tag = Column(Integer, name="tag")
+    qtyleft = Column(DECIMAL, name="qtyleft")
+    tag = Column(Integer, name="type")
+
 
 class Invoice(HKBase):
     __tablename__ = "invoicema"
-    id = Column(Integer, name = "invid", primary_key = True, autoincrement = False)
-    inoutno = Column(VARCHAR(50), name = "inoutno")
-    docno = Column(VARCHAR(50), name = "docno")
-    docdate = Column(DateTime, name = "docdate")
-    locationidfrm = Column(Integer, name = "locationidfrm")
-    locationidto = Column(Integer, name = "locationidto")
-    remark1 = Column(VARCHAR(100), name = "remark1")
-    remark2 = Column(VARCHAR(100), name = "remark2")
-    lastuserid = Column(Integer, name = "lastuserid")
-    lastupdate = Column(DateTime, name = "lastupdate")
-    tag = Column(Integer, name = "tag")
+    id = Column(Integer, name="invid", primary_key=True, autoincrement=False)
+    inoutno = Column(VARCHAR(50), name="inoutno")
+    docno = Column(VARCHAR(50), name="docno")
+    docdate = Column(DateTime, name="docdate")
+    locationidfrm = Column(Integer, name="locationidfrm")
+    locationidto = Column(Integer, name="locationidto")
+    remark1 = Column(VARCHAR(100), name="remark1")
+    remark2 = Column(VARCHAR(100), name="remark2")
+    lastuserid = Column(Integer, name="lastuserid")
+    lastupdate = Column(DateTime, name="lastupdate")
+    tag = Column(Integer, name="tag")
+
 
 class InvoiceItem(HKBase):
     __tablename__ = "invoicedtl"
-    id = Column(Integer, name = "invdid", primary_key = True, autoincrement = False)
-    invid = Column(Integer, ForeignKey("invoicema.invid"), name = "invid")
-    jono = Column(VARCHAR(20), name = "jono")
-    srid = Column(Integer, ForeignKey("stockobjectma.srid"), name = "srid")
+    id = Column(Integer, name="invdid", primary_key=True, autoincrement=False)
+    invid = Column(Integer, ForeignKey("invoicema.invid"), name="invid")
+    jono = Column(VARCHAR(20), name="jono")
+    srid = Column(Integer, ForeignKey("stockobjectma.srid"), name="srid")
     stockobject = relationship("StockObjectMa")
-    qty = Column(DECIMAL, name = "qty")
-    lastuserid = Column(Integer, name = "lastuserid")
-    lastupdate = Column(DateTime, name = "lastupdate")
-    tag = Column(Integer, name = "tag")
-
-
+    qty = Column(DECIMAL, name="qty")
+    lastuserid = Column(Integer, name="lastuserid")
+    lastupdate = Column(DateTime, name="lastupdate")
+    tag = Column(Integer, name="tag")

@@ -9,6 +9,7 @@ help to easily get odbc connection to:
 import pyodbc
 import locale as lc
 from os import path
+from sqlalchemy.engine import create_engine
 
 _sybdrv = None
 _vfpdrv = None
@@ -88,3 +89,9 @@ def getXBase(fldr, exclusive=False):
     cs = _vfpdrv
     cs = cs % (fldr, "YES" if exclusive else "NO")
     return pyodbc.connect(cs)
+
+def newSybEngine(cnnfunc):
+    """ create a alchemy enginge based on sybase + existing connection
+        @param cnnfunc: the function that will return a pyodbc connection to sybase
+    """
+    return create_engine("sybase+pyodbc://?driver=xx", creator=cnnfunc)

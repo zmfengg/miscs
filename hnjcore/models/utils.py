@@ -114,3 +114,6 @@ class StyElement(JOElement):
     
     def __eq__(self, other):
         return JOElement.__eq__(self, other) and self.suffix == other.suffix
+
+    def __hash__(self):        
+        return hash((super(StyElement,self).__hash__(),self.suffix))

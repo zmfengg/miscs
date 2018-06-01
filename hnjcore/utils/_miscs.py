@@ -23,6 +23,14 @@ def appathsep(fldr):
     """append a path sep into given path if there is not"""
     return fldr + path.sep if fldr[len(fldr) - 1:] != path.sep else fldr
 
+def deepget(obj,names):
+    """ get deeply from the object """
+    rc = None
+    for k in names.split("."):
+        rc = rc.__getattribute__(
+            k) if rc else obj.__getattribute__(k)
+    return rc
+
 def samekarat(srcje, tarje):
     """ detect if the given 2 JOElement are of the same karat """
     if not (srcje and tarje): return

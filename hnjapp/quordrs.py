@@ -5,22 +5,19 @@ module try to read data from quo catalog
 @author: zmFeng
 '''
 
-from collections import namedtuple
-import logging
-from os import path
-import os
-import sys
-import re
-import pajcc as pc
 import csv
-import numbers
+import logging
 import math
+import numbers
+import os
+import re
+import sys
+from collections import namedtuple
+from os import path
 
-from hnjcore import xwu
-from hnjcore import utils as hnju
-from hnjcore.utils import appathsep
-from hnjcore import JOElement
-from hnjapp.pajcc import MPS
+import pajcc as pc
+from hnjapp.pajcc import MPS,PrdWgt,WgtInfo
+from hnjcore import JOElement, xwu, appathsep, utils as hnju
 
 
 def _checkfile(fn, fns):
@@ -49,10 +46,10 @@ def readsignetcn(fldr):
     fldr = hnju.appathsep(fldr)
     fns = [unicode(x, sys.getfilesystemencoding()) 
         for x in os.listdir(fldr) if x.lower().find("txt") >= 0]
-    ptncn = re.compile("CN\d{3,}")
-    ptndec = re.compile("\d*\.\d+")
-    ptnsty = re.compile("[\w/\.]+\s+")
-    ptndscerr = re.compile("\(?[\w/\.]+\)?(\s{4,})")
+    ptncn = re.compile(r"CN\d{3,}")
+    ptndec = re.compile(r"\d*\.\d+")
+    ptnsty = re.compile(r"[\w/\.]+\s+")
+    ptndscerr = re.compile(r"\(?[\w/\.]+\)?(\s{4,})")
     styPFX = "YOUR STYLE: ";lnPFX = len(styPFX)
     ttlPFX = "STYLE TOT"; lnTtlPFX = len(ttlPFX)
     lstall = []
@@ -61,7 +58,7 @@ def readsignetcn(fldr):
         cnt = cnt + 1
         with open(fldr + fn,"rb") as fh:
             cn = None;stage = 0
-            lstfn = [];dct = None
+            lstfn = [];dct = {}
             for ln in fh:
                 if not cn:
                     mt = ptncn.search(ln)
@@ -200,6 +197,8 @@ def readagq(fn):
         vals = list(items)
         v0 = sht.range((1, 1), (len(items), len(items[0])))
         v0.value = vals
+    except:
+        pass
     finally:
         wb.close()
         if not wb1 and kxl:
@@ -209,196 +208,12 @@ def readagq(fn):
 
 class DAO(object):
     """a handy Hnjhk dao for data access in this tests
-    return a map with keys(id,name,styid,skuno,wgts)
+    now it's only bc services
     """
-    _ptnmit = re.compile("^M[A-Z]T")
-    _silveralphas = set(("4", "5"))
     _querysize = 20  # batch query's batch, don't be too large
 
-    def __init__(self, hkdb, pydb=None, bcdb=None):
-        """ dbs won't be closed by me, the caller do it """
-        self._hkdb = hkdb
-        if pydb: self._pydb = pydb
-        if bcdb: self._bcdb = bcdb        
-    
-    def _samekarat(self, srcje, tarje):
-        return srcje.alpha == tarje.alpha or (srcje.alpha in self._silveralphas and tarje.alpha in self._silveralphas)
-    
-    def getjo(self, je):        
-        knws = [None, None, None];jo = None
-        cur = self._hkdb.cursor()
-        try:            
-            # wgt info including mit
-            if isinstance(je, basestring): je = JOElement(je)
-            cur.execute("select jo.joid,od.styid,c.cstname,sty.alpha,sty.digit,po.skuno,od.karat,jo.wgt,auxkarat"
-                ",jo.auxwgt,d.sttype,d.wgt as partwgt from jo inner join orderma od on jo.orderid = od.orderid"
-                " inner join po on jo.poid = po.poid inner join cstinfo c on c.cstid = od.cstid inner join styma sty"
-                " on od.styid = sty.styid left join cstdtl d on jo.joid = d.jsid where jo.alpha = '%s' and"
-                " jo.digit = %d" % (je.alpha, je.digit))
-            rows = cur.fetchall()
-            if rows:
-                for row in rows:
-                    if(not knws[0]):
-                        knws[0] = pc.WgtInfo(row.karat, float(row.wgt))
-                        rk = knws[0]
-                        joid = row.joid;skuno = row.skuno;styid = row.styid
-                        cstname = row.cstname.strip();styno = JOElement(row.alpha, row.digit)
-                        if(skuno):
-                            skuno = skuno.strip()
-                            if skuno in ("", "N/A"): skuno = None
-                            if skuno and [x for x in skuno if ord(x) <= 31 or ord(x) > 127]:
-                                skuno = None
-                        if(row.auxwgt and row.auxwgt > 0): 
-                            knws[1] = pc.WgtInfo(row.auxkarat, float(row.auxwgt))
-                            if(knws[1].karat == 925): rk = knws[1]
-                    if(not row.sttype): break
-                    if(row.partwgt > 0 and self._ptnmit.search(row.sttype)):
-                        knws[2] = pc.WgtInfo(rk.karat, float(row.partwgt))
-                        break
-                jo = {"id":joid, "name":je, "styid":styid, "skuno":skuno, \
-                    "wgts":pc.PrdWgt(knws[0], knws[1], knws[2]), "cstname":cstname, "styno":styno} if any(knws) else None
-        finally:
-            cur.close()
-        return jo
-    
-    def getpaj(self, jo):
-        """ return the je,pcode,uprice,mps
-        @param jo: a dict contains jo data, the dict can be returned by this.getjo(je)
-        @return:  a map with keys(jono,pcode,uprice,mps)  
-        """
-        
-        def _mapx(x, je):
-            return dict(zip("jono,pcode,uprice,mps".split(","), (je, x.pcode.strip(), x.uprice, x.mps)))
-        
-        ups = None
-        cur = self._hkdb.cursor()
-        try:
-            je = jo["name"]
-            cur.execute(("select pcode,inv.uprice,inv.mps from jo inner join pajshp shp on jo.joid = shp.joid"
-                " and jo.alpha = '%s' and jo.digit = %d left join pajinv inv on shp.joid = inv.joid"
-                " and shp.invno = inv.invno order by shp.shpdate desc") % (je.alpha, je.digit))
-            rows = cur.fetchall()
-            ups = [_mapx(x, je) for x in rows if x.uprice and x.mps] if(rows) else None
-        finally:
-            cur.close()
-        return ups
-    
-    def getrevcn(self, pcode):
-        """return the revised for given pcode"""
-        revcn = 0
-        cur = self._hkdb.cursor()
-        try:
-            cur.execute("select top 2 uprice from pajcnrev where pcode = '%s' order by tag" % pcode)
-            rows = cur.fetchall()
-            if rows: revcn = float(rows[0][0])
-        finally:
-            cur.close()
-        return revcn
-    
-    def extsearch(self, jo, level=1):
-        """find the JOs with the same sty# of given jo, which can be obtained by this.getjo(je). 
-        return same karat if found, else return all karats
-        @param level:   0 for extract SKU match
-                        1 for extract karat match
-                        1+ for extract style match
-        """ 
-        cur = self._hkdb.cursor()  
-        rc = None;level = 0 if level < 0 else level
-        try:
-            s0 = ("select distinct jo.alpha,jo.digit,po.skuno from jo inner join orderma od on" 
-                " jo.orderid = od.orderid and od.styid = %d inner join pajinv inv on jo.joid = inv.joid"
-                " inner join po on jo.poid = po.poid") % jo["styid"]
-            cur.execute(s0)
-            rows = cur.fetchall()
-            if(rows): 
-                jns = dict((JOElement(x.alpha, x.digit), x.skuno) for x in rows)
-                sks = [x[0] for x in jns.iteritems() if x[1] == jo["skuno"]]
-                if not sks and level > 0: 
-                    sks = [x[0] for x in jns.iteritems() if self._samekarat(jo["name"], x[0])]
-                    if not sks and level > 1: sks = jns.keys
-                rc = sks
-        finally:
-            cur.close()
-        return [self.getjo(x) for x in rc] if rc else None
-    
-    def getjosbyrunns(self, runns):
-        logging.debug("begin to fetch JO#s for running, count = %d" % len(runns))
-        cur = self._hkdb.cursor()
-        mp = {}        
-        try:            
-            for x in hnju.splitarray(runns, self._querysize):
-                cur.execute("select running,alpha,digit from jo where running in (%s)" % (",".join(x)))
-                rows = cur.fetchall()
-                if(rows):
-                    for pr in [(JOElement(row.alpha, row.digit), str(row.running)) for row in rows]:
-                        if(not mp.has_key(pr[1])): mp[pr[1]] = pr[0]
-        finally:
-            cur.close()
-        runns = set(runns)
-        df = runns.difference(mp.keys()) if len(runns) > len(mp) else None
-        logging.debug("Running -> JO done")
-        return mp if len(mp) > 0 else None, df
-    
-    def getjoandchina(self, je):
-        """ get the weight of given JO# and calc the china
-            return a map with keys (jo,china,paj)
-         """        
-        if(isinstance(je, basestring)): je = JOElement(je)
-        rmap = {"jo":None, "china":None, "paj":None}
-        if(not je.isvalid): return rmap
-        
-        jo = self.getjo(je)
-        if not jo: return rmap
-        rmap["jo"] = jo
-        ups = self.getpaj(jo) if jo else None
-        if not ups: return rmap
-        rmap["paj"] = ups[0]        
-        revcn = self.getrevcn(ups[0]["pcode"])    
-        
-        rmap["china"] = pc.newchina(revcn, jo["wgts"]) if revcn else \
-            pc.PajCalc.calchina(jo["wgts"], float(ups[0]["uprice"]), MPS(ups[0]["mps"]))        
-        return rmap
-    
-    def getshpforjc(self, df, dt):
-        """return py shipment data for PAJCReader
-        @param df: start date(include) a date ot datetime object
-        @param dt: end date(exclude) a date or datetime object 
-        """
-        s0 = ("select jo.jsid,ma.refdate,c.cstname,cstbldid_alpha as joalpha"
-            ",jo.cstbldid_digit as jodigit,sty.alpha,sty.digit,jo.running,jo.karat"
-            ",jo.description,jo.quantity,mm.qty as shpqty,mm.docno"
-            " from mm inner join mmma ma on mm.refid = ma.refid inner join b_cust_bill jo"
-            " on mm.jsid = jo.jsid inner join cstinfo c on c.cstid = jo.cstid"
-            " inner join styma sty on jo.styid = sty.styid"
-            " where ma.refdate >= '%s' and ma.refdate < '%s'")
-        s0 = s0 % tuple(x.strftime("%Y/%m/%d") for x in (df, dt))
-        lst = None
-        cur = self._pydb.cursor()
-        try:
-            cur.execute(s0)
-            lst = cur.fetchall()
-        finally:
-            if cur: cur.close()
-        return lst
-    
-    def getmmioforjc(self, df, dt, runns):
-        """return the mmstock's I/O# for PAJCReader"""
-        s0 = ("select sm.running,remark1 as jmp,iv.docdate as shpdate,iv.inoutno"
-            " from stockobjectma sm inner join invoicedtl dt on dt.srid = sm.srid"
-            " inner join invoicema iv on dt.invid = iv.invid and iv.inoutno like 'N%%'"
-            " and remark1 <> '' where iv.docdate >= '%s' and iv.docdate < '%s' and sm.running in ('%s')")
-        lst = list();dft = [x.strftime("%Y/%m/%d") for x in (df, dt)]
-        if not isinstance(runns[0], basestring): runns = [str(x) for x in runns]
-        cur = self._hkdb.cursor()
-        try:
-            for x in hnju.splitarray(runns, self._querysize):
-                rns = "','".join(x)
-                cur.execute(s0 % (dft[0], dft[1], rns))
-                rows = cur.fetchall()
-                if rows: lst.extend(rows)
-        finally:
-            if cur: cur.close()
-        return lst
+    def __init__(self, bcdb=None):
+        if bcdb: self._bcdb = bcdb
     
     def getbcsforjc(self, runns):
         """return running and description from bc with given runnings """
@@ -411,47 +226,12 @@ class DAO(object):
                 cur.execute(s0 % ("'" + "','".join(x) + "'"))
                 rows = cur.fetchall()
                 if rows: lst.extend(rows)
+        except:
+            pass
         finally:
             if cur: cur.close()
         return lst
     
-    def getpjforjc(self, jes):
-        """ get the paj data for jocost
-        @param jes: a set of JOElement
-        """
-        
-        if not jes: return
-        lst = []
-        s0 = ("select jo.alpha,jo.digit,s.invdate, s.invno, s.orderno, s.pcode, s.qty, i.uprice"
-            ",s.mtlwgt, s.stwgt, i.stspec,s.shpdate from jo inner join pajshp s"
-            " on jo.joid = s.joid inner join pajinv i on"
-            " (s.joid = i.joid) and (s.invno = i.invno) where (%s)")
-        jns = ["alpha = '%s' and digit = %d" % (x.alpha, x.digit) for x in jes]
-        cur = self._hkdb.cursor()        
-        try:
-            for ii in hnju.splitarray(jns, self._querysize):
-                cur.execute(s0 % (") or (".join([str(x) for x in ii])))
-                rows = cur.fetchall()
-                if rows: lst.extend(rows)
-        finally:
-            if cur: cur.close()
-        return lst
-
-    def getpajprices(self, styno):
-        """return a list by PajRevcn as first element, then the cost sorted by joData"""
-        cur = self._hkdb.cursor()
-        try:
-            #todo::
-            s0 = ("select sty.alpha,sty.digit,shp.pcode,jo.joalpha,jo.jodigit,shp.shpdate" 
-                " from styma sty inner orderma od on sty.styid = od.styid"
-                " inner join jo on od.orderid = jo.orderid inner join pajshp shp "
-                " on jo.joid = shp.joid where (%s) order by jo.shipdate")
-            cur.execute("select from")
-            #lst = cur.fetchall()
-        finally:
-            if cur: cur.close()
-        
-
 
 class PajDataByRunn(object):
     r"""
@@ -473,26 +253,9 @@ class PajDataByRunn(object):
     _ptnrunn = re.compile(r"\d{6}")
     _duprunn = False
 
-    def __init__(self, db):
-        self.dao = DAO(db)
+    def __init__(self, hksvc):
+        self._hksvc = hksvc
     
-    '''
-    def _write(self, runn, srcjono, wnc, tarmps, f, rmk=None):
-        flag = wnc["jo"] and wnc["china"]
-        if flag:
-            cost = pc.PajCalc.calctarget(wnc["china"], tarmps)
-            jo = wnc["jo"]
-            paj = wnc["paj"]
-            print(runn)
-            f.write(",".join([str(x) for x in (runn, srcjono, jo["styno"], jo["cstname"], jo["name"], \
-                "N/A" if not jo["skuno"] else jo["skuno"], paj["pcode"], cost.china, cost.metalcost, \
-                cost.mps.value, rmk) if x]) + "\n")
-        elif wnc["jo"]:
-            rmk = rmk + ";" if rmk else "" + "Failed" 
-            f.write(",".join((runn, rmk, str(wnc["jo"]["wgts"]))) + "\n")
-        return flag
-    '''
-
     def _readMPS(self, rows):
         """try to parse out the MPS from the first 5 rows of an excel
         the rows should be obtained by xwu.usedranged(sht).value
@@ -510,6 +273,8 @@ class PajDataByRunn(object):
                     fv = None
                     try:
                         fv = float(pr)
+                    except:
+                        pass
                     finally:
                         pass                                                                                
                     if fv:
@@ -544,7 +309,7 @@ class PajDataByRunn(object):
                     if not mp.has_key(key):
                         x["mps"] = MPS(x["mps"])
                         mp[key] = x
-        else:
+        if not mp:
             killxls, app = xwu.app(False)
             try:
                 rtomps = {}
@@ -561,27 +326,29 @@ class PajDataByRunn(object):
                                 if mt:
                                     runn = mt.group()
                                     key = runn + "," + mps1.value
-                                    if not mp.has_key(key): mp[key] = {"runn":runn, "mps":mps1}
-                                    if not runn in rtomps: rtomps[runn] = mps1.value
+                                    if key not in mp: mp[key] = {"runn":runn, "mps":mps1}
+                                    if runn not in rtomps: rtomps[runn] = mps1.value
                     wb.close()
-                maps = self.dao.getjosbyrunns([x.split(",")[0] for x in mp.keys()])                
-                if maps[1]:
-                    logging.debug("some runnings(%s) do not have JO#" % mp.keys())
-                    with open(fldr + (errfn if errfn else "runErrs.dat"), "w") as f:
-                        wtr = csv.writer(f, dialect="excel")
-                        wtr.writerow(["#failed to get JO# for below runnings"])
-                        wtr.writerow(["Runn"])
-                        for x in maps[1]:
-                            wtr.writerow([x])
-                if maps[0]:
-                    with open(fn, "w") as f:
-                        wtr = None
-                        for x in maps[0].iteritems():
-                            it = mp[x[0] + "," + rtomps[x[0]]];it["jono"] = x[1];
-                            if not wtr: 
-                                wtr = csv.DictWriter(f, it.keys())
-                                wtr.writeheader()
-                            wtr.writerow(it)
+                with self._hksvc.sessionctx() as sess:                
+                    maps = self._hksvc.getjos(["r" + x.split(",")[0] for x in mp.keys()],psess = sess)
+                    if maps[1]:
+                        logging.debug("some runnings(%s) do not have JO#" % mp.keys())
+                        with open(fldr + (errfn if errfn else "runErrs.dat"), "w") as f:
+                            wtr = csv.writer(f, dialect="excel")
+                            wtr.writerow(["#failed to get JO# for below runnings"])
+                            wtr.writerow(["Runn"])
+                            for x in maps[1]:
+                                wtr.writerow([x])
+                    if maps[0]:
+                        with open(fn, "w") as f:
+                            wtr = None
+                            for x in dict([(str(x.running),x) for x in maps[0]]).iteritems():
+                                runnstr = x[0]
+                                it = mp[runnstr + "," + rtomps[runnstr]];it["jono"] = x[1].name.value
+                                if not wtr: 
+                                    wtr = csv.DictWriter(f, it.keys())
+                                    wtr.writeheader()
+                                wtr.writerow(it)
                 if all(maps):
                     for x in maps[1]:
                         key = x + "," + rtomps[x]
@@ -615,10 +382,10 @@ class PajDataByRunn(object):
         """
         
         def _putmap(wnc, runn, orgjn, tarmps, themap):
-            key = "%s,%6.1f" % (wnc["paj"]["pcode"], wnc["china"].china)
+            key = "%s,%6.1f" % (wnc["PajShp"].pcode, wnc["china"].china)
             if not themap.has_key(key):
                 wnc["china"] = pc.PajCalc.calctarget(wnc["china"], tarmps)
-                themap[key] = {"runn":runn, "jono":orgjn, "wnc":wnc}
+                themap[key] = {"runn":runn, "jono":orgjn, "wnc":wnc}        
                 return True
         
         def _writeOks(wtroks, foks, fn , ttroks, oks, hisoks):
@@ -628,11 +395,12 @@ class PajDataByRunn(object):
                 if not hisoks: wtroks.writeheader()
             
             for x in sorted(oks.values()):
-                wnc = x["wnc"];jo = wnc["jo"];paj = wnc["paj"];cost = wnc["china"]
-                jn0 = x["jono"];jn1 = jo["name"]
+                wnc = x["wnc"];jo = wnc["JO"];cost = wnc["china"]
+                jn0 = x["jono"];jn1 = jo.name.value
                 rmk = "Actual" if jn0 == jn1 else "Candiate"
-                rmk = dict(zip(ttroks, (x["runn"], jn0, jo["styno"], jo["cstname"], jn1, \
-                    "N/A" if not jo["skuno"] else jo["skuno"], paj["pcode"], cost.china, \
+                skuno = jo.po.skuno
+                rmk = dict(zip(ttroks, (x["runn"], jn0, jo.style.name.value, jo.customer.name.strip()\
+                    ,jn1,"N/A" if skuno else skuno, wnc["PajShp"].pcode, cost.china, \
                     cost.metalcost if cost.metalcost else 0, cost.mps.value, rmk, cost.discount * 1.25)))
                 wtroks.writerow(rmk)
             foks.flush()                                            
@@ -645,7 +413,9 @@ class PajDataByRunn(object):
                 if not hiserrs: wtrerrs.writeheader()               
             for x in sorted(errs):
                 ar = [x["runn"], x["jono"]]
-                for y in [(str(y.karat) + "=" + str(y.wgt) if y else "0") for y in x["wnc"]["jo"]["wgts"]]:
+                prd = x["wnc"]["wgts"]
+                if not prd: prd = PrdWgt(WgtInfo(0,0))
+                for y in [(str(y.karat) + "=" + str(y.wgt) if y else "0") for y in prd]:
                     ar.append(y)
                 ar.append(x["mps"])
                 wtrerrs.writerow(dict(zip(ttrerrs, ar)))
@@ -658,7 +428,7 @@ class PajDataByRunn(object):
         errs = [];hiserrs = None;wtrerrs = None;ferrs = None
         hisoks = None;wtroks = None;foks = None
         commitcnt = 10        
-        xlsx = _getexcels(fldr);
+        xlsx = _getexcels(fldr)
         
         fnoks = fldr + (okfn if okfn else "OKs.dat")
         fnerrs = fldr + (errfn if errfn else "Errs.dat")
@@ -677,47 +447,59 @@ class PajDataByRunn(object):
         
         mp = self.read(fldr, defaultmps, hisoks, hiserrs, runokfn, runerrfn)
         if not mp: return             
-        oks = {};dao = self.dao;stp = 0;cnt = len(mp)
+        oks = {};dao = self._hksvc;stp = 0;cnt = len(mp)
         try:
-            for x in mp.values():
-                # if x["runn"] != "625254": continue
-                # logging.debug("doing running(%s)" % x["runn"])
-                if not "jono" in x:
-                    logging.critical("No JO field in map of running(%s)" % x["runn"])
-                    continue
-                found = False
-                wnc = dao.getjoandchina(x["jono"])
-                if x["mps"].isvalid:
-                    if wnc and all(wnc.values()):
-                        found = True 
-                        if not _putmap(wnc, x["runn"], x["jono"], x["mps"], oks):
-                            logging.debug("JO(%s) is duplicated for same pcode/cost" % wnc["jo"]["name"])
-                    else:                    
-                        jo = wnc["jo"] if wnc["jo"] else dao.getjo(x["jono"])
-                        jos = dao.extsearch(jo, 1)
-                        if jos:
-                            for jo in jos:
-                                wnc1 = dao.getjoandchina(jo["name"])
-                                if(all(wnc1.values())):
-                                    found = True
-                                    if not _putmap(wnc1, x["runn"], x["jono"], x["mps"], oks):
-                                        logging.debug("JO(%s) is duplicated for same pcode/cost" % str(wnc1["jo"]["name"]))
-                else:
+            with dao.sessionctx() as sess:
+                for x in mp.values():
+                    # if x["runn"] != "625254": continue
+                    # logging.debug("doing running(%s)" % x["runn"])
+                    if "jono" not in x:
+                        logging.critical("No JO field in map of running(%s)" % x["runn"])
+                        continue
                     found = False
-                if not found:
-                    errs.append({"runn":x["runn"], "jono":x["jono"], "wnc":wnc, "mps":x["mps"]})
-                    if len(errs) > commitcnt:
-                        wtrerrs, ferrs = _writeErrs(wtrerrs, ferrs, fnerrs, ttrerrs, errs, hiserrs)
-                        errs = []
-                if len(oks) > commitcnt:
+                    if x["jono"] != "580191":
+                        pass
+                    print("doing " + x["jono"])
+                    wnc = dao.calchina(x["jono"],psess = sess)
+                    if x["mps"].isvalid:
+                        if wnc and all(wnc.values()):
+                            found = True 
+                            if not _putmap(wnc, x["runn"], x["jono"], x["mps"], oks):
+                                logging.debug("JO(%s) is duplicated for same pcode/cost" % wnc["JO"].name.value)
+                        else:                    
+                            jo = wnc["JO"]
+                            if not jo:
+                                jo = dao.getjos([x["jono"]],psess = sess)
+                                jo = jo[0][0] if jo and jo[0] else None
+                            if jo:                                
+                                jos = dao.findsimilarjo(jo, 1,psess = sess)
+                                if jos:
+                                    for x1 in jos:
+                                        wnc1 = dao.calchina(x1.name,psess = sess)
+                                        if(all(wnc1.values())):
+                                            found = True
+                                            if not _putmap(wnc1, x["runn"], x["jono"], x["mps"], oks):
+                                                logging.debug("JO(%s) is duplicated for same pcode/cost" % str(wnc1["JO"].name.value))
+                    else:
+                        found = False
+                        jo = None
+                    if not found:
+                        if jo and not wnc["wgts"]: wnc["wgts"] = dao.getjowgts(jo, psess = sess)
+                        errs.append({"runn":x["runn"], "jono":x["jono"], "wnc":wnc, "mps":x["mps"]})
+                        if len(errs) > commitcnt:
+                            wtrerrs, ferrs = _writeErrs(wtrerrs, ferrs, fnerrs, ttrerrs, errs, hiserrs)
+                            errs = []
+                    if len(oks) > commitcnt:
+                        wtroks, foks = _writeOks(wtroks, foks, fnoks, ttroks, oks, hisoks)
+                        oks = {}         
+                    stp += 1
+                    if not (stp % 20): logging.debug("%d of %d done" % (stp, cnt))       
+                if len(oks) > 0:
                     wtroks, foks = _writeOks(wtroks, foks, fnoks, ttroks, oks, hisoks)
-                    oks = {}         
-                stp += 1
-                if not (stp % 20): logging.debug("%d of %d done" % (stp, cnt))       
-            if len(oks) > 0:
-                wtroks, foks = _writeOks(wtroks, foks, fnoks, ttroks, oks, hisoks)
-            if errs:
-                wtrerrs, ferrs = _writeErrs(wtrerrs, ferrs, fnerrs, ttrerrs, errs, hiserrs)
+                if errs:
+                    wtrerrs, ferrs = _writeErrs(wtrerrs, ferrs, fnerrs, ttrerrs, errs, hiserrs)
+        except:
+            pass
         finally:
             if foks: foks.close()
             if ferrs: ferrs.close()
