@@ -8,24 +8,24 @@ in PAJQuickCost.xls#InvMatcher
 @author: zmFeng
 '''
 
-from collections import namedtuple
-from datetime import datetime, date
 import datetime as dtm
+import logging
 import numbers
 import os
-import sys
 import re
+import sys
+from collections import namedtuple
+from datetime import date, datetime
 from decimal import Decimal
 
+import xlwings.constants as const
 from xlwings.constants import LookAt
 
-import logging as logging
-from hnjcore import JOElement
-from hnjcore import xwu, p17u, appathsep, deepget
-from hnjcore.models.hk import PajShp, PajInv
-import xlwings.constants as const
+from dbsvcs import CNSvc, HKSvc
+from hnjcore import JOElement, appathsep, deepget, p17u, xwu
+from hnjcore.models.hk import PajInv, PajShp
+from hnjcore.utils.consts import NA
 from quordrs import DAO
-from dbsvcs import HKSvc, CNSvc
 
 _accdfmt = "%Y-%m-%d %H:%M:%S"
 
@@ -427,9 +427,10 @@ class InvReader(object):
                     dcts = list([x0._asdict() for x0 in items.values()])
                     jns = [JOElement(x0.jono) for x0 in items.values()]
                     jns = self._hksvc.getjos(jns,psess = sess)[0]
-                    jns = dict([(x.name,x) for x in jns])
+                    jns = dict([(x0.name,x0) for x0 in jns])
                     for dct in dcts:
                         # todo::make the china value for the user
+                        if not dct["stone"]: dct["stone"] = NA
                         dct["china"] = 0
                         dc1 = dict(dct)
                         dc1["joid"] = jns[JOElement(dc1["jono"])].id
@@ -631,7 +632,7 @@ class PAJCReader(object):
         runns = tuple(runns)
         bcs = dict([(x.runn.strip(), x.desc.strip()) for x
                     in dao.getbcsforjc(runns)])
-        lst = self._hksvc.getpajshpinv(jes)
+        lst = self._hksvc.getpajinvbyjes(jes)
         pajs = {}
         pajsjn = {}
         for x in lst:
@@ -754,4 +755,4 @@ class PriceTracker(object):
                     if je.isvalid and not je in stynos:
                         stynos.add(je)
         dao = DAO(self._hkdb)
-        #lst = dao.getpajprices(stynos)
+        #lst = dao.getpajinvbyse(stynos)

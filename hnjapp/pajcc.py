@@ -12,6 +12,7 @@ all weight related field are GM based
 
 from collections import namedtuple
 import logging
+from decimal import Decimal
 
 # the fineness map for this calculation
 _fineness = {8: 33.3, 81: 33.3, 88: 33.3, 9: 37.5, 91: 37.5, 98: 37.5, 10: 41.7, 101: 41.7, 108: 41.7, 14: 58.5, 141: 58.5, 148: 58.5,
@@ -37,11 +38,20 @@ def fmtkarat(karat):
     """ the legacy karat issue: 9 -> 91 -> 98 10 -> 101 -> 108 ... """
     return _karatnmap[karat] if karat in _karatnmap else karat    
 
+def _tofloat(val,precious = 4):
+    """ convenient method for (maybe) decimal to float """
+    try:
+        return round(float(val),precious)
+    except Exception as e:
+        print(e)
+        return -1
+    
+
 # karat and weight
 class WgtInfo(namedtuple("WgtInfo", "karat,wgt")):
 
     def __new__(_cls, karat, wgt):
-        return super(_cls, WgtInfo).__new__(_cls, karat, round(wgt, 2))
+        return super(_cls, WgtInfo).__new__(_cls, karat, _tofloat(wgt,2))
 
 
 # mps string and the corresponding silver/gold value
@@ -69,6 +79,10 @@ class MPS():
                 tarmps += "%s=%4.2f" % (ttls[idx],ps[idx])
         self._slots[3] = bool(tarmps)
         if tarmps: self._slots[2] = tarmps
+    
+    @classmethod
+    def _floateq(self,flt0,flt1):
+        return abs(flt0 - flt1) < 0.0001
 
     @property
     def isvalid(self):
@@ -86,6 +100,12 @@ class MPS():
     def value(self):
         return self._slots[2]
 
+    def __eq__(self, other):
+        return MPS._floateq(self.silver,other.silver) and  MPS._floateq(self.gold,other.gold)
+
+    def __hash__(self):        
+        return hash((int(self.silver * 10000),int(self.gold * 10000)))
+
     def __str__(self):
         return self._slots[2] if self._slots[2] else ""
 
@@ -98,6 +118,10 @@ Increment = namedtuple("Increment", "wgts,silver,gold,lossrate")
 
 # the china cost related data
 class PajChina(namedtuple("PajChina", "china,increment,mps,discount,metalcost")):
+
+    def __new__(_cls, china,increment,mps,discount,metalcost):
+        return super(_cls, PajChina).__new__(_cls, _tofloat(china,4), \
+        increment,mps,_tofloat(discount,4),_tofloat(metalcost,4))
 
     @property
     def lossrate(self):
@@ -128,20 +152,25 @@ class PrdWgt(namedtuple("PrdWgt", "main,aux,part")):
     @property
     def wgts(self):
         return (self.main, self.aux, self.part)
+    
+    def __str__(slice):
+        d = {"main":wgts.main, "sub":wgts.aux, "part":wgts.part}
+        return ";".join(["%s(%s=%s)" % (kw[0],kw[1].karat,kw[1].wgt) \
+            for kw in d.iteritems() if kw[1]])
 
 
 # constants
 PAJCHINAMPS = MPS("S=30;G=1500")
 
 
-def newchina(cn, wgt):
+def newchina(cn, wgts):
     """while knowing the china/wgts, return a PajChina instance
     @param cn: the known China cost
     @param wgt: A PrdWgt instance
     """
     cc = PajCalc()
-    return PajChina(cn, cc.calcincrement(wgt), PAJCHINAMPS, cc.calcdiscount(wgt), \
-        cc.calcmtlcost(wgt, PAJCHINAMPS))
+    return PajChina(cn, cc.calcincrement(wgts), PAJCHINAMPS, cc.calcdiscount(wgts), \
+        cc.calcmtlcost(wgts, PAJCHINAMPS))
 
 
 class PajCalc():
@@ -199,13 +228,13 @@ class PajCalc():
             # parts does not have loss
             r0 = kw.wgt * \
                 self.getfiness(kw.karat, vendor) * \
-                               (lossrate if(idx < 2) else 1.0) / 31.1035;
+                               (lossrate if(idx < 2) else 1.0) / 31.1035
             if(kw.karat == 925):
-                s += r0;
+                s += r0
             elif(kw.karat == 200):
                 pass
             else:
-                g += r0;
+                g += r0
 
         return Increment(prdwgt, s, g, lossrate)
 
@@ -226,10 +255,13 @@ class PajCalc():
         """
         if not all((prdwgt, refup, refmps)): return None
         if not tarmps: tarmps = PAJCHINAMPS
+        if isinstance(tarmps,basestring): tarmps = MPS(tarmps)
+        if isinstance(refmps,basestring): refmps = MPS(refmps)
+        if isinstance(refup,Decimal): refup = float(refup)
         if not (refup > 0 and refmps.isvalid and tarmps.isvalid): return None
 
         # the discount ratio, when there is silver, follow silver, silver = 0.9 while gold = 0.85
-        incr = self.calcincrement(prdwgt, None, "PAJ");
+        incr = self.calcincrement(prdwgt, None, "PAJ")
         dc = self.calcdiscount(prdwgt)
         if not self._checkargs(incr, refmps, tarmps):
             cn = MPSINVALID

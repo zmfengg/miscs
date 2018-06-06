@@ -15,15 +15,18 @@ import sys
 from collections import namedtuple
 from os import path
 
-import pajcc as pc
+import pajcc
+import datetime
 from hnjapp.pajcc import MPS,PrdWgt,WgtInfo
 from hnjcore import JOElement, xwu, appathsep, utils as hnju
+from hnjcore.utils.consts import NA
 
 
 def _checkfile(fn, fns):
     """ check file exists and file expiration
     @param fn: the log file
     @param fns: the files that need to generate log from
+    return True if file expired
     """
     flag = path.exists(fn)
     if flag:
@@ -34,9 +37,9 @@ def _checkfile(fn, fns):
 
 
 def _getexcels(fldr):
-    if fldr:
-        return [fldr + unicode(x, sys.getfilesystemencoding()) 
-                    for x in os.listdir(fldr) if x.lower().find("xls") >= 0]
+    if fldr:        
+        return [appathsep(fldr) + unicode(x, sys.getfilesystemencoding()) 
+            for x in os.listdir(fldr) if not x.startswith("~") and x.lower().find("xls") >= 0]
 
 def readsignetcn(fldr):
     """ read file format like \\172.16.8.46\pb\dptfile\quotation\date\Date2018\0521\123
@@ -319,7 +322,7 @@ class PajDataByRunn(object):
                         vvs = xwu.usedrange(sht).value
                         if not vvs: continue
                         mps1 = self._readMPS(vvs)
-                        if not mps1: mps1 = mps if mps else pc.PAJCHINAMPS
+                        if not mps1: mps1 = mps if mps else pajcc.PAJCHINAMPS
                         for row in vvs:
                             for x in [x for x in row if(x and isinstance(x, basestring) and x.lower().find("runn") >= 0)]:
                                 mt = self._ptnrunn.search(x)
@@ -384,7 +387,7 @@ class PajDataByRunn(object):
         def _putmap(wnc, runn, orgjn, tarmps, themap):
             key = "%s,%6.1f" % (wnc["PajShp"].pcode, wnc["china"].china)
             if not themap.has_key(key):
-                wnc["china"] = pc.PajCalc.calctarget(wnc["china"], tarmps)
+                wnc["china"] = pajcc.PajCalc.calctarget(wnc["china"], tarmps)
                 themap[key] = {"runn":runn, "jono":orgjn, "wnc":wnc}        
                 return True
         
@@ -576,7 +579,342 @@ class PajDataByRunn(object):
                 for x in lst:
                     wtr.writerow(x)
         return fn
+
+class InvAnalysis(object):
+    """ TODO:: do this after ack process the weekly PAJ Invoice Detail Analysis
+    """
+    def run(self,srcfldr, tarfile):
+        xls,app = xwu.app(False)
+        srcfldr = appathsep(srcfldr)        
+        fns = _getexcels(srcfldr)
+        try:
+            for fn in fns:
+                wb = app.books.open(srcfldr + fn)
+                for sht in wb.sheets():
+                    rng = xwu.find(sht, "PAJ_REFNO")
+                    if not rng: continue
+                    lst = xwu.listodict(xwu.usedrange(sht))
+        except:
+            pass
+        finally:
+            if wb: wb.close()
+
+class AckPriceCheck(object):
+    """ check given folder's acks """
+    _dfmt = "%Y%m%d"
+
+    CAT_NOREF = "NOREF"
+    CAT_OK = "OK"
+    CAT_ACCETABLE = "Acceptable"
+    CAT_CRITICAL = "Critical"
+
+    LEVEL_PFT = 1.2
+    LBL_PFT_LOW = "PFT.Low"
+    LBL_PFT_NRM = "PFT.Normal"
+    LBL_PFT_ERR = "PFT.Error"
+
+
+    LEVEL_ABS = 0.5, 1
+    LEVEL_REL = 0.05, 0.2
+    LEVEL_LBL = CAT_OK, CAT_ACCETABLE, CAT_CRITICAL
+    LBL_RFR = "RFR_"
+    LBL_RFH = "RFH_"
+    LBL_RF_NOREF = "REF_" + CAT_NOREF
+    _hdr = ("result,date,file,jono,styno,pcode,mps,pajprice,expected,diff.,poprice,profit"
+                ",ratio,wgts,ref.,rev,revhis").split(",")
+
+    def _writereadme(self,wb):
+        cnt = len(self.LEVEL_ABS)
+        lst = [("Ref. Classifying:","","")]
+        lst.append("Ref.Suffix,Diff$,DiffRatio".split(","))
+        for ii in range(cnt):
+            lst.append((self.LEVEL_LBL[ii],"'%s" % self.LEVEL_ABS[ii],\
+                "'%s%%" % (self.LEVEL_REL[ii]*100)))
+        lst.append((self.LEVEL_LBL[cnt],"'-","'-"))
+
+        sht = wb.sheets.add("Readme")
+        sht.range(1,1).value = lst
+
+        rowidx = len(lst) + 2
+        lst = ["Ref.Prefix,Meaning".split(",")]
+        lst.append((self.LBL_RFR,"Found in PAJ's revised files"))
+        lst.append((self.LBL_RFH,"Not in PAJ's revised files, but has invoice history"))
+        lst.append((self.LBL_RF_NOREF,"No any PAJ price reference data"))
+        sht.range(rowidx,1).value = lst
+
+        rowidx += len(lst) + 1
+        pfr = "%s%%" % (self.LEVEL_PFT * 100)
+        lst = [("Profit Margin(POPrice/PAJPrice) Classifying","")]
+        lst.append((self.LBL_PFT_NRM,"Profit margin greater or equal than %s" % pfr))
+        lst.append((self.LBL_PFT_LOW,"Profit margin less than %s" % pfr))
+        lst.append((self.LBL_PFT_ERR,"Not enough data for profit calculation"))
+        sht.range(rowidx,1).value = lst
+
+        rowidx += len(lst) + 1
+        lst = [("Spc. Sheet records are already inside other sheet","")]
+        lst.append(("Spc. Sheet","Meaning"))
+        lst.append(("_NewItem","Item does not have any prior PAJ price data"))
+        lst.append(("_PAJPriceExcpt","PAJ price exception with rev./previous data"))
+        sht.range(rowidx,1).value = lst
+
+        sht.autofit("c")
+
+        for sht in wb.sheets:
+            if sht.name.lower().find("sheet") >= 0:
+                sht.delete()
+
+    def _getvalue(self,sht, kw,direct = "right"):
+        rng = xwu.find(sht,kw)
+        if not rng: return
+        return rng.end(direct).value
     
+    def _classify(self,pajup,expup):
+        """return a classified string based on pajuprice/expecteduprice"""
+        diff = pajup - expup; rdiff = diff / expup
+        flag = False
+        for ii in range(len(self.LEVEL_ABS)):
+            if diff <= self.LEVEL_ABS[ii] and rdiff <= self.LEVEL_REL[ii]:
+                flag = True
+                break
+        if not flag: ii = len(self.LEVEL_ABS)
+        return self.LEVEL_LBL[ii]
+    
+    def _writerst(self,name,items,wb):
+        if not items: return
+        lst = []
+        lst.append(self._hdr)
+        for mp in items:
+            mp = mp.copy()
+            mp["jono"] = "'" + mp["jono"]
+            if "wgts" in mp:
+                wgts = mp["wgts"]
+                if isinstance(wgts,basestring):
+                    d = wgts
+                else:
+                    d = {"main":wgts.main, "sub":wgts.aux, "part":wgts.part}
+                    d = ";".join(["%s(%s=%s)" % (kw[0],kw[1].karat,kw[1].wgt) \
+                        for kw in d.iteritems() if kw[1]])                    
+                mp["wgts"] = d
+            lst.append([mp[x] if x in mp else NA for x in self._hdr])            
+        sht = wb.sheets.add(name)
+        sht.range(1,1).value = lst
+        fidx = [ii for ii in range(len(self._hdr)) if self._hdr[ii] == "file"][0] + 1
+        for idx in range(2,len(lst) + 1):
+            rng = sht.range(idx,fidx)
+            rng.add_hyperlink(str(rng.value))
+        sht.autofit('c')
+
+    def run(self,fldr,hksvc,xlfn = None):
+        """ execute the check process against the given folder, return a tuple of 
+        resultmap,wb
+        @param: fldr: the folder contains the acks
+        @param: hksvc: services of hk system
+        @param: xlfn: if provided, save with this file name to the same folder
+        """
+        fns = _getexcels(fldr)        
+        debugging = False
+        if not fns: return
+        fns = [x for x in fns if os.path.basename(x).lower().find("_") != 0]
+        fldr = appathsep(fldr)        
+        all = {}; datfn = fldr + "_src.dat"
+        kxl,app = False, None
+        if _checkfile(datfn,fns):
+            with open(datfn) as fh:
+                rdr = csv.DictReader(fh,dialect="excel")
+                for row in rdr:
+                    it = all.setdefault(row["jono"],row.copy())
+                    if isinstance(it["pcode"],basestring):
+                        it["pcode"] = []
+                    it["pcode"].append(row["pcode"])
+                    it["pajprice"] = float(it["pajprice"])
+                    it["qty"] = float(it["qty"])
+        if not all:
+            app = None; wb = None            
+            try:            
+                kxl,app = xwu.app(False)
+                for fn in fns:
+                    logging.debug("Reading file(%s)" % os.path.basename(fn))
+                    wb = app.books.open(fn)
+                    shcnt = 0
+                    for sht in wb.sheets:
+                        adate,sp,gp = None,0,0
+                        adate = self._getvalue(sht,"Order Date:")
+                        sp = self._getvalue(sht,"Silver*:")
+                        gp = self._getvalue(sht,"gold*:")
+                        
+                        if not (adate and any((sp,gp))):
+                            if any((adate,sp,gp)):
+                                logging.debug("sheet(%s) in file(%s) does not have enough arguments" % \
+                                (sht.name,os.path.basename(fn)))
+                            continue
+                        shcnt += 1
+                        mps = MPS("S=%f;G=%f" % (sp,gp)).value
+                        rng = xwu.find(sht,"item*")
+                        rng = rng.end("left")
+                        rng = rng.expand("table")
+                        vvs = rng.value
+                        cmap = xwu.listodict(vvs[0],{"Job,":"jono","item,item ":"pcode", \
+                            "Style,":"styno","Quant,Qty":"qty"})
+                        for idx in range(1,len(vvs)):
+                            jono = vvs[idx][cmap["jono"]]
+                            if not jono: break
+                            if isinstance(jono,numbers.Number): jono = "%d" % jono
+                            pcode = vvs[idx][cmap["pcode"]];pajup = vvs[idx][cmap["price"]]
+                            it = all.setdefault(jono,{"jono":jono})
+
+                            it["pajprice"],it["file"] = pajup,os.path.basename(fn)
+                            it["mps"], it["styno"] = mps, vvs[idx][cmap["styno"]]
+                            it["date"] = adate.strftime(self._dfmt)
+                            if "qty" in it:
+                                it["qty"] += float(vvs[idx][cmap["qty"]])
+                            else:
+                                it["qty"] = float(vvs[idx][cmap["qty"]])
+
+                            #for most case, one JO has one pcode only,
+                            #but in ring, it's quite diff.
+                            it.setdefault("pcode",[]).append(pcode)           
+                    if shcnt <= 0:
+                        logging.critical("file(%s) doesn't contains any valid sheet" % os.path.basename(fn))
+                    wb.close()
+                    wb = None
+            except Exception as e:
+                print(e)
+                if kxl and app:
+                    app.quit()
+                print(e)
+            finally:
+                if wb: wb.close()
+                
+            logging.debug("all file read, record count = %d" % len(all))                   
+            if all:
+                with open(datfn,"w") as fh:
+                    wtr = None
+                    for row in all.values():
+                        dct = row.copy()
+                        for c0 in row["pcode"]:                        
+                            dct["pcode"] = c0
+                            if not wtr:
+                                wtr = csv.DictWriter(fh,dct.keys(),dialect="excel")
+                                wtr.writeheader()
+                            wtr.writerow(dct)
+                logging.debug("result file written to %s" % os.path.basename(datfn))
+        
+        rsts = {}
+        sess = hksvc.session()
+        try:
+            jos = all.values()
+            jes = [JOElement(x["jono"]) for x in (jos[:10] if debugging else jos)]
+            jes = hksvc.getjos(jes,psess = sess)[0]
+            jes = dict([(x.name.value,{"poprice":float(x.po.uprice), \
+                "mps": x.poid, "wgts": hksvc.getjowgts(x.name,psess =sess)}) for x in jes])
+            for idx in range(len(jos)):
+                jo = jos[idx]
+                jn, pajup, mps= jo["jono"], jo["pajprice"], MPS(jo["mps"])
+                
+                if pajup < 0:
+                    pajup, jo["pajprice"] = 0, 0
+                
+                if jn in jes:
+                    prdwgts = jes[jn]["wgts"]
+                    pd = jes[jn]
+                    '''
+                    jo["hnjmps"] = pd["mps"]                    
+                    '''
+                    jo["wgts"] = pd["wgts"]
+                    x = pd["poprice"]
+                    if x:
+                        jo["poprice"] = x
+                        jo["profit"] = x - pajup
+                        if pajup:
+                            jo["ratio"] = "%s%%" % (x / pajup * 100)
+                    jo["result"] = self.LBL_PFT_ERR if not (x and pajup) \
+                        else self.LBL_PFT_NRM if x / pajup >= self.LEVEL_PFT \
+                        else self.LBL_PFT_LOW
+                else:
+                    prdwgts = hksvc.getjowgts(JOElement(jn), psess = sess)
+                    jo["result"] = self.LBL_PFT_ERR
+
+                pfx = ""
+                cn,pcs = None, jo["pcode"]
+                for pcode in pcs:
+                    cn = hksvc.getrevcns(pcode,psess = sess)
+                    if cn: break
+                if not cn:
+                    for pcode in pcs: 
+                        adate = datetime.datetime.strptime(jo["date"],self._dfmt)
+                        cn = hksvc.getpajinvbypcode(pcode,maxinvdate = adate, \
+                            limit = 2,psess = sess)
+                        if cn: break
+                    if cn:
+                        revs = cn
+                        refup, refmps = revs[0].PajInv.uprice, revs[0].PajInv.mps
+                        cn = pajcc.PajCalc.calchina(prdwgts,refup,refmps)
+                        jo["rev"] = "%s @ %s @ JO(%s)" % \
+                            (cn.china, revs[0].PajShp.invdate.strftime(self._dfmt),jn)
+                        tar = pajcc.PajCalc.calctarget(cn,mps)                     
+                        pfx = self.LBL_RFH
+                    else:
+                        jo["ref."] = self.LBL_RF_NOREF
+                        rsts.setdefault(jo["result"],[]).append(jo)             
+                        continue
+                else:
+                    revs = cn
+                    cn = pajcc.newchina(cn[0].uprice, prdwgts)
+                    tar = pajcc.PajCalc.calctarget(cn,mps)
+                    jo["rev"] = "%s @ %s" % (revs[0].uprice,revs[0].revdate.strftime(self._dfmt))
+                    if len(revs) > 1:
+                        jo["revhis"] = ",".join(["%s @ %s" % (x.uprice,x.revdate.strftime(self._dfmt)) for x in revs])
+                    pfx = self.LBL_RFR
+                jo["expected"] = tar.china
+                jo["pcode"] = pcode
+                jo["diff."] = round(jo["pajprice"] - tar.china,2)
+                jo["ref."] = pfx + self._classify(pajup,tar.china)
+
+                rsts.setdefault(jo["result"],[]).append(jo)
+                
+                if idx and idx % 10 == 0:
+                    logging.info("%d of %d done" % (idx,len(jos)))
+                if debugging and idx > 30:
+                    break
+        except Exception as e:
+            print("Exception: %s" % e.message)
+        finally:
+            sess.close()
+
+        if not rsts: return None
+        if not app:
+            kxl,app = xwu.app(False)
+        try:
+            wb = app.books.add()
+            self._writereadme(wb)
+
+            for kv in rsts.iteritems():
+                self._writerst(kv[0],kv[1],wb)
+            #a sheet showing all the non-reference items
+            jn = self.LBL_RF_NOREF
+            lst = []
+            [lst.extend(y) for y in rsts.values()]
+            lst1 = [x for x in lst if x["ref."] == self.LBL_RF_NOREF]
+            self._writerst("_NewItem",lst1,wb)
+
+            lst1 = [x for x in lst \
+            if x["ref."].find(self.CAT_ACCETABLE) >= 0 or \
+            x["ref."].find(self.CAT_CRITICAL) >= 0 ]
+            self._writerst("_PAJPriceExcpt",lst1,wb)
+        except Exception as e:
+            print(e)
+        finally:
+            if not wb and kxl and app:
+                app.quit()
+            else:
+                app.visible = True
+                if xlfn:
+                    wb.save(fldr + xlfn)
+                wb.close()
+                    
+        return rsts, wb
+
+
 if __name__ == "__main__":
     for x in (r'd:\temp\1200&15.xls', r'd:\temp\1300&20.xls'):
         readagq(x)

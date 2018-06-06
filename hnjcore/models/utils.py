@@ -73,7 +73,7 @@ class JOElement(object):
     def __str__(self, *args, **kwargs):
         if(hasattr(self,'digit')):
             return self.alpha + \
-                (("%0" + str(self.__minlen__ - len(self.alpha)) + "d") % self.digit) + self.suffix 
+                (("%0" + str(self.__minlen__ - len(self.alpha)) + "d") % self.digit)
         else:
             return ""
         
@@ -117,3 +117,9 @@ class StyElement(JOElement):
 
     def __hash__(self):        
         return hash((super(StyElement,self).__hash__(),self.suffix))
+
+    def __str__(self, *args, **kwargs):
+        val = super(StyElement,self).__str__(args,**kwargs)
+        if val:
+            val += self.suffix
+        return val
