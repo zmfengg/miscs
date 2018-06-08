@@ -153,8 +153,8 @@ class PrdWgt(namedtuple("PrdWgt", "main,aux,part")):
     def wgts(self):
         return (self.main, self.aux, self.part)
     
-    def __str__(slice):
-        d = {"main":wgts.main, "sub":wgts.aux, "part":wgts.part}
+    def __str__(self):
+        d = {"main":self.main, "sub":self.aux, "part":self.part}
         return ";".join(["%s(%s=%s)" % (kw[0],kw[1].karat,kw[1].wgt) \
             for kw in d.iteritems() if kw[1]])
 

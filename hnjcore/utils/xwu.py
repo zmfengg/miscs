@@ -108,3 +108,18 @@ def fromtemplate(tplfn, app=None):
         app = xlwings.App() if not xlwings.apps else xlwings.apps(0)
     app.api.Application.Workbooks.Add(tplfn)
     return app.books.active
+
+def freeze(rng,restrfocus = True):
+    """ freeze the window at given range """
+    app = rng.sheet.book.app
+    if restrfocus: orng = app.selection
+    def _selrng(rg):
+        rg.sheet.activate()
+        rg.select()
+    try:
+        _selrng(rng)
+        app.api.ActiveWindow.FreezePanes = True
+        if restrfocus:
+            _selrng(orng)
+    except:
+        pass

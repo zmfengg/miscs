@@ -9,6 +9,8 @@
 
 import re
 from logging import Logger
+import thread
+import threading
 
 from sqlalchemy.orm import Session, Query
 from sqlalchemy import and_, desc, or_, true
@@ -22,8 +24,10 @@ from hnjcore.models.hk import StockObjectMa as SO, Invoice as IV, InvoiceItem as
 from hnjcore.models.cn import MMMa, MM
 from hnjcore.utils.consts import NA
 from hnjcore.utils import samekarat, splitarray
+import datetime
 from contextlib import contextmanager
 from collections import Iterable
+from operator import attrgetter
 
 
 __all__ = ["HKSvc", "CNSvc"]
@@ -36,7 +40,6 @@ def fmtsku(skuno):
     if skuno.upper() == NA:
         return None
     return skuno
-
 
 class SvcBase(object):
     _querysize = 20
@@ -232,11 +235,12 @@ class HKSvc(SvcBase):
                     cur.close()
         return rc.uprice if rc else 0
 
-    def findsimilarjo(self, jo, level=1, psess=None):
+    def findsimilarjo(self, jo, level=1, mindate = datetime.datetime(2015,1,1), psess=None):
         """ return an list of JO based on below criteria
         @param level:   0 for extract SKU match
                         1 for extract karat match
                         1+ for extract style match
+        @param mindate: the minimum date to fetch data
         """
         rc = None
         level = 0 if level < 0 else level
@@ -244,8 +248,12 @@ class HKSvc(SvcBase):
         jns = None
         cur = psess if psess else self.session()
         try:
-            rows = cur.query(JO, POItem.skuno).join(Orderma).join(POItem, JO.poid == POItem.id)\
-                .filter(Orderma.styid == jo.orderma.style.id).all()
+            #don't lookup too much, only return data since 2015
+            q = Query([JO, POItem.skuno]).join(Orderma).join(POItem,POItem.id == JO.poid)\
+                .filter(Orderma.styid == jo.orderma.style.id)
+            if mindate:
+                q = q.filter(JO.createdate >= mindate)
+            rows = q.with_session(cur).all()
             if(rows):
                 jns = {}
                 for x in rows:
@@ -268,6 +276,8 @@ class HKSvc(SvcBase):
         finally:
             if cur and not psess:
                 cur.close()
+        if rc and len(rc) > 1:
+            rc = sorted(rc,key = attrgetter("createdate"), reverse = True)
         return rc
 
     def getjowgts(self, jo, psess=None):

@@ -25,7 +25,9 @@ from dbsvcs import CNSvc, HKSvc
 from hnjcore import JOElement, appathsep, deepget, p17u, xwu
 from hnjcore.models.hk import PajInv, PajShp
 from hnjcore.utils.consts import NA
+from hnjcore.utils import getfiles
 from quordrs import DAO
+from pajcc import PrdWgt,WgtInfo
 
 _accdfmt = "%Y-%m-%d %H:%M:%S"
 
@@ -63,7 +65,96 @@ def _getjoids(jonos, hnjhkdb):
             cur.close()
     return rc
 
+def readBOM(fldr):
+    _ptnoz = re.compile(r"\(\$\d*/OZ\)")
+    _ptnsil = re.compile(r"(925)")
+    _ptngol = re.compile(r"^(\d*)K")
+    _ptdst = re.compile(r"[\(（](\d*)[\)）]")
+    
+    def _parsekarat(mat,ispol =True):
+        """ return karat from material string """
+        if ispol:
+            mt = _ptnoz.search(mat)
+            if not mt: return        
+        if _ptnsil.search(mat):
+            return 925
+        else:
+            mt = _ptngol.search(mat)
+            if mt:
+                return int(mt.group(1))
+            else:
+                mt = _ptdst.search(mat)
+                if mt:
+                    #TODO::density to karat
+                    return mt.group(1)
 
+                
+
+    if os.path.isdir(fldr):
+        fns = getfiles(fldr,"xls")
+    else:
+        fns = [fldr]
+    if not fns: return
+
+    kxl,app = xwu.app(False)
+    try:
+        pmap = {}
+        for fn in fns:
+            wb = app.books.open(fn)
+            shts = [0,0]
+            for sht in wb.sheets:
+                rng = xwu.find(sht, u"十七位")
+                if not rng: continue
+                if xwu.find(sht, u"抛光后"):
+                    shts[0] = (sht,rng)
+                elif xwu.find(sht, u"物料"):
+                    shts[1] = (sht,rng)
+            if not all(shts): break
+            for jj in range(len(shts)):
+                vvs = shts[jj][1].end("left").expand("table").value
+                if jj == 0:                    
+                    wcn = xwu.listodict(vvs[0],{u"十七位,":"pcode",u"材质,":"mat",u"抛光,":"mtlwgt"})
+                    for ii in range(1,len(vvs)):
+                        pcode = vvs[ii][wcn["pcode"]]
+                        if not p17u.isvalidp17(pcode): break
+                        kt = _parsekarat(vvs[ii][wcn["mat"]])
+                        if not kt: continue
+                        it = pmap.setdefault(pcode,{"pcode":pcode})
+                        it.setdefault("wgts",[]).append((kt,vvs[ii][wcn["mtlwgt"]]))
+                elif jj == 1:
+                    nmap = {u"十七位,":"pcode",u"物料名称":"name", \
+                        u"物料特征":"spec",u"数量":"qty",u"重量":"wgt",u"单位":"unit"}
+                    wcn = xwu.listodict(vvs[0],nmap)
+                    nmap = [x for x in nmap.values() if x.find("pcode") < 0]
+                    pcode0 = None
+                    for ii in range(1,len(vvs)):
+                        qty = vvs[ii][wcn["qty"]]
+                        if not qty: continue
+                        kt = _parsekarat(vvs[ii][wcn["name"]],False)
+                        if not kt: continue
+
+                        pcode = vvs[ii][wcn["pcode"]]
+                        if not pcode: 
+                            pcode = pcode0
+                        else:
+                            pcode0 = pcode
+                        it = pmap.setdefault(pcode,{"pcode":pcode})
+                        mats, it = it.setdefault("parts",[]), {}
+                        mats.append(it)
+                        for cn in nmap:
+                            it[cn] = vvs[ii][wcn[cn]]
+                        it["karat"] = kt
+            wb.close()
+        for x in pmap.iteritems():
+            if "parts" in x[1]:
+                pass
+            else:
+                #TODO::
+                lst = x[1]["wgts"]
+                wgts = PrdWgt(WgtInfo(lst[0][0],lst[0][1]))
+    finally:
+        if kxl and app: app.quit()
+                        
 class ShpReader:
 
     def __init__(self, accdb, hksvc):
@@ -728,7 +819,6 @@ class PAJCReader(object):
             else:
                 app.visible = True
         return lst, fn
-
 
 class PriceTracker(object):
     """ class to keep track of Pcode price changes

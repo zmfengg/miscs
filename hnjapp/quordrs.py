@@ -35,7 +35,6 @@ def _checkfile(fn, fns):
             flag = ld > max([path.getmtime(x) for x in fns])
     return flag
 
-
 def _getexcels(fldr):
     if fldr:        
         return [appathsep(fldr) + unicode(x, sys.getfilesystemencoding()) 
@@ -105,7 +104,6 @@ def readsignetcn(fldr):
                 print("data error:(%s)" % x)
         rng = wb.sheets(1).range("A1")
         rng.value = lstfn
-
 
 def readagq(fn):
     """
@@ -234,7 +232,6 @@ class DAO(object):
         finally:
             if cur: cur.close()
         return lst
-    
 
 class PajDataByRunn(object):
     r"""
@@ -609,9 +606,10 @@ class AckPriceCheck(object):
     CAT_CRITICAL = "Critical"
 
     LEVEL_PFT = 1.2
-    LBL_PFT_LOW = "PFT.Low"
-    LBL_PFT_NRM = "PFT.Normal"
-    LBL_PFT_ERR = "PFT.Error"
+    LBL_PFT = "PFT."
+    LBL_PFT_LOW = LBL_PFT + "Low"
+    LBL_PFT_NRM = LBL_PFT + "Normal"
+    LBL_PFT_ERR = LBL_PFT + "Error"
 
 
     LEVEL_ABS = 0.5, 1
@@ -619,90 +617,11 @@ class AckPriceCheck(object):
     LEVEL_LBL = CAT_OK, CAT_ACCETABLE, CAT_CRITICAL
     LBL_RFR = "RFR_"
     LBL_RFH = "RFH_"
-    LBL_RF_NOREF = "REF_" + CAT_NOREF
-    _hdr = ("result,date,file,jono,styno,pcode,mps,pajprice,expected,diff.,poprice,profit"
-                ",ratio,wgts,ref.,rev,revhis").split(",")
-
-    def _writereadme(self,wb):
-        cnt = len(self.LEVEL_ABS)
-        lst = [("Ref. Classifying:","","")]
-        lst.append("Ref.Suffix,Diff$,DiffRatio".split(","))
-        for ii in range(cnt):
-            lst.append((self.LEVEL_LBL[ii],"'%s" % self.LEVEL_ABS[ii],\
-                "'%s%%" % (self.LEVEL_REL[ii]*100)))
-        lst.append((self.LEVEL_LBL[cnt],"'-","'-"))
-
-        sht = wb.sheets.add("Readme")
-        sht.range(1,1).value = lst
-
-        rowidx = len(lst) + 2
-        lst = ["Ref.Prefix,Meaning".split(",")]
-        lst.append((self.LBL_RFR,"Found in PAJ's revised files"))
-        lst.append((self.LBL_RFH,"Not in PAJ's revised files, but has invoice history"))
-        lst.append((self.LBL_RF_NOREF,"No any PAJ price reference data"))
-        sht.range(rowidx,1).value = lst
-
-        rowidx += len(lst) + 1
-        pfr = "%s%%" % (self.LEVEL_PFT * 100)
-        lst = [("Profit Margin(POPrice/PAJPrice) Classifying","")]
-        lst.append((self.LBL_PFT_NRM,"Profit margin greater or equal than %s" % pfr))
-        lst.append((self.LBL_PFT_LOW,"Profit margin less than %s" % pfr))
-        lst.append((self.LBL_PFT_ERR,"Not enough data for profit calculation"))
-        sht.range(rowidx,1).value = lst
-
-        rowidx += len(lst) + 1
-        lst = [("Spc. Sheet records are already inside other sheet","")]
-        lst.append(("Spc. Sheet","Meaning"))
-        lst.append(("_NewItem","Item does not have any prior PAJ price data"))
-        lst.append(("_PAJPriceExcpt","PAJ price exception with rev./previous data"))
-        sht.range(rowidx,1).value = lst
-
-        sht.autofit("c")
-
-        for sht in wb.sheets:
-            if sht.name.lower().find("sheet") >= 0:
-                sht.delete()
-
-    def _getvalue(self,sht, kw,direct = "right"):
-        rng = xwu.find(sht,kw)
-        if not rng: return
-        return rng.end(direct).value
-    
-    def _classify(self,pajup,expup):
-        """return a classified string based on pajuprice/expecteduprice"""
-        diff = pajup - expup; rdiff = diff / expup
-        flag = False
-        for ii in range(len(self.LEVEL_ABS)):
-            if diff <= self.LEVEL_ABS[ii] and rdiff <= self.LEVEL_REL[ii]:
-                flag = True
-                break
-        if not flag: ii = len(self.LEVEL_ABS)
-        return self.LEVEL_LBL[ii]
-    
-    def _writerst(self,name,items,wb):
-        if not items: return
-        lst = []
-        lst.append(self._hdr)
-        for mp in items:
-            mp = mp.copy()
-            mp["jono"] = "'" + mp["jono"]
-            if "wgts" in mp:
-                wgts = mp["wgts"]
-                if isinstance(wgts,basestring):
-                    d = wgts
-                else:
-                    d = {"main":wgts.main, "sub":wgts.aux, "part":wgts.part}
-                    d = ";".join(["%s(%s=%s)" % (kw[0],kw[1].karat,kw[1].wgt) \
-                        for kw in d.iteritems() if kw[1]])                    
-                mp["wgts"] = d
-            lst.append([mp[x] if x in mp else NA for x in self._hdr])            
-        sht = wb.sheets.add(name)
-        sht.range(1,1).value = lst
-        fidx = [ii for ii in range(len(self._hdr)) if self._hdr[ii] == "file"][0] + 1
-        for idx in range(2,len(lst) + 1):
-            rng = sht.range(idx,fidx)
-            rng.add_hyperlink(str(rng.value))
-        sht.autofit('c')
+    LBL_REF = "REF_"
+    LBL_SML = "SML" #samiliar
+    LBL_RF_NOREF = LBL_REF + CAT_NOREF
+    _hdr = ("file,jono,styno,qty,pcode,mps,pajprice,expected,diff."
+                ",poprice,profit,ttl.pft.,ratio,wgts,ref.,rev,revhis,date,result").split(",")
 
     def run(self,fldr,hksvc,xlfn = None):
         """ execute the check process against the given folder, return a tuple of 
@@ -711,13 +630,23 @@ class AckPriceCheck(object):
         @param: hksvc: services of hk system
         @param: xlfn: if provided, save with this file name to the same folder
         """
-        fns = _getexcels(fldr)        
-        debugging = False
+        logging.info("Begin to do ack. analyst for folder(%s)" % os.path.basename(fldr))
+        fldr = appathsep(fldr)
+        all,app = self._readsrcdata(fldr)
+        rsts = self._processall(hksvc,all)
+        if not rsts: return None
+        wb = self._writewb(rsts,fldr + xlfn, app)
+        logging.info("folder(%s) processed, total records = %d" % \
+            (os.path.basename(fldr),sum([len(x) for x in rsts.values()])))
+        return rsts, wb
+
+    def _readsrcdata(self,fldr):
+        fns = _getexcels(fldr)
         if not fns: return
         fns = [x for x in fns if os.path.basename(x).lower().find("_") != 0]
         fldr = appathsep(fldr)        
         all = {}; datfn = fldr + "_src.dat"
-        kxl,app = False, None
+        kxl,app,wb = False, None ,None
         if _checkfile(datfn,fns):
             with open(datfn) as fh:
                 rdr = csv.DictReader(fh,dialect="excel")
@@ -729,7 +658,6 @@ class AckPriceCheck(object):
                     it["pajprice"] = float(it["pajprice"])
                     it["qty"] = float(it["qty"])
         if not all:
-            app = None; wb = None            
             try:            
                 kxl,app = xwu.app(False)
                 for fn in fns:
@@ -749,9 +677,12 @@ class AckPriceCheck(object):
                             continue
                         shcnt += 1
                         mps = MPS("S=%f;G=%f" % (sp,gp)).value
-                        rng = xwu.find(sht,"item*")
-                        rng = rng.end("left")
-                        rng = rng.expand("table")
+                        #don't use the NO field, sometimes it's blank, use JO# instead
+                        rng = xwu.find(sht,"Job*")
+                        rng0 = xwu.usedrange(sht)
+                        #rng = sht.range((rng.row,1),(rng0.row,rng.column))
+                        rng = sht.range(sht.range(rng.row,1), \
+                            sht.range(rng0.row + rng0.rows.count -1 ,rng0.column + rng0.columns.count - 1))
                         vvs = rng.value
                         cmap = xwu.listodict(vvs[0],{"Job,":"jono","item,item ":"pcode", \
                             "Style,":"styno","Quant,Qty":"qty"})
@@ -781,7 +712,7 @@ class AckPriceCheck(object):
                 print(e)
                 if kxl and app:
                     app.quit()
-                print(e)
+                    wb = None
             finally:
                 if wb: wb.close()
                 
@@ -798,90 +729,116 @@ class AckPriceCheck(object):
                                 wtr.writeheader()
                             wtr.writerow(dct)
                 logging.debug("result file written to %s" % os.path.basename(datfn))
+        return all,app        
+
+    def _processone(self,jo,jes,hksvc,sess,smlookup = False):
+
+        jn, pajup, mps= jo["jono"], jo["pajprice"], MPS(jo["mps"])        
+        if pajup < 0:
+            pajup, jo["pajprice"] = 0, 0
         
+        if jn in jes:
+            prdwgts = jes[jn]["wgts"]
+            pd = jes[jn]
+            jo["wgts"] = pd["wgts"]
+            x = pd["poprice"]
+            if x:
+                jo["poprice"] = x
+                jo["profit"] = x - pajup
+                jo["ttl.pft."] = jo["profit"] * jo["qty"]
+                if pajup:
+                    jo["ratio"] = x / pajup * 100.0
+            jo["result"] = self._classifypft(pajup,x)
+        else:
+            prdwgts = hksvc.getjowgts(JOElement(jn), psess = sess)
+            jo["result"] = self._classifypft(0,0)
+
+        pfx = ""
+        cn,pcs = None, jo["pcode"]
+        if isinstance(pcs,basestring): pcs = [pcs]
+        for pcode in pcs:
+            cn = hksvc.getrevcns(pcode,psess = sess)
+            if cn: break
+        jo["pcode"] = pcode
+        if not cn:
+            for pcode in pcs: 
+                adate = datetime.datetime.strptime(jo["date"],self._dfmt)
+                cn = hksvc.getpajinvbypcode(pcode,maxinvdate = adate, \
+                    limit = 2,psess = sess)
+                if cn:
+                    jo["pcode"] = pcode
+                    break      
+            if cn:
+                revs = cn
+                refup, refmps = revs[0].PajInv.uprice, revs[0].PajInv.mps
+                cn = pajcc.PajCalc.calchina(prdwgts,refup,refmps)
+                jo["rev"] = "%s @ %s @ JO(%s)" % \
+                    (cn.china, revs[0].PajShp.invdate.strftime(self._dfmt),jn)
+                tar = pajcc.PajCalc.calctarget(cn,mps)                     
+                pfx = self.LBL_RFH
+            else:
+                cds = hksvc.findsimilarjo(jes[jn]["jo"],level = 1,psess =sess) if smlookup else None                    
+                if cds:
+                    for x in cds:
+                        jo1 = jo.copy()
+                        jpv = hksvc.getpajinvbyjes([x.name],psess = sess)
+                        if not jpv: continue
+                        jpv = jpv[0]
+                        jo1["jono"] = x.name.value
+                        jo1["pcode"] = jpv.PajShp.pcode
+                        jo1["date"] = jpv.PajShp.invdate.strftime(self._dfmt)
+                        jes1 = self._fetchjos([x],hksvc,sess)                        
+                        if self._processone(jo1,jes1,hksvc,sess,False):
+                            for x in "rev,revhis,expected,diff.".split(","):
+                                if x in jo1: jo[x] = jo1[x]
+                            jo["ref."] = self.LBL_REF + self.LBL_SML + "_" \
+                                + self._classifyref(pajup,jo1["expected"]) + "_" + jo1["jono"]
+                            return True
+                    cds = None
+                if not cds:
+                    jo["ref."] = self.LBL_RF_NOREF
+                    return False
+        else:
+            revs = cn
+            cn = pajcc.newchina(cn[0].uprice, prdwgts)
+            tar = pajcc.PajCalc.calctarget(cn,mps)
+            jo["rev"] = "%s @ %s" % (revs[0].uprice,revs[0].revdate.strftime(self._dfmt))
+            if len(revs) > 1:
+                jo["revhis"] = ",".join(["%s @ %s" % (x.uprice,x.revdate.strftime(self._dfmt)) for x in revs])
+            pfx = self.LBL_RFR
+        jo["expected"] = tar.china
+        jo["diff."] = round(jo["pajprice"] - tar.china,2)
+        jo["ref."] = pfx + self._classifyref(pajup,tar.china)
+        return True
+
+    def _fetchjos(self,jos,hksvc,sess):
+        """ return the jono -> (poprice,mps,wgts) map """
+        return dict([(x.name.value,{"jo":x,"poprice":float(x.po.uprice), \
+                "mps": x.poid, "wgts": hksvc.getjowgts(x.name,psess =sess)}) for x in jos])
+
+    def _processall(self,hksvc,all):
         rsts = {}
         sess = hksvc.session()
         try:
             jos = all.values()
-            jes = [JOElement(x["jono"]) for x in (jos[:10] if debugging else jos)]
+            jes = [JOElement(x["jono"]) for x in jos]
             jes = hksvc.getjos(jes,psess = sess)[0]
-            jes = dict([(x.name.value,{"poprice":float(x.po.uprice), \
-                "mps": x.poid, "wgts": hksvc.getjowgts(x.name,psess =sess)}) for x in jes])
+            jes = self._fetchjos(jes,hksvc,sess)
             for idx in range(len(jos)):
                 jo = jos[idx]
-                jn, pajup, mps= jo["jono"], jo["pajprice"], MPS(jo["mps"])
-                
-                if pajup < 0:
-                    pajup, jo["pajprice"] = 0, 0
-                
-                if jn in jes:
-                    prdwgts = jes[jn]["wgts"]
-                    pd = jes[jn]
-                    '''
-                    jo["hnjmps"] = pd["mps"]                    
-                    '''
-                    jo["wgts"] = pd["wgts"]
-                    x = pd["poprice"]
-                    if x:
-                        jo["poprice"] = x
-                        jo["profit"] = x - pajup
-                        if pajup:
-                            jo["ratio"] = "%s%%" % (x / pajup * 100)
-                    jo["result"] = self.LBL_PFT_ERR if not (x and pajup) \
-                        else self.LBL_PFT_NRM if x / pajup >= self.LEVEL_PFT \
-                        else self.LBL_PFT_LOW
-                else:
-                    prdwgts = hksvc.getjowgts(JOElement(jn), psess = sess)
-                    jo["result"] = self.LBL_PFT_ERR
-
-                pfx = ""
-                cn,pcs = None, jo["pcode"]
-                for pcode in pcs:
-                    cn = hksvc.getrevcns(pcode,psess = sess)
-                    if cn: break
-                if not cn:
-                    for pcode in pcs: 
-                        adate = datetime.datetime.strptime(jo["date"],self._dfmt)
-                        cn = hksvc.getpajinvbypcode(pcode,maxinvdate = adate, \
-                            limit = 2,psess = sess)
-                        if cn: break
-                    if cn:
-                        revs = cn
-                        refup, refmps = revs[0].PajInv.uprice, revs[0].PajInv.mps
-                        cn = pajcc.PajCalc.calchina(prdwgts,refup,refmps)
-                        jo["rev"] = "%s @ %s @ JO(%s)" % \
-                            (cn.china, revs[0].PajShp.invdate.strftime(self._dfmt),jn)
-                        tar = pajcc.PajCalc.calctarget(cn,mps)                     
-                        pfx = self.LBL_RFH
-                    else:
-                        jo["ref."] = self.LBL_RF_NOREF
-                        rsts.setdefault(jo["result"],[]).append(jo)             
-                        continue
-                else:
-                    revs = cn
-                    cn = pajcc.newchina(cn[0].uprice, prdwgts)
-                    tar = pajcc.PajCalc.calctarget(cn,mps)
-                    jo["rev"] = "%s @ %s" % (revs[0].uprice,revs[0].revdate.strftime(self._dfmt))
-                    if len(revs) > 1:
-                        jo["revhis"] = ",".join(["%s @ %s" % (x.uprice,x.revdate.strftime(self._dfmt)) for x in revs])
-                    pfx = self.LBL_RFR
-                jo["expected"] = tar.china
-                jo["pcode"] = pcode
-                jo["diff."] = round(jo["pajprice"] - tar.china,2)
-                jo["ref."] = pfx + self._classify(pajup,tar.china)
-
-                rsts.setdefault(jo["result"],[]).append(jo)
-                
-                if idx and idx % 10 == 0:
-                    logging.info("%d of %d done" % (idx,len(jos)))
-                if debugging and idx > 30:
-                    break
-        except Exception as e:
-            print("Exception: %s" % e.message)
+                try:
+                    self._processone(jo,jes,hksvc,sess,True)
+                    rsts.setdefault(jo["result"],[]).append(jo)                
+                    if idx and idx % 10 == 0:
+                        logging.info("%d of %d done" % (idx,len(jos)))
+                except:
+                    rsts.setdefault("PROGRAM_ERROR",[]).append(jo)
         finally:
             sess.close()
+        return rsts
 
-        if not rsts: return None
+    def _writewb(self,rsts,fn,app):
+        wb = None
         if not app:
             kxl,app = xwu.app(False)
         try:
@@ -889,30 +846,137 @@ class AckPriceCheck(object):
             self._writereadme(wb)
 
             for kv in rsts.iteritems():
-                self._writerst(kv[0],kv[1],wb)
+                self._writesht(kv[0],kv[1],wb)                
+
             #a sheet showing all the non-reference items
-            jn = self.LBL_RF_NOREF
             lst = []
             [lst.extend(y) for y in rsts.values()]
+
             lst1 = [x for x in lst if x["ref."] == self.LBL_RF_NOREF]
-            self._writerst("_NewItem",lst1,wb)
+            self._writesht("_NewItem",lst1,wb)
+
+            lst1 = [x for x in lst if x["ref."].find(self.LBL_SML) >= 0]
+            self._writesht("_NewItem_SAMILIAR",lst1,wb)
 
             lst1 = [x for x in lst \
             if x["ref."].find(self.CAT_ACCETABLE) >= 0 or \
             x["ref."].find(self.CAT_CRITICAL) >= 0 ]
-            self._writerst("_PAJPriceExcpt",lst1,wb)
-        except Exception as e:
-            print(e)
+            self._writesht("_PAJPriceExcpt",lst1,wb)        
         finally:
             if not wb and kxl and app:
                 app.quit()
             else:
                 app.visible = True
-                if xlfn:
-                    wb.save(fldr + xlfn)
+                if fn:
+                    wb.save(fn)
                 wb.close()
-                    
-        return rsts, wb
+        return wb
+
+    def _writesht(self,name,items,wb):
+        if not items: return
+        lst,rms = [],None
+        hdr = self._hdr
+        if name.startswith(self.LBL_PFT):
+            rms = set("expected,diff.,wgts,rev,revhis,mps".split(","))
+            if name.find(self.LBL_PFT_ERR) < 0:
+                items = sorted(items,key = lambda x: x["ratio"])
+        elif name == "_NewItem":
+            rms = set("expected,diff.,ref.,rev,revhis".split(","))
+            items = sorted(items,key = lambda x: x["file"] + "," + x["jono"])
+        else:
+            items = sorted(items,key = lambda x: x["file"] + "," + x["jono"])            
+
+        if rms:
+            hdr = [x for x in hdr if x not in rms]
+        lst.append(hdr)
+        for mp in items:
+            mp = mp.copy()
+            mp["jono"] = "'" + mp["jono"]
+            if "ratio" in mp:
+                mp["ratio"] = "%s%%" % mp["ratio"]
+            if "wgts" in mp:
+                wgts = mp["wgts"]
+                if isinstance(wgts,basestring):
+                    d = wgts
+                else:
+                    d = {"main":wgts.main, "sub":wgts.aux, "part":wgts.part}
+                    d = ";".join(["%s(%s=%s)" % (kw[0],kw[1].karat,kw[1].wgt) \
+                        for kw in d.iteritems() if kw[1]])                    
+                mp["wgts"] = d
+            lst.append([mp[x] if x in mp else NA for x in hdr])            
+        sht = wb.sheets.add(name)
+        sht.range(1,1).value = lst
+        fidx = [ii for ii in range(len(hdr)) if hdr[ii] == "file"][0] + 1
+        for idx in range(2,len(lst) + 1):
+            rng = sht.range(idx,fidx)
+            rng.add_hyperlink(str(rng.value))
+        sht.autofit('c')
+        xwu.freeze(sht.range(2,4),False)
+
+    def _writereadme(self,wb):
+        cnt = len(self.LEVEL_ABS)
+        lst = [("Ref. Classifying:","","")]
+        lst.append("Ref.Suffix,Diff$,DiffRatio".split(","))
+        for ii in range(cnt):
+            lst.append((self.LEVEL_LBL[ii],"'%s" % self.LEVEL_ABS[ii],\
+                "'%s%%" % (self.LEVEL_REL[ii]*100)))
+        lst.append((self.LEVEL_LBL[cnt],"'-","'-"))
+
+        sht = wb.sheets.add("Readme")
+        sht.range(1,1).value = lst
+
+        rowidx = len(lst) + 2
+        lst = ["Ref.Prefix,Meaning".split(",")]
+        lst.append((self.LBL_RFR,"Found in PAJ's revised files"))
+        lst.append((self.LBL_RFH,"Not in PAJ's revised files, but has invoice history"))
+        lst.append((self.LBL_RF_NOREF,"No any PAJ price reference data"))
+        sht.range(rowidx,1).value = lst
+
+        rowidx += len(lst) + 1
+        pfr = "%s%%" % (self.LEVEL_PFT * 100)
+        lst = [("Profit Margin(POPrice/PAJPrice) Classifying","")]
+        lst.append(("Spc. Sheet","Meaning"))
+        lst.append((self.LBL_PFT_NRM,"Profit margin greater or equal than %s" % pfr))
+        lst.append((self.LBL_PFT_LOW,"Profit margin less than %s" % pfr))
+        lst.append((self.LBL_PFT_ERR,"Not enough data for profit calculation"))
+        sht.range(rowidx,1).value = lst
+
+        rowidx += len(lst) + 1
+        lst = [("Spc. Sheet records are already inside other sheet","")]
+        lst.append(("Spc. Sheet","Meaning"))
+        lst.append(("_NewItem","Item does not have any prior PAJ price data"))
+        lst.append(("_PAJPriceExcpt","PAJ price exception with rev./previous data"))
+        sht.range(rowidx,1).value = lst
+
+        sht.autofit("c")
+
+        for sht in wb.sheets:
+            if sht.name.lower().find("sheet") >= 0:
+                sht.delete()
+
+    def _getvalue(self,sht, kw,direct = "right"):
+        rng = xwu.find(sht,kw)
+        if not rng: return
+        return rng.end(direct).value
+    
+    def _classifyref(self,pajup,expup):
+        """return a classified string based on pajuprice/expecteduprice"""
+        diff = pajup - expup; rdiff = diff / expup
+        flag = False
+        for ii in range(len(self.LEVEL_ABS)):
+            if diff <= self.LEVEL_ABS[ii] and rdiff <= self.LEVEL_REL[ii]:
+                flag = True
+                break
+        if not flag: ii = len(self.LEVEL_ABS)
+        return self.LEVEL_LBL[ii]
+    
+    def _classifypft(self,pajup,poup):
+        return self.LBL_PFT_ERR if not (poup and pajup) \
+            else self.LBL_PFT_NRM if poup / pajup >= self.LEVEL_PFT \
+            else self.LBL_PFT_LOW
+
+    
+
 
 
 if __name__ == "__main__":
