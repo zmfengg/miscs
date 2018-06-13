@@ -7,28 +7,33 @@
  * the database services, including HK's and py's, and the out-dated bc's
  """
 
-import re
-from logging import Logger
-import thread
-import threading
-
-from sqlalchemy.orm import Session, Query
-from sqlalchemy import and_, desc, or_, true
-import pajcc as pc
-from pajcc import MPS, WgtInfo, PrdWgt, fmtkarat
-from hnjcore import JOElement, StyElement
-from hnjcore.models.hk import JO, Customer, Style, Orderma, JOItem as JI
-from hnjcore.models.hk import POItem, PajShp, PajInv, PajCnRev
-from hnjcore.models.cn import JO as JOcn, Customer as Customercn, Style as Stylecn
-from hnjcore.models.hk import StockObjectMa as SO, Invoice as IV, InvoiceItem as IVI
-from hnjcore.models.cn import MMMa, MM
-from hnjcore.utils.consts import NA
-from hnjcore.utils import samekarat, splitarray
 import datetime
-from contextlib import contextmanager
+import re
+import threading
 from collections import Iterable
+from contextlib import contextmanager
+from logging import Logger
 from operator import attrgetter
 
+from sqlalchemy import and_, desc, or_, true
+from sqlalchemy.orm import Query, Session
+
+from hnjcore import JOElement, KaratSvc, StyElement
+from hnjcore.models.cn import JO as JOcn
+from hnjcore.models.cn import Customer as Customercn
+from hnjcore.models.cn import Style as Stylecn
+from hnjcore.models.cn import MM, MMMa
+from hnjcore.models.hk import Invoice as IV
+from hnjcore.models.hk import InvoiceItem as IVI
+from hnjcore.models.hk import JOItem as JI
+from hnjcore.models.hk import StockObjectMa as SO
+from hnjcore.models.hk import (JO, Customer, Orderma, PajCnRev, PajInv, PajShp,
+                               POItem, Style)
+from hnjcore.utils import samekarat, splitarray
+from hnjcore.utils.consts import NA
+
+from . import pajcc
+from .pajcc import MPS, PrdWgt, WgtInfo
 
 __all__ = ["HKSvc", "CNSvc"]
 
@@ -70,12 +75,13 @@ class SvcBase(object):
 
 class HKSvc(SvcBase):
     _qcaches = {}
+    _ktsvc = KaratSvc()
 
     def _samekarat(self, jo0, jo1):
         """ check if the 2 given jo's karat/auxkarat are the same
             this method compare the 2 karats            
         """
-        lst = ([(fmtkarat(x.orderma.karat), fmtkarat(x.auxkarat)
+        lst = ([(self._ktsvc.getfamily(x.orderma.karat), self._ktsvc.getfamily(x.auxkarat)
                  if x.auxwgt else 0) for x in (jo0, jo1)])
         return lst[0] == lst[1]
 
@@ -122,7 +128,7 @@ class HKSvc(SvcBase):
                 jes.add(x)
             elif isinstance(x, int):
                 ids.add(x)
-            elif isinstance(x, basestring):
+            elif isinstance(x, str):
                 if x.find("r") >= 0:
                     rns.add(int(x[1:]))
                 else:
@@ -169,7 +175,7 @@ class HKSvc(SvcBase):
                 cur.close()
         failed = set()
         # check what's not got
-        its = jos.values()
+        its = list(jos.values())
         if jes:
             failed.update(jes.difference(set([x.name for x in its])))
         if rns:
@@ -287,7 +293,7 @@ class HKSvc(SvcBase):
         
         cur = psess if psess else self.session()
         try:
-            if isinstance(jo, basestring) or isinstance(jo, JOElement):
+            if isinstance(jo, str) or isinstance(jo, JOElement):
                 jo = self.getjos([jo], psess)[0]
                 if not jo:
                     return None
@@ -305,7 +311,7 @@ class HKSvc(SvcBase):
                 if lst:
                     row = lst[0]
                     if(row.unitwgt and self._ptnmit.search(row.stname)):
-                        knws[2] = pc.WgtInfo(rk.karat, float(row.unitwgt))
+                        knws[2] = pajcc.WgtInfo(rk.karat, float(row.unitwgt))
         except:
             pass
         finally:
@@ -318,7 +324,7 @@ class HKSvc(SvcBase):
         """ get the weight of given JO# and calc the china
             return a map with keys (JO,PajShp,PajInv,china,wgts)
          """
-        if(isinstance(je, basestring)):
+        if(isinstance(je, str)):
             je = JOElement(je)
         elif isinstance(je, JO):
             je = je.name
@@ -346,15 +352,15 @@ class HKSvc(SvcBase):
         finally:
             if cur and not psess:
                 cur.close()
-        rmap["china"] = pc.newchina(revcn, prdwgt) if revcn else \
-            pc.PajCalc.calchina(prdwgt, float(
+        rmap["china"] = pajcc.newchina(revcn, prdwgt) if revcn else \
+            pajcc.PajCalc.calchina(prdwgt, float(
                 hnp.PajInv.uprice), MPS(hnp.PajInv.mps))
         return rmap
 
     def getmmioforjc(self, df, dt, runns, psess=None):
         """return the mmstock's I/O# for PAJCReader"""
         lst = list()
-        if not isinstance(runns[0], basestring):
+        if not isinstance(runns[0], str):
             runns = [str(x) for x in runns]
         cur = psess if psess else self.session()
         try:
@@ -386,7 +392,7 @@ class HKSvc(SvcBase):
                 jes = tuple(jes)
             elif isinstance(jes, JOElement):
                 jes = (jes)
-            elif isinstance(jes, basestring):
+            elif isinstance(jes, str):
                 jes = (JOElement(jes))
         jes = [x if isinstance(x,JOElement) else JOElement(x) for x in jes]
 
@@ -434,7 +440,7 @@ class HKSvc(SvcBase):
         @param styno: string type or StyElement type sty#
         """
 
-        if isinstance(styno, basestring):
+        if isinstance(styno, str):
             styno = StyElement(styno)
         elif isinstance(styno, Style):
             styno = styno.name

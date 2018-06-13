@@ -15,11 +15,12 @@ import sys
 from collections import namedtuple
 from os import path
 
-import pajcc
 import datetime
 from hnjapp.pajcc import MPS,PrdWgt,WgtInfo
 from hnjcore import JOElement, xwu, appathsep, utils as hnju
 from hnjcore.utils.consts import NA
+from hnjcore.utils import getfiles
+from . import pajcc
 
 
 def _checkfile(fn, fns):
@@ -35,10 +36,13 @@ def _checkfile(fn, fns):
             flag = ld > max([path.getmtime(x) for x in fns])
     return flag
 
-def _getexcels(fldr):
-    if fldr:        
-        return [appathsep(fldr) + unicode(x, sys.getfilesystemencoding()) 
-            for x in os.listdir(fldr) if not x.startswith("~") and x.lower().find("xls") >= 0]
+def _getexcels(fldr):    
+    if fldr:
+        fns = getfiles(fldr,"xls",True)
+        p = appathsep(fldr)
+        if fns:
+            fns = [p + x for x in fns if not x.startswith("~")]
+        return fns
 
 def readsignetcn(fldr):
     """ read file format like \\172.16.8.46\pb\dptfile\quotation\date\Date2018\0521\123
@@ -46,7 +50,7 @@ def readsignetcn(fldr):
     """
     if not os.path.exists(fldr): return
     fldr = hnju.appathsep(fldr)
-    fns = [unicode(x, sys.getfilesystemencoding()) 
+    fns = [str(x, sys.getfilesystemencoding()) 
         for x in os.listdir(fldr) if x.lower().find("txt") >= 0]
     ptncn = re.compile(r"CN\d{3,}")
     ptndec = re.compile(r"\d*\.\d+")
@@ -133,11 +137,11 @@ def readagq(fn):
             if len(cidxs) < ccnt:
                 for cidx in range(len(tr)):
                     val = tr[cidx]
-                    if isinstance(val, basestring) and pt.match(val):
+                    if isinstance(val, str) and pt.match(val):
                         if len(cidxs) < ccnt and not (cidx in cidxs):
                             cidxs.append(cidx)
             if len(cidxs) < ccnt: continue
-            val = tr[cidxs[0]] if isinstance(tr[cidxs[0]], basestring) else None
+            val = tr[cidxs[0]] if isinstance(tr[cidxs[0]], str) else None
             if not(val and  pt.match(val)): continue
             for ii in range(0, ccnt):
                 hts.append(Point(ridx, cidxs[ii]))
@@ -153,7 +157,7 @@ def readagq(fn):
                 ridx = pt.x - x
                 if ridx < 0: break
                 val = vals[ridx][pt.y]
-                if isinstance(val, basestring):
+                if isinstance(val, str):
                     if val.lower().find("style#") == 0:
                         for x in val[len("style#"):].split(","):
                             je = JOElement(x.strip())
@@ -191,7 +195,7 @@ def readagq(fn):
                             mpsidx = (x - pt.x - 1) % 2
                         mps = "S=%3.2f;G=%3.2f" % (mpss[mpsidx + 2], mpss[mpsidx])                        
                         for s0 in stynos:
-                            items.append(Item(s0, mpsidx if x <> rgridx else 2 , \
+                            items.append(Item(s0, mpsidx if x != rgridx else 2 , \
                                 tp, mps, round(val, 2), rmk.upper()))
         wb1 = app.books.add()
         sht = wb1.sheets[0]
@@ -219,7 +223,7 @@ class DAO(object):
     def getbcsforjc(self, runns):
         """return running and description from bc with given runnings """
         if not runns: return
-        if not isinstance(runns[0], basestring): runns = [str(x) for x in runns]
+        if not isinstance(runns[0], str): runns = [str(x) for x in runns]
         s0 = "select runn,desc from stocks where runn in (%s)";lst = []
         cur = self._bcdb.cursor()
         try:
@@ -265,7 +269,7 @@ class PajDataByRunn(object):
         vvs = [0, 0, "S", "G"]
         for row in [rows[x] for x in range(min(5, len(rows)))]:
             for s0 in row:
-                if not isinstance(s0, basestring): continue
+                if not isinstance(s0, str): continue
                 s0 = s0.lower()
                 xx = (s0.find("@"), s0.find("/oz"))
                 if len([x for x in xx if x >= 0]):
@@ -306,7 +310,7 @@ class PajDataByRunn(object):
                 rdr = csv.DictReader(f)
                 for x in rdr:
                     key = x["runn"] + "," + x["mps"]
-                    if not mp.has_key(key):
+                    if key not in mp:
                         x["mps"] = MPS(x["mps"])
                         mp[key] = x
         if not mp:
@@ -321,7 +325,7 @@ class PajDataByRunn(object):
                         mps1 = self._readMPS(vvs)
                         if not mps1: mps1 = mps if mps else pajcc.PAJCHINAMPS
                         for row in vvs:
-                            for x in [x for x in row if(x and isinstance(x, basestring) and x.lower().find("runn") >= 0)]:
+                            for x in [x for x in row if(x and isinstance(x, str) and x.lower().find("runn") >= 0)]:
                                 mt = self._ptnrunn.search(x)
                                 if mt:
                                     runn = mt.group()
@@ -342,7 +346,7 @@ class PajDataByRunn(object):
                     if maps[0]:
                         with open(fn, "w") as f:
                             wtr = None
-                            for x in dict([(str(x.running),x) for x in maps[0]]).iteritems():
+                            for x in dict([(str(x.running),x) for x in maps[0]]).items():
                                 runnstr = x[0]
                                 it = mp[runnstr + "," + rtomps[runnstr]];it["jono"] = x[1].name.value
                                 if not wtr: 
@@ -383,7 +387,7 @@ class PajDataByRunn(object):
         
         def _putmap(wnc, runn, orgjn, tarmps, themap):
             key = "%s,%6.1f" % (wnc["PajShp"].pcode, wnc["china"].china)
-            if not themap.has_key(key):
+            if key not in themap:
                 wnc["china"] = pajcc.PajCalc.calctarget(wnc["china"], tarmps)
                 themap[key] = {"runn":runn, "jono":orgjn, "wnc":wnc}        
                 return True
@@ -532,7 +536,7 @@ class PajDataByRunn(object):
                             if phase <= 1:
                                 mt = ptnRunn.search(x)
                                 if mt:
-                                    if phase <> 1: 
+                                    if phase != 1: 
                                         phase = 1
                                         rowrunn = hh
                                     runns[ii] = mt.group(1)
@@ -546,8 +550,8 @@ class PajDataByRunn(object):
                                         if isinstance(tr[jj], numbers.Number):
                                             cost = tr[jj]
                                             break
-                                    if phase <> 2 and hh != rowrunn: phase = 2
-                                    kk = ii if hh <> rowrunn else lastii                                       
+                                    if phase != 2 and hh != rowrunn: phase = 2
+                                    kk = ii if hh != rowrunn else lastii                                       
                                     if kk in runns:
                                         costs[kk] = (mt.group(1) , cost, fn)
                                     else:
@@ -590,7 +594,7 @@ class InvAnalysis(object):
                 for sht in wb.sheets():
                     rng = xwu.find(sht, "PAJ_REFNO")
                     if not rng: continue
-                    lst = xwu.listodict(xwu.usedrange(sht))
+                    lst = xwu.list2dict(xwu.usedrange(sht))
         except:
             pass
         finally:
@@ -641,10 +645,12 @@ class AckPriceCheck(object):
         return rsts, wb
 
     def _readsrcdata(self,fldr):
-        fns = _getexcels(fldr)
-        if not fns: return
-        fns = [x for x in fns if os.path.basename(x).lower().find("_") != 0]
-        fldr = appathsep(fldr)        
+        fns = getfiles(fldr,"xls",True)
+        fldr = appathsep(fldr)
+        if fns:
+            fns = [fldr + x for x in fns if x.find("_") != 0]
+        if not fns: return None,None
+
         all = {}; datfn = fldr + "_src.dat"
         kxl,app,wb = False, None ,None
         if _checkfile(datfn,fns):
@@ -652,7 +658,7 @@ class AckPriceCheck(object):
                 rdr = csv.DictReader(fh,dialect="excel")
                 for row in rdr:
                     it = all.setdefault(row["jono"],row.copy())
-                    if isinstance(it["pcode"],basestring):
+                    if isinstance(it["pcode"],str):
                         it["pcode"] = []
                     it["pcode"].append(row["pcode"])
                     it["pajprice"] = float(it["pajprice"])
@@ -684,7 +690,7 @@ class AckPriceCheck(object):
                         rng = sht.range(sht.range(rng.row,1), \
                             sht.range(rng0.row + rng0.rows.count -1 ,rng0.column + rng0.columns.count - 1))
                         vvs = rng.value
-                        cmap = xwu.listodict(vvs[0],{"Job,":"jono","item,item ":"pcode", \
+                        cmap = xwu.list2dict(vvs[0],{"Job,":"jono","item,item ":"pcode", \
                             "Style,":"styno","Quant,Qty":"qty"})
                         for idx in range(1,len(vvs)):
                             jono = vvs[idx][cmap["jono"]]
@@ -755,7 +761,7 @@ class AckPriceCheck(object):
 
         pfx = ""
         cn,pcs = None, jo["pcode"]
-        if isinstance(pcs,basestring): pcs = [pcs]
+        if isinstance(pcs,str): pcs = [pcs]
         for pcode in pcs:
             cn = hksvc.getrevcns(pcode,psess = sess)
             if cn: break
@@ -824,12 +830,13 @@ class AckPriceCheck(object):
             jes = [JOElement(x["jono"]) for x in jos]
             jes = hksvc.getjos(jes,psess = sess)[0]
             jes = self._fetchjos(jes,hksvc,sess)
-            for idx in range(len(jos)):
-                jo = jos[idx]
+            idx = 0
+            for jo in jos:
                 try:
                     self._processone(jo,jes,hksvc,sess,True)
-                    rsts.setdefault(jo["result"],[]).append(jo)                
-                    if idx and idx % 10 == 0:
+                    rsts.setdefault(jo["result"],[]).append(jo)             
+                    idx += 1
+                    if idx % 10 == 0:
                         logging.info("%d of %d done" % (idx,len(jos)))
                 except:
                     rsts.setdefault("PROGRAM_ERROR",[]).append(jo)
@@ -845,7 +852,7 @@ class AckPriceCheck(object):
             wb = app.books.add()
             self._writereadme(wb)
 
-            for kv in rsts.iteritems():
+            for kv in rsts.items():
                 self._writesht(kv[0],kv[1],wb)                
 
             #a sheet showing all the non-reference items
@@ -896,12 +903,12 @@ class AckPriceCheck(object):
                 mp["ratio"] = "%s%%" % mp["ratio"]
             if "wgts" in mp:
                 wgts = mp["wgts"]
-                if isinstance(wgts,basestring):
+                if isinstance(wgts,str):
                     d = wgts
                 else:
                     d = {"main":wgts.main, "sub":wgts.aux, "part":wgts.part}
                     d = ";".join(["%s(%s=%s)" % (kw[0],kw[1].karat,kw[1].wgt) \
-                        for kw in d.iteritems() if kw[1]])                    
+                        for kw in d.items() if kw[1]])                    
                 mp["wgts"] = d
             lst.append([mp[x] if x in mp else NA for x in hdr])            
         sht = wb.sheets.add(name)

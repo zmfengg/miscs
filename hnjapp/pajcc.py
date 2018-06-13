@@ -13,30 +13,11 @@ all weight related field are GM based
 from collections import namedtuple
 import logging
 from decimal import Decimal
+from hnjcore import karatsvc,Karat
+
 
 # the fineness map for this calculation
-_fineness = {8: 33.3, 81: 33.3, 88: 33.3, 9: 37.5, 91: 37.5, 98: 37.5, 10: 41.7, 101: 41.7, 108: 41.7, 14: 58.5, 141: 58.5, 148: 58.5,
-    18: 75.0, 181: 75.0, 188: 75.0, 200: 100, "925PAJ": 95.0, "925": 92.5, 9925: 0.95}
-
-_karatnmap = {91: 9, 98: 9, 101: 10, 108: 10, 141: 14, 148: 14, 181: 18, 188: 18}
-
 MPSINVALID = -10000.00
-
-
-def getfiness(karat, vendor="PAJ"):
-    """return the finenss of the given karat
-    @param karat: the karat in numeric form, for example, 8 or 81
-    @param vendor: PAJ or Non-PAJ or None
-    """
-
-    lst = (karat, "%d%s" % (karat, vendor) if vendor else str(karat))
-    rr = [_fineness[x] for x in lst if _fineness.has_key(x)]
-    if rr: return rr[0] / 100.0
-
-
-def fmtkarat(karat):
-    """ the legacy karat issue: 9 -> 91 -> 98 10 -> 101 -> 108 ... """
-    return _karatnmap[karat] if karat in _karatnmap else karat    
 
 def _tofloat(val,precious = 4):
     """ convenient method for (maybe) decimal to float """
@@ -58,7 +39,7 @@ class WgtInfo(namedtuple("WgtInfo", "karat,wgt")):
 class MPS():
 
     def __init__(self, mps):
-        self._slots = [None, None, None, None]
+        self._slots = [None, None, None, None]        
         self._parse(mps)
 
     def _parse(self, mps):
@@ -156,7 +137,7 @@ class PrdWgt(namedtuple("PrdWgt", "main,aux,part")):
     def __str__(self):
         d = {"main":self.main, "sub":self.aux, "part":self.part}
         return ";".join(["%s(%s=%s)" % (kw[0],kw[1].karat,kw[1].wgt) \
-            for kw in d.iteritems() if kw[1]])
+            for kw in d.items() if kw[1]])
 
 
 # constants
@@ -178,7 +159,10 @@ class PajCalc():
 
     @classmethod
     def getfiness(self, karat, vendor="PAJ"):
-        return getfiness(karat,vendor)
+        #only PAJ's 925 item has different fineness
+        if vendor and karat == 925: karat = "925PAJ"
+        kt = karatsvc.getkarat(karat)
+        return kt.finess if kt else 0
 
     @classmethod
     def calclossrate(self, prdwgt):
@@ -255,8 +239,8 @@ class PajCalc():
         """
         if not all((prdwgt, refup, refmps)): return None
         if not tarmps: tarmps = PAJCHINAMPS
-        if isinstance(tarmps,basestring): tarmps = MPS(tarmps)
-        if isinstance(refmps,basestring): refmps = MPS(refmps)
+        if isinstance(tarmps,str): tarmps = MPS(tarmps)
+        if isinstance(refmps,str): refmps = MPS(refmps)
         if isinstance(refup,Decimal): refup = float(refup)
         if not (refup > 0 and refmps.isvalid and tarmps.isvalid): return None
 
@@ -282,7 +266,7 @@ class PajCalc():
         @return: a PajChina object, the china is the current value
         """
 
-        if isinstance(tarmps,basestring): tarmps = MPS(tarmps)
+        if isinstance(tarmps,str): tarmps = MPS(tarmps)
         incr = cn.increment
         if not self._checkargs(incr, cn.mps, tarmps):
             r0 = MPSINVALID
@@ -332,12 +316,15 @@ class P17Decoder():
         # "select description from uv_p17dc where category = '%(cat)s' and codec = '%(code)s'"
         return code
 
-    def decode(self, p17, parts=None, div=","):
+    def decode(self, p17, parts=None):
         """parse a p17's parts out
         @param p17: the p17 code
         @param parts: the combination of the parts name delimited with ",". None to fetch all
+        @return the actual value if only one parts, else return a dict with part as key
         """
-        ns = parts.split(",") if parts else self._cats_.keys();ss = []        
-        for x in ns:
-            ss.append("%s=%s" % (x, self._getpart(x, self._getdigits(p17, self._cats_[x][2]))))
-        return div.join(ss)
+        ns = parts.split(",") if parts else self._cats_.keys();ss = []
+        [ss.append((x, self._getpart(x, self._getdigits(p17, self._cats_[x][2])))) for x in ns]
+        if len(ns) <= 1:
+            return ss[0][1]
+        else:
+            return dict(ss)

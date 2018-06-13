@@ -10,8 +10,9 @@ import xlwings.constants as const
 import xlwings
 import os
 import random
+from collections import OrderedDict
 
-__all__ = ["app","find","fromtemplate","listodict","usedrange"]
+__all__ = ["app","find","fromtemplate","list2dict","usedrange"]
 
 def app(vis=True):    
     """ launch an excel or connect to existing one
@@ -59,18 +60,18 @@ def find(sh, val, aftr=None, matchCase=False, lookat=const.LookAt.xlPart, \
     return apiRng
 
 
-def listodict(lst, trmap=None, dupdiv = "", bname = None):
+def list2dict(lst, trmap=None, dupdiv = "", bname = None):
     """ turn a list into zero-id based, name -> id lookup map 
     @param lst: the list or one-dim array containing the strings that need to do the name-> pos map
     @param trmap: An translation map, make the description -> name translation, if ommitted, description become name
                   if the description is not sure, split them with candidates, for example, "Job,JS":"jono"
     @param dupdiv: when duplicated item found, a count will be generated, dupdiv will be
         placed between the original and count
-    @param blkcn: default name for the blank item
+    @param bname: default name for the blank item
     @return: a dict with name -> id map   
     """
     if not lst: return None, None
-    lstl = [x.lower()  if x and isinstance(x,basestring) else "" for x in lst]
+    lstl = [x.lower()  if x and isinstance(x,str) else "" for x in lst]
     mp = {}
     for ii in range(len(lstl)):
         x = lstl[ii]
@@ -95,8 +96,16 @@ def listodict(lst, trmap=None, dupdiv = "", bname = None):
                     lstl[cnds[0]] = s0
                     trmap[s0] = trmap[x]                    
                     break
-    return dict(zip([trmap[x] if(x in trmap) else x for x in lstl], range(len(lstl))))
+    return OrderedDict(zip([trmap[x] if(x in trmap) else x for x in lstl], range(len(lstl))))
 
+def range2dict(vvs,trmap=None, dupdiv = "", bname = None):
+    """ read a range's values into a list of dict item. vvs[0] should contains headers
+    @param vvs: the range's value, an 2d array, use range.value to get it
+    @param otherParm" refer to @list2dict
+    """
+    cmap = list2dict(vvs[0],trmap,dupdiv,bname)
+    cns = [x for x in cmap.keys()]
+    return list([x for x in [dict(zip(cns,y)) for y in vvs[1:]]])
 
 def fromtemplate(tplfn, app=None):
     """new a workbook based on the tmpfn template

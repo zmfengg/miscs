@@ -45,7 +45,7 @@ class Style(HKBase):
 
 class Orderma(HKBase):
     __tablename__ = "orderma"
-    orderid = Column(Integer, name="orderid",
+    id = Column(Integer, name="orderid",
                      primary_key=True, autoincrement=False)
     orderno = Column(VARCHAR(50), name="orderno")
 

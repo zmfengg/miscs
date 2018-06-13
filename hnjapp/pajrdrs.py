@@ -21,16 +21,16 @@ from decimal import Decimal
 import xlwings.constants as const
 from xlwings.constants import LookAt
 
-from dbsvcs import CNSvc, HKSvc
-from hnjcore import JOElement, appathsep, deepget, p17u, xwu
+from .dbsvcs import CNSvc, HKSvc
+from hnjcore import JOElement, appathsep, deepget, p17u, xwu, karatsvc
 from hnjcore.models.hk import PajInv, PajShp
-from hnjcore.utils.consts import NA
 from hnjcore.utils import getfiles
-from quordrs import DAO
-from pajcc import PrdWgt,WgtInfo
+from hnjcore.utils.consts import NA
+from .pajcc import P17Decoder, PrdWgt, WgtInfo
+from .quordrs import DAO
 
 _accdfmt = "%Y-%m-%d %H:%M:%S"
-
+_logger = logging.getLogger(__name__)
 
 def _accdstr(dt):
     """ make a date into an access date """
@@ -39,7 +39,7 @@ def _accdstr(dt):
 
 def _removenonascii(s0):
     """remove thos non ascii characters from given string"""
-    if isinstance(s0, basestring):
+    if isinstance(s0, str):
         return "".join([x for x in s0 if ord(x) > 31 and ord(x) < 127])
     return s0
 
@@ -68,27 +68,75 @@ def _getjoids(jonos, hnjhkdb):
 def readBOM(fldr):
     _ptnoz = re.compile(r"\(\$\d*/OZ\)")
     _ptnsil = re.compile(r"(925)")
-    _ptngol = re.compile(r"^(\d*)K")
+    _ptngol = re.compile(r"^(\d*)K")    
     _ptdst = re.compile(r"[\(（](\d*)[\)）]")
+    #the parts must have karat, if not, follow the parent
+    _mtlpts = u"金,银,耳勾,线圈,耳针,Chain".lower().split(",")
+
+    _pcdec = P17Decoder()
     
-    def _parsekarat(mat,ispol =True):
+    def _parsekarat(mat,wis = None ,ispol =True):
         """ return karat from material string """
+        kt = None
         if ispol:
             mt = _ptnoz.search(mat)
             if not mt: return        
         if _ptnsil.search(mat):
-            return 925
+            kt = 925
         else:
             mt = _ptngol.search(mat)
             if mt:
-                return int(mt.group(1))
+                kt = int(mt.group(1))
             else:
                 mt = _ptdst.search(mat)
                 if mt:
-                    #TODO::density to karat
-                    return mt.group(1)
+                    kt = int(mt.group(1))
+                    if not karatsvc.getkarat(kt):
+                        karat = karatsvc.getbyfiness(kt)
+                        if karat: kt = karat.karat
+        if not kt:
+            #not found, has must have keyword? if yes, follow master
+            if wis and any(wis):
+                s0 = mat.lower()
+                for x in _mtlpts:
+                    if s0.find(x) >= 0:
+                        if s0.find(u"银") >= 0:
+                            kt = 925
+                        elif s0.find(u"金") >= 0:
+                            for wi in wis:
+                                if not wi: continue
+                                karat = karatsvc.getkarat(wi.karat)
+                                if karat and karat.category == karatsvc.CATEGORY_GOLD:
+                                    kt = wi.karat
+                                    break
+                        #finally no one is found, follow master
+                        if not kt: kt = wis[0].karat
+                    if kt: break                
+            else:
+                _logger.error("No karat found for (%s) and no default provided" % mat)
+                kt = -1
+        if kt and kt > 0:
+            karat = karatsvc.getkarat(kt)
+            if not karat: kt = -1
+        return kt
 
-                
+    def _ispendant(pcode):       
+        return _pcdec.decode(pcode,"PRODTYPE") == '3'
+    
+    def _mergewgt(wgts,wgt,maxidx,tryins = False):
+        sltid = -1
+        for ii in range(maxidx + 1):
+            if wgts[ii]:
+                if wgts[ii].karat == wgt.karat:
+                    wis[ii] = WgtInfo(wgt.karat, wgt.wgt + wgts[ii].wgt)
+                    return ii
+            else:
+                if tryins and sltid < 0:
+                    sltid = ii
+                    break
+        if sltid >= 0:
+            wgts[sltid] = wgt            
+        return sltid
 
     if os.path.isdir(fldr):
         fns = getfiles(fldr,"xls")
@@ -113,7 +161,7 @@ def readBOM(fldr):
             for jj in range(len(shts)):
                 vvs = shts[jj][1].end("left").expand("table").value
                 if jj == 0:                    
-                    wcn = xwu.listodict(vvs[0],{u"十七位,":"pcode",u"材质,":"mat",u"抛光,":"mtlwgt"})
+                    wcn = xwu.list2dict(vvs[0],{u"十七位,":"pcode",u"材质,":"mat",u"抛光,":"mtlwgt"})
                     for ii in range(1,len(vvs)):
                         pcode = vvs[ii][wcn["pcode"]]
                         if not p17u.isvalidp17(pcode): break
@@ -124,36 +172,51 @@ def readBOM(fldr):
                 elif jj == 1:
                     nmap = {u"十七位,":"pcode",u"物料名称":"name", \
                         u"物料特征":"spec",u"数量":"qty",u"重量":"wgt",u"单位":"unit"}
-                    wcn = xwu.listodict(vvs[0],nmap)
+                    wcn = xwu.list2dict(vvs[0],nmap)
                     nmap = [x for x in nmap.values() if x.find("pcode") < 0]
-                    pcode0 = None
                     for ii in range(1,len(vvs)):
-                        qty = vvs[ii][wcn["qty"]]
-                        if not qty: continue
-                        kt = _parsekarat(vvs[ii][wcn["name"]],False)
-                        if not kt: continue
-
                         pcode = vvs[ii][wcn["pcode"]]
-                        if not pcode: 
-                            pcode = pcode0
-                        else:
-                            pcode0 = pcode
+                        if not p17u.isvalidp17(pcode): break
                         it = pmap.setdefault(pcode,{"pcode":pcode})
                         mats, it = it.setdefault("parts",[]), {}
                         mats.append(it)
                         for cn in nmap:
-                            it[cn] = vvs[ii][wcn[cn]]
-                        it["karat"] = kt
+                            it[cn] = vvs[ii][wcn[cn]]                        
             wb.close()
-        for x in pmap.iteritems():
-            if "parts" in x[1]:
-                pass
-            else:
-                #TODO::
-                lst = x[1]["wgts"]
-                wgts = PrdWgt(WgtInfo(lst[0][0],lst[0][1]))
+        for x in pmap.items():
+            lst = x[1]["wgts"]
+            sltid, wis = -1, [None,None,None]            
+            for y in lst:
+                sltid = _mergewgt(wis,WgtInfo(y[0],y[1]),1,True)
+                if sltid < 0:
+                    _logger.error("failed to get slot to store prodwgt for pcode %s" % x[0])
+                    x[1]["wgts"] = None
+                    continue
+            if "parts" in x[1]:                
+                if wis[1]:
+                    if wis[0].wgt < wis[1].wgt:
+                        wis[0],wis[1] = wis[1], wis[0]
+                for y in x[1]["parts"]:
+                    kt = _parsekarat(y["name"],wis,False)
+                    y["karat"] = kt
+                    if not kt: continue                
+                    done = False
+                    if _ispendant(x[0]) and y["name"].lower().find("chain") >= 0:
+                        wgt0 = wis[2]
+                        if not wgt0 or y["karat"] == wgt0.karat:
+                            wgt = y["wgt"] + (wgt0.wgt if wgt0 else 0)
+                            wis[2] = WgtInfo(y["karat"],wgt)
+                            if wgt0:
+                                _logger.debug("Multi chain found for pcode(%s)" % x[0])
+                            done = True
+                        else:
+                            _logger.debug("No wgt pos for chain(%s) in pcode(%s),merged to main" % (y["name"],x[0]))                        
+                    if not done:
+                        _mergewgt(wis,WgtInfo(y["karat"],y["wgt"]),1)
+            x[1]["wgts"] = PrdWgt(wis[0],wis[1],wis[2])        
     finally:
         if kxl and app: app.quit()
+    return pmap
                         
 class ShpReader:
 
@@ -230,7 +293,7 @@ class ShpReader:
         nmap = {"p17": 0}
         tr = vvs[0]
         for it in {"stone": re.compile(r"stone\s*weight", re.I),
-                   "metal": re.compile(r"metal\s*weight", re.I)}.iteritems():
+                   "metal": re.compile(r"metal\s*weight", re.I)}.items():
             cns = [x for x in range(len(tr)) if it[1].search(tr[x])]
             if len(cns) > 0:
                 nmap[it[0]] = cns[0]
@@ -280,7 +343,7 @@ class ShpReader:
                     for x in "fillDate,lastModified,invDate,shpDate".split(","):
                         dct[x] = _accdstr(dct[x])
                     shp = PajShp()
-                    for x in dc1.iteritems():
+                    for x in dc1.items():
                         k = x[0]
                         lk = k.lower()
                         if hasattr(shp, lk):
@@ -291,7 +354,7 @@ class ShpReader:
                                  ",#%(shpDate)s#,'%(ordno)s',%(mtlWgt)f,%(stWgt)f)") % dct)
                     sess.add(shp)
         except Exception as e:
-            logging.debug("Error occur in ShpRdr:%s" % e)
+            _logger.debug("Error occur in ShpRdr:%s" % e)
         finally:
             if e:
                 sess.rollback()
@@ -312,8 +375,10 @@ class ShpReader:
         """
 
         ptn = re.compile(r"HNJ\s+\d*-", re.IGNORECASE)
-        fns = [appathsep(fldr) + unicode(x, sys.getfilesystemencoding())
-               for x in os.listdir(fldr) if ptn.match(x)]
+        fns = getfiles(fldr,"xls",True)
+        if fns:
+            p = appathsep(fldr)
+            fns = [p + x for x in fns if ptn.match(x)]
         if not fns:
             return
         errors = list()
@@ -327,15 +392,15 @@ class ShpReader:
                 toRv = list()
                 items = {}
                 if idx == 1:
-                    # logging.debug("%s has been read" % fn)
+                    # _logger.debug("%s has been read" % fn)
                     continue
                 elif idx == 2:
-                    logging.debug("%s is expired" % fn)
+                    _logger.debug("%s is expired" % fn)
                     toRv.append(fn)
                 lmd = datetime.fromtimestamp(os.path.getmtime(fn))
                 shd1 = self._getshpdate(fn)
                 shd0 = shd1
-                logging.debug("processing file(%s) of date(%s)" % (fn, shd0))
+                _logger.debug("processing file(%s) of date(%s)" % (fn, shd0))
                 wb = app.books.open(fn)
                 try:
                     # in new sample case, use DL_QUOXXX sheet's weight, so prepare it if there is
@@ -352,13 +417,13 @@ class ShpReader:
                         # vvs = rng.end('left').expand("table").value
                         vvs = xwu.usedrange(sht).value
                         th = vvs[0]
-                        tm = xwu.listodict(th, {u"订单号": "odx", u"发票日期": "invdate", u"订单序号": "odseq",
+                        tm = xwu.list2dict(th, {u"订单号": "odx", u"发票日期": "invdate", u"订单序号": "odseq",
                                                 u"平均单件石头,XXX": "stwgt", u"发票号": "invno", u"订单号序号": "ordno", u"十七位,十七,物料": "p17",
                                                 u"平均单件金,XX": "mtlwgt", u"工单,job": "jono", u"数量": "qty", u"cost": "cost"})
                         x = [x for x in "invno,p17,jono,qty,invdate".split(
                             ",") if x not in tm]
                         if x:
-                            logging.debug(
+                            _logger.debug(
                                 "failed to find key columns(%s) in sheet(%s)" % (x, sht.name))
                             continue
                         bfn = os.path.basename(fn).replace("_", "")
@@ -391,7 +456,7 @@ class ShpReader:
                                 jono = JOElement(tr[tm["jono"]]).value
                                 thekey = jono + "," + \
                                     tr[tm['p17']] + "," + invno
-                                if items.has_key(thekey):
+                                if thekey in items:
                                     si = items[thekey]
                                     items[thekey] = si._replace(
                                         qty=si.qty + tr[tm["qty"]])
@@ -412,8 +477,7 @@ class ShpReader:
                                     # no cost item means repairing
                                     if "cost" in tm and not tr[tm["cost"]]:
                                         continue
-                                    odno = tr[tm['ordno']] if tm.has_key(
-                                        'ordno') else "N/A"
+                                    odno = tr[tm['ordno']] if 'ordno' in tm else "N/A"
                                     p17 = tr[tm['p17']]
                                     if not p17:
                                         break
@@ -422,7 +486,7 @@ class ShpReader:
                                         si = PajShpItem(bfn, odno, JOElement(tr[tm["jono"]]).value, tr[tm["qty"]], p17,
                                                         tr[tm["invno"]], ivd, qmap[p17][0], qmap[p17][1], ivd, lmd, td0)
                                     else:
-                                        logging.critical(
+                                        _logger.critical(
                                             "failed to get quoinfo for pcode(%s)" % p17)
                                     # new sample won't have duplicated items
                                     items[random.random()] = si
@@ -432,11 +496,11 @@ class ShpReader:
                     if wb:
                         wb.close()
                 x = self._persist(toRv, items)
-                if x[0] <> 1:
+                if x[0] != 1:
                     errors.append(x[1])
-                    logging.critical("file(%s) contains errors" %
+                    _logger.critical("file(%s) contains errors" %
                                      os.path.basename(fn))
-                    logging.critical(x[1])
+                    _logger.critical(x[1])
         finally:
             if killxls:
                 app.quit()
@@ -530,7 +594,7 @@ class InvReader(object):
                         for y in "lastmodified".split(","):
                             dct[y] = _accdstr(dct[y])
                         iv = PajInv()
-                        for it in dc1.iteritems():
+                        for it in dc1.items():
                             k = it[0]
                             lk = it[0].lower()
                             if hasattr(iv, lk):
@@ -539,7 +603,7 @@ class InvReader(object):
                                      "('%(invno)s','%(jono)s','%(stone)s',%(qty)f,%(price)f,'%(mps)s',#%(lastmodified)s#)") % dct)
                         iv = sess.add(iv)
             except Exception as e:  # there might be pyodbc.IntegrityError if dup found
-                logging.debug("Error occur in InvRdr:%s" % e.message)
+                _logger.debug("Error occur in InvRdr:%s" % e)
             finally:
                 if not e:
                     sess.commit()
@@ -565,8 +629,10 @@ class InvReader(object):
         errs = list()
         PajInvItem = namedtuple(
             "PajInvItem", "invno,p17,jono,qty,price,mps,stone,lastmodified")
-        fns = [appathsep(invfldr) + unicode(x, sys.getfilesystemencoding()) for x in os.listdir(invfldr)
-               if x.lower()[2:4] == "pm" and x.lower().find(".xls")]
+        fns = getfiles(invfldr,"xls",True)
+        if fns:
+            p = appathsep(invfldr)
+            fns = [p + x for x in fns if x[2:4].lower() == "pm"]
         if not fns:
             return
         killexcel, app = xwu.app(False)
@@ -578,10 +644,10 @@ class InvReader(object):
             dups = []
             idx = self._hasread(fn)
             if idx == 1:
-                # logging.debug("%s has been read" % fn)
+                # _logger.debug("%s has been read" % fn)
                 continue
             elif idx == 2:
-                logging.debug("%s is expired" % fn)
+                _logger.debug("%s is expired" % fn)
                 dups.append(invno)
             lmd = datetime.fromtimestamp(os.path.getmtime(fn))
             wb = app.books.open(fn)
@@ -600,13 +666,12 @@ class InvReader(object):
                     # table header map
                     tm = {}
                     tr = [xx.lower() for xx in vals[0]]
-                    tm = xwu.listodict(tr, {"gold,": "gold", "silver,": "silver", u"job#,工单": "jono",
+                    tm = xwu.list2dict(tr, {"gold,": "gold", "silver,": "silver", u"job#,工单": "jono",
                                             "price,": "price", "unit,": "qty", "stone,": "stone"})
                     tm["p17"] = 0
-                    x = [x for x in "price,qty,stone".split(
-                        ",") if not tm.has_key(x)]
+                    x = [x for x in "price,qty,stone".split(",") if not x in tm]
                     if x:
-                        logging.info(
+                        _logger.info(
                             "key columns(%s) missing in sheet('%s') of file (%s)" % (x, sh.name, fn))
                         continue
                     for jj in range(1, len(vals)):
@@ -615,11 +680,10 @@ class InvReader(object):
                             continue
                         p17 = tr[tm["p17"]]
                         if not p17u.isvalidp17(p17):
-                            logging.debug(
+                            _logger.debug(
                                 "invalid p17 code(%s) in %s" % (p17, fn))
                             continue
-                        jn = JOElement(tr[tm["jono"]]).value if tm.has_key(
-                            "jono") else None
+                        jn = JOElement(tr[tm["jono"]]).value if "jono" in tm else None
                         if not jn:
                             jns = self._getjonos(p17, invno)
                             if jns:
@@ -632,17 +696,17 @@ class InvReader(object):
                             jn = "%d" % jn if isinstance(
                                 jn, numbers.Number) else jn.strip()
                         if not jn:
-                            logging.debug(
+                            _logger.debug(
                                 "No JO# found for p17(%s) in file %s" % (tr[tm["p17"]], fn))
                             continue
                         key = invno + "," + jn
-                        if items.has_key(key):
+                        if key in items.keys():
                             it = items[key]
                             items[key] = it._replace(
                                 qty=it.qty + tr[tm["qty"]])
                         else:
                             mps = "S=%3.2f;G=%3.2f" % (tr[tm["silver"]], tr[tm["gold"]]) \
-                                if tm.has_key("gold") and tm.has_key("silver") else "S=0;G=0"
+                                if "gold" in tm and "silver" in tm else "S=0;G=0"
                             it = PajInvItem(
                                 invno, p17, jn, tr[tm["qty"]], tr[tm["price"]], mps, tr[tm["stone"]], lmd)
                             items[key] = it
@@ -655,7 +719,7 @@ class InvReader(object):
             if(x[0] == -1):
                 errs.append(x[1])
             else:
-                logging.debug("invoice (%s) processed" %
+                _logger.debug("invoice (%s) processed" %
                               fn + ("" if x[0] else " but all are repairing"))
         if killexcel:
             app.quit()
@@ -680,7 +744,7 @@ class PAJCReader(object):
                        u"total cost=ttlcost;cost=uprice;平均单件金银重g=umtlwgt;平均单件石头重g=ustwgt;石头=stspec;"
                        u"mm program in#=iono;jmp#=jmpno;date=shpdate;remark=rmk;has dia=hasdia")
             vvs = sht.range("A1").expand("right").value
-            vvs = [x.lower() if isinstance(x, basestring) else x for x in vvs]
+            vvs = [x.lower() if isinstance(x, str) else x for x in vvs]
             imap = {}
             nmap = {}
             for s0 in coldefs.split(";"):
@@ -755,7 +819,7 @@ class PAJCReader(object):
                 mp = {}
                 rn = str(row.JO.running)
                 jn = row.JO.name.value
-                for x in dtmap0.iteritems():
+                for x in dtmap0.items():
                     mp[x[0]] = deepget(row,x[1])
                 mp["running"] = rn
                 mp["jono"] = "'" + jn
@@ -767,7 +831,7 @@ class PAJCReader(object):
                 fnd = False
                 if key in pajs:
                     x = pajs[key]
-                    for y in dtmap1.iteritems():
+                    for y in dtmap1.items():
                         mp[y[0]] = deepget(x,y[1])
                     fnd = True
                 elif key1 in pajsjn:
@@ -779,7 +843,7 @@ class PAJCReader(object):
                             ddiff = x.PajShp.shpdate - shpd
                             if (abs(ddiff.days) <= 5 and abs(x.PajShp.qty - float(mp["shpqty"])) < 0.1):
                                 hts.append(x)
-                                for y in dtmap1.iteritems():
+                                for y in dtmap1.items():
                                     mp[y[0]] = deepget(x,y[1])
                                 fnd = True
                                 break
@@ -804,7 +868,7 @@ class PAJCReader(object):
                 mp["hasdia"] = "D" if hasdia else "N"
 
                 x = [mp[nmps[1][x]] for x in range(len(nmps[1]))]
-                lst.append(["" if not y else y.strip() if isinstance(y, basestring) else
+                lst.append(["" if not y else y.strip() if isinstance(y, str) else
                             y.strftime(dfmt) if isinstance(y, datetime) else float(y) if isinstance(y, Decimal) else
                             y for y in x])
             sht.range("A2").value = lst
@@ -833,8 +897,7 @@ class PriceTracker(object):
         if not fldr:
             return
         fldr = appathsep(fldr)
-        fns = [unicode(x, sys.getfilesystemencoding()) for x in os.listdir(fldr)
-               if x.lower().find("dat") >= 0]
+        fns = getfiles(fldr,"dat")
         if not fns:
             return
         stynos = set()

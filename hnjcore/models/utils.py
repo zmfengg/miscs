@@ -7,7 +7,13 @@ Created on Apr 17, 2018
 @author: zmFeng
 '''
 
-__all__ = ["JOElement","StyElement"]
+import csv
+import os
+from operator import attrgetter
+import numbers
+from collections import namedtuple
+
+__all__ = ["JOElement","StyElement","KaratSvc","Karat"]
 
 class JOElement(object):
     """ 
@@ -123,3 +129,76 @@ class StyElement(JOElement):
         if val:
             val += self.suffix
         return val
+
+Karat = namedtuple("Karat","karat,name,finess,category,color")
+
+class KaratSvc(object):
+    CATEGORY_GOLD = "GOLD"
+    CATEGORY_SILVER = "SILVER"
+    CATEGORY_COPPER = "COPPER"
+    CATEGORY_BONDEDGOLD = "BG"
+
+    """ class help to solve karat related issues """
+    def __init__(self,fn = None):
+        if not fn or not os.path.exists(fn):
+            fn = os.path.dirname(__file__) + os.path.sep + "karats.csv"
+        lst = []
+        with open(fn,"r+t") as fh:
+            rdr = csv.DictReader(fh)
+            for x in rdr:
+                kt = x["karat"]
+                if kt.isdigit(): kt = int(kt)
+                fin = float(x["finess"])
+                if fin > 1.0: fin = fin / 100.0
+                lst.append(Karat(kt,x["name"].strip(), \
+                    fin,x["category"].strip(),x["color"].strip()))
+        byid, byname, fingrp, fml = {},{},{},{}
+        for x in lst:
+            byid[x.karat] = x
+            byname[x.name] = x
+            fin = x.finess            
+            if fin < 100.0 and x.category == "GOLD":
+                fingrp.setdefault(fin,[]).append(x)
+        
+        for x in fingrp.values():
+            y = sorted(x, key = attrgetter("category","karat"))
+            for ii in range(1,len(y)):
+                fml[y[ii].karat] = y[0]
+        
+        self._byid, self._byname, self._byfamily, self._byfiness = byid, byname, fml, None
+    
+    @property
+    def all(self):
+        return self._byid.values()
+
+    def getkarat(self, karat):
+        """ return the karat object by id or by name
+          for example, getkarat(8) or getkarat("8K")
+        """
+        if isinstance(karat,str):
+            if karat.isdigit():
+                karat = int(karat)
+            else:
+                karat = karat.upper().strip()
+        for x in (self._byid, self._byname):
+            if karat in x:
+                return x[karat]        
+
+    def getbyfiness(self,finess):
+        """ finess must be an integer, the actual finess * 1000, if not, I do it for you """
+        if isinstance(finess,numbers.Number):
+            if finess < 0: finess = int(finess * 1000)
+            if not self._byfiness:
+                self._byfiness = dict([(x.finess * 1000,x) for x in self.all])
+            if finess in self._byfiness:
+                return self.getfamily(self._byfiness[finess])
+
+    def getfamily(self,karat):
+        """ the legacy karat issue: 9 -> 91 -> 98 10 -> 101 -> 108 ... """
+        if not karat: return None
+        if not isinstance(karat,Karat):
+            karat = self.getkarat(karat)
+            if not karat: return None
+        if karat.karat in self._byfamily:
+            karat = self._byfamily[karat.karat]        
+        return karat

@@ -36,7 +36,7 @@ class InvRdr():
         """
          
         if not os.path.exists(fldr): return
-        root = fldr + os.path.sep if fldr[len(fldr) - 1] <> os.path.sep else ""
+        root = fldr + os.path.sep if fldr[len(fldr) - 1] != os.path.sep else ""
         fns = [root + x for x in \
             os.listdir(fldr) if x.lower().find("_f") > 0]
         if not fns: return
@@ -84,7 +84,7 @@ class InvRdr():
         tr = vvs[0]
         km = {u"工单号":"jono", u"镶工":"setting", u"胚底,":"labor", u"备注,":"remark", u"数量":"joqty" \
             , u"石名称":"stname", u"粒数":"stqty", u"石重,":"stwgt"}
-        tm = xwu.listodict(tr, km)
+        tm = xwu.list2dict(tr, km)
         if len(tm) < len(km):
             logging.debug("key columns(%s) not found in sheet(%s)" % (tm, sht.name))
             return None
@@ -94,7 +94,7 @@ class InvRdr():
         for ridx in range(1, len(vvs)):
             tr = vvs[ridx]
             s0 = tr[tm["jono"]]
-            if isinstance(s0, basestring):
+            if isinstance(s0, str):
                 s0 = s0.strip()
                 if not s0: s0 = None
             jn = JOElement(tr[tm["jono"]]).value
@@ -123,7 +123,7 @@ class InvRdr():
                 try:
                     wtr = csv.writer(f, delimiter="\t")
                     for it in items:
-                        r = [ec.encode(x) if isinstance(x,basestring) else x for x in \
+                        r = [ec.encode(x) if isinstance(x,str) else x for x in \
                              [it.source, it.jono, it.setting, it.labor,it.remarks if it.remarks else "" ]]
                         wtr.writerow(r)
                 except Exception as e:

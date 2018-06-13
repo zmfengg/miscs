@@ -5,8 +5,8 @@ Created on 2018年4月27日
 @author: zmFeng
 '''
 
-import c1rdrs
-import pajcc
-import pajrdrs
-import quordrs
-import dbsvcs
+from . import c1rdrs
+from . import pajcc
+from . import pajrdrs
+from . import quordrs
+from . import dbsvcs

@@ -52,7 +52,7 @@ def getSybCstr(addr, db, uid, pwd,
     if autoCP and (not kws or not ("charset" in kws)): 
         miscs.append("charset=%s" % lc.getdefaultlocale()[1])
     if kws:
-        miscs.extend([x[0] + "=" + x[1] for x in kws.iteritems()])
+        miscs.extend([x[0] + "=" + x[1] for x in kws.items()])
     miscs = ";".join(miscs) if miscs else ""
     return cs % {"app" : app, "addr":addr, "db":db,
         "uid":uid, "pwd":pwd , "port":port, "miscs":miscs}
@@ -62,7 +62,7 @@ def getSybCstr(addr, db, uid, pwd,
 def getSybConn(addr, db, uid, pwd,
        port="5000", app=None, autoCP=True, **kws):
     cs = getSybCstr(addr, db, uid, pwd, port, app, autoCP, **kws)
-    if(cs): return pyodbc.connect(cs)
+    if(cs): return pyodbc.connect(cs,timeout = 5)
 
 
 def getAccess(fn, exclusive=False, uid=None, pwd=None):

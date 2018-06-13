@@ -41,18 +41,18 @@ def samekarat(srcje, tarje):
     if not (srcje and tarje): return
     return srcje.alpha == tarje.alpha or (srcje.alpha in _silveralphas and tarje.alpha in _silveralphas)
 
-def getfiles(fldr,ext = None, nameonly = False):
+def getfiles(fldr,part = None, nameonly = False):
     """ return files under given folder """
     """ @param nameonly : don't return the full-path """
 
     if fldr:
         fldr = appathsep(fldr)
-        if ext:
-            ext = ext.lower()
-            fns = [unicode(x, sys.getfilesystemencoding()) 
-                for x in os.listdir(fldr) if not x.lower().find(ext) >= 0]
+        if part:
+            part = part.lower()
+            fns = [x if sys.version_info.major >= 3 else str(x, sys.getfilesystemencoding()) 
+                for x in os.listdir(fldr) if x.lower().find(part) >= 0]
         else:
-            fns = [unicode(x, sys.getfilesystemencoding()) 
+            fns = [x if sys.version_info.major >= 3 else str(x, sys.getfilesystemencoding()) 
                 for x in os.listdir(fldr)]
         if not nameonly:
             fns = [fldr + x for x in fns]
@@ -76,12 +76,13 @@ class ResourceMgr(object):
         self._dtr = dtr
     
     def _getlist(self):
-        id = thread.get_ident()
+        id = threading.get_ident()
         return self._tl.stacks.setdefault(id,{})
 
     def acq(self):
-	""" acquire for a new resource and store it, prepare for returning
-    """        
+        '''
+        acquire for a new resource and store it, prepare for returning
+        '''
         res = self._ctr()
         self._getlist().append(res)
         return res

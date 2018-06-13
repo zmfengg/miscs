@@ -5,7 +5,7 @@
 """
 
 import re
-import __builtin__ as bi
+import builtins as bi
 import inspect
 
 __all__ = ["dir"]
