@@ -13,7 +13,7 @@ from operator import attrgetter
 import numbers
 from collections import namedtuple
 
-__all__ = ["JOElement","StyElement","KaratSvc","Karat"]
+__all__ = ["JOElement","StyElement","KaratSvc","Karat","karatsvc"]
 
 class JOElement(object):
     """ 
@@ -202,3 +202,5 @@ class KaratSvc(object):
         if karat.karat in self._byfamily:
             karat = self._byfamily[karat.karat]        
         return karat
+
+karatsvc = KaratSvc()

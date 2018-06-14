@@ -12,7 +12,6 @@ import re
 import threading
 from collections import Iterable
 from contextlib import contextmanager
-from logging import Logger
 from operator import attrgetter
 
 from sqlalchemy import and_, desc, or_, true
@@ -37,7 +36,6 @@ from .pajcc import MPS, PrdWgt, WgtInfo
 
 __all__ = ["HKSvc", "CNSvc"]
 
-
 def fmtsku(skuno):
     if not skuno:
         return None
@@ -51,7 +49,6 @@ class SvcBase(object):
 
     def __init__(self, sqleng):
         self._engine = sqleng
-        self._logger = Logger(self.__class__.__name__)
 
     @contextmanager
     def sessionctx(self, autocommit=True):

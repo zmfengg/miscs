@@ -6,7 +6,6 @@ module try to read data from quo catalog
 '''
 
 import csv
-import logging
 import math
 import numbers
 import os
@@ -14,6 +13,7 @@ import re
 import sys
 from collections import namedtuple
 from os import path
+from ._res import _logger as logger
 
 import datetime
 from hnjapp.pajcc import MPS,PrdWgt,WgtInfo
@@ -170,7 +170,7 @@ def readagq(fn):
                             je = JOElement(x.strip())
                             if len(je.alpha) == 1 and je.digit > 0: stynos.append(str(je))
             if not stynos:
-                logging.getLogger(__name__).debug("failed to get sty# for pt %s" % (pt,))                
+                logger.getLogger(__name__).debug("failed to get sty# for pt %s" % (pt,))                
             else:
                 # 4 rows down, must have
                 rxs = [x + pt.x for x in range(1, 5)]
@@ -336,7 +336,7 @@ class PajDataByRunn(object):
                 with self._hksvc.sessionctx() as sess:                
                     maps = self._hksvc.getjos(["r" + x.split(",")[0] for x in mp.keys()],psess = sess)
                     if maps[1]:
-                        logging.debug("some runnings(%s) do not have JO#" % mp.keys())
+                        logger.debug("some runnings(%s) do not have JO#" % mp.keys())
                         with open(fldr + (errfn if errfn else "runErrs.dat"), "w") as f:
                             wtr = csv.writer(f, dialect="excel")
                             wtr.writerow(["#failed to get JO# for below runnings"])
@@ -358,7 +358,7 @@ class PajDataByRunn(object):
                         key = x + "," + rtomps[x]
                         if key in mp: del mp[key]
             except Exception as e:
-                logging.debug(e)
+                logger.debug(e)
                 raise e
             finally:
                 if(killxls): app.quit()
@@ -456,9 +456,9 @@ class PajDataByRunn(object):
             with dao.sessionctx() as sess:
                 for x in mp.values():
                     # if x["runn"] != "625254": continue
-                    # logging.debug("doing running(%s)" % x["runn"])
+                    # logger.debug("doing running(%s)" % x["runn"])
                     if "jono" not in x:
-                        logging.critical("No JO field in map of running(%s)" % x["runn"])
+                        logger.critical("No JO field in map of running(%s)" % x["runn"])
                         continue
                     found = False
                     if x["jono"] != "580191":
@@ -469,7 +469,7 @@ class PajDataByRunn(object):
                         if wnc and all(wnc.values()):
                             found = True 
                             if not _putmap(wnc, x["runn"], x["jono"], x["mps"], oks):
-                                logging.debug("JO(%s) is duplicated for same pcode/cost" % wnc["JO"].name.value)
+                                logger.debug("JO(%s) is duplicated for same pcode/cost" % wnc["JO"].name.value)
                         else:                    
                             jo = wnc["JO"]
                             if not jo:
@@ -483,7 +483,7 @@ class PajDataByRunn(object):
                                         if(all(wnc1.values())):
                                             found = True
                                             if not _putmap(wnc1, x["runn"], x["jono"], x["mps"], oks):
-                                                logging.debug("JO(%s) is duplicated for same pcode/cost" % str(wnc1["JO"].name.value))
+                                                logger.debug("JO(%s) is duplicated for same pcode/cost" % str(wnc1["JO"].name.value))
                     else:
                         found = False
                         jo = None
@@ -497,7 +497,7 @@ class PajDataByRunn(object):
                         wtroks, foks = _writeOks(wtroks, foks, fnoks, ttroks, oks, hisoks)
                         oks = {}         
                     stp += 1
-                    if not (stp % 20): logging.debug("%d of %d done" % (stp, cnt))       
+                    if not (stp % 20): logger.debug("%d of %d done" % (stp, cnt))       
                 if len(oks) > 0:
                     wtroks, foks = _writeOks(wtroks, foks, fnoks, ttroks, oks, hisoks)
                 if errs:
@@ -634,13 +634,13 @@ class AckPriceCheck(object):
         @param: hksvc: services of hk system
         @param: xlfn: if provided, save with this file name to the same folder
         """
-        logging.info("Begin to do ack. analyst for folder(%s)" % os.path.basename(fldr))
+        logger.info("Begin to do ack. analyst for folder(%s)" % os.path.basename(fldr))
         fldr = appathsep(fldr)
         all,app = self._readsrcdata(fldr)
         rsts = self._processall(hksvc,all)
         if not rsts: return None
         wb = self._writewb(rsts,fldr + xlfn, app)
-        logging.info("folder(%s) processed, total records = %d" % \
+        logger.info("folder(%s) processed, total records = %d" % \
             (os.path.basename(fldr),sum([len(x) for x in rsts.values()])))
         return rsts, wb
 
@@ -667,7 +667,7 @@ class AckPriceCheck(object):
             try:            
                 kxl,app = xwu.app(False)
                 for fn in fns:
-                    logging.debug("Reading file(%s)" % os.path.basename(fn))
+                    logger.debug("Reading file(%s)" % os.path.basename(fn))
                     wb = app.books.open(fn)
                     shcnt = 0
                     for sht in wb.sheets:
@@ -678,7 +678,7 @@ class AckPriceCheck(object):
                         
                         if not (adate and any((sp,gp))):
                             if any((adate,sp,gp)):
-                                logging.debug("sheet(%s) in file(%s) does not have enough arguments" % \
+                                logger.debug("sheet(%s) in file(%s) does not have enough arguments" % \
                                 (sht.name,os.path.basename(fn)))
                             continue
                         shcnt += 1
@@ -711,7 +711,7 @@ class AckPriceCheck(object):
                             #but in ring, it's quite diff.
                             it.setdefault("pcode",[]).append(pcode)           
                     if shcnt <= 0:
-                        logging.critical("file(%s) doesn't contains any valid sheet" % os.path.basename(fn))
+                        logger.critical("file(%s) doesn't contains any valid sheet" % os.path.basename(fn))
                     wb.close()
                     wb = None
             except Exception as e:
@@ -722,7 +722,7 @@ class AckPriceCheck(object):
             finally:
                 if wb: wb.close()
                 
-            logging.debug("all file read, record count = %d" % len(all))                   
+            logger.debug("all file read, record count = %d" % len(all))                   
             if all:
                 with open(datfn,"w") as fh:
                     wtr = None
@@ -734,7 +734,7 @@ class AckPriceCheck(object):
                                 wtr = csv.DictWriter(fh,dct.keys(),dialect="excel")
                                 wtr.writeheader()
                             wtr.writerow(dct)
-                logging.debug("result file written to %s" % os.path.basename(datfn))
+                logger.debug("result file written to %s" % os.path.basename(datfn))
         return all,app        
 
     def _processone(self,jo,jes,hksvc,sess,smlookup = False):
@@ -837,7 +837,7 @@ class AckPriceCheck(object):
                     rsts.setdefault(jo["result"],[]).append(jo)             
                     idx += 1
                     if idx % 10 == 0:
-                        logging.info("%d of %d done" % (idx,len(jos)))
+                        logger.info("%d of %d done" % (idx,len(jos)))
                 except:
                     rsts.setdefault("PROGRAM_ERROR",[]).append(jo)
         finally:

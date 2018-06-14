@@ -11,7 +11,7 @@ from hnjcore.utils import xwu
 from xlwings import constants
 from hnjcore import JOElement
 import os, sys
-import logging
+from ._res import _logger as logger
 import numbers
 
 
@@ -20,7 +20,6 @@ class InvRdr():
         read the monthly invoices from both C1 version and CC version
     """
     
-    logger = logging.getLogger(__name__)
     C1InvItem = namedtuple("C1InvItem", "source,jono,labor,setting,remarks,stones,parts")
     C1InvStone = namedtuple("C1InvStone", "stone,qty,wgt,remark")
     
@@ -86,7 +85,7 @@ class InvRdr():
             , u"石名称":"stname", u"粒数":"stqty", u"石重,":"stwgt"}
         tm = xwu.list2dict(tr, km)
         if len(tm) < len(km):
-            logging.debug("key columns(%s) not found in sheet(%s)" % (tm, sht.name))
+            logger.debug("key columns(%s) not found in sheet(%s)" % (tm, sht.name))
             return None
         
         items = list()

@@ -11,9 +11,9 @@ all weight related field are GM based
 '''
 
 from collections import namedtuple
-import logging
 from decimal import Decimal
 from hnjcore import karatsvc,Karat
+from ._res import _logger as logger
 
 
 # the fineness map for this calculation
@@ -250,7 +250,7 @@ class PajCalc():
         if not self._checkargs(incr, refmps, tarmps):
             cn = MPSINVALID
             mc = MPSINVALID
-            logging.debug("MPS(%s) not enough for calculating increment(%s)" % (
+            logger.debug("MPS(%s) not enough for calculating increment(%s)" % (
                 tarmps.value,str(incr)))
         else:
             cn = refup / dc + incr.gold * (tarmps.gold - refmps.gold) * 1.25 \
@@ -271,7 +271,7 @@ class PajCalc():
         if not self._checkargs(incr, cn.mps, tarmps):
             r0 = MPSINVALID
             mc = MPSINVALID
-            logging.debug("MPS(%s) not enough for calculating increment(%s)" % (
+            logger.debug("MPS(%s) not enough for calculating increment(%s)" % (
                 tarmps.value,str(incr)))
         else:
             r0 = cn.china + (tarmps.gold - cn.mps.gold) * incr.gold * 1.25 \

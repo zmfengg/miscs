@@ -7,7 +7,4 @@ Created on 2018年4月27日
 
 from .models import *
 from .utils import *
-from .models.utils import Karat, JOElement, StyElement
-
-#factory for all
-karatsvc = KaratSvc()
+from .models.utils import Karat, JOElement, StyElement, karatsvc
