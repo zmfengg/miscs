@@ -333,8 +333,8 @@ class PajDataByRunn(object):
                                     if key not in mp: mp[key] = {"runn":runn, "mps":mps1}
                                     if runn not in rtomps: rtomps[runn] = mps1.value
                     wb.close()
-                with self._hksvc.sessionctx() as sess:                
-                    maps = self._hksvc.getjos(["r" + x.split(",")[0] for x in mp.keys()],psess = sess)
+                with self._hksvc.sessionctx():
+                    maps = self._hksvc.getjos(["r" + x.split(",")[0] for x in mp.keys()])
                     if maps[1]:
                         logger.debug("some runnings(%s) do not have JO#" % mp.keys())
                         with open(fldr + (errfn if errfn else "runErrs.dat"), "w") as f:
@@ -453,7 +453,7 @@ class PajDataByRunn(object):
         if not mp: return             
         oks = {};dao = self._hksvc;stp = 0;cnt = len(mp)
         try:
-            with dao.sessionctx() as sess:
+            with dao.sessionctx():
                 for x in mp.values():
                     # if x["runn"] != "625254": continue
                     # logger.debug("doing running(%s)" % x["runn"])
@@ -464,7 +464,7 @@ class PajDataByRunn(object):
                     if x["jono"] != "580191":
                         pass
                     print("doing " + x["jono"])
-                    wnc = dao.calchina(x["jono"],psess = sess)
+                    wnc = dao.calchina(x["jono"])
                     if x["mps"].isvalid:
                         if wnc and all(wnc.values()):
                             found = True 
@@ -473,13 +473,13 @@ class PajDataByRunn(object):
                         else:                    
                             jo = wnc["JO"]
                             if not jo:
-                                jo = dao.getjos([x["jono"]],psess = sess)
+                                jo = dao.getjos([x["jono"]])
                                 jo = jo[0][0] if jo and jo[0] else None
                             if jo:                                
-                                jos = dao.findsimilarjo(jo, 1,psess = sess)
+                                jos = dao.findsimilarjo(jo, 1)
                                 if jos:
                                     for x1 in jos:
-                                        wnc1 = dao.calchina(x1.name,psess = sess)
+                                        wnc1 = dao.calchina(x1.name)
                                         if(all(wnc1.values())):
                                             found = True
                                             if not _putmap(wnc1, x["runn"], x["jono"], x["mps"], oks):
@@ -488,7 +488,7 @@ class PajDataByRunn(object):
                         found = False
                         jo = None
                     if not found:
-                        if jo and not wnc["wgts"]: wnc["wgts"] = dao.getjowgts(jo, psess = sess)
+                        if jo and not wnc["wgts"]: wnc["wgts"] = dao.getjowgts(jo)
                         errs.append({"runn":x["runn"], "jono":x["jono"], "wnc":wnc, "mps":x["mps"]})
                         if len(errs) > commitcnt:
                             wtrerrs, ferrs = _writeErrs(wtrerrs, ferrs, fnerrs, ttrerrs, errs, hiserrs)
@@ -737,7 +737,7 @@ class AckPriceCheck(object):
                 logger.debug("result file written to %s" % os.path.basename(datfn))
         return all,app        
 
-    def _processone(self,jo,jes,hksvc,sess,smlookup = False):
+    def _processone(self,jo,jes,hksvc,smlookup = False):
 
         jn, pajup, mps= jo["jono"], jo["pajprice"], MPS(jo["mps"])        
         if pajup < 0:
@@ -756,21 +756,21 @@ class AckPriceCheck(object):
                     jo["ratio"] = x / pajup * 100.0
             jo["result"] = self._classifypft(pajup,x)
         else:
-            prdwgts = hksvc.getjowgts(JOElement(jn), psess = sess)
+            prdwgts = hksvc.getjowgts(JOElement(jn))
             jo["result"] = self._classifypft(0,0)
 
         pfx = ""
         cn,pcs = None, jo["pcode"]
         if isinstance(pcs,str): pcs = [pcs]
         for pcode in pcs:
-            cn = hksvc.getrevcns(pcode,psess = sess)
+            cn = hksvc.getrevcns(pcode)
             if cn: break
         jo["pcode"] = pcode
         if not cn:
             for pcode in pcs: 
                 adate = datetime.datetime.strptime(jo["date"],self._dfmt)
                 cn = hksvc.getpajinvbypcode(pcode,maxinvdate = adate, \
-                    limit = 2,psess = sess)
+                    limit = 2)
                 if cn:
                     jo["pcode"] = pcode
                     break      
@@ -783,18 +783,18 @@ class AckPriceCheck(object):
                 tar = pajcc.PajCalc.calctarget(cn,mps)                     
                 pfx = self.LBL_RFH
             else:
-                cds = hksvc.findsimilarjo(jes[jn]["jo"],level = 1,psess =sess) if smlookup else None                    
+                cds = hksvc.findsimilarjo(jes[jn]["jo"],level = 1) if smlookup else None                    
                 if cds:
                     for x in cds:
                         jo1 = jo.copy()
-                        jpv = hksvc.getpajinvbyjes([x.name],psess = sess)
+                        jpv = hksvc.getpajinvbyjes([x.name])
                         if not jpv: continue
                         jpv = jpv[0]
                         jo1["jono"] = x.name.value
                         jo1["pcode"] = jpv.PajShp.pcode
                         jo1["date"] = jpv.PajShp.invdate.strftime(self._dfmt)
-                        jes1 = self._fetchjos([x],hksvc,sess)                        
-                        if self._processone(jo1,jes1,hksvc,sess,False):
+                        jes1 = self._fetchjos([x],hksvc)                        
+                        if self._processone(jo1,jes1,hksvc,False):
                             for x in "rev,revhis,expected,diff.".split(","):
                                 if x in jo1: jo[x] = jo1[x]
                             jo["ref."] = self.LBL_REF + self.LBL_SML + "_" \
@@ -817,31 +817,28 @@ class AckPriceCheck(object):
         jo["ref."] = pfx + self._classifyref(pajup,tar.china)
         return True
 
-    def _fetchjos(self,jos,hksvc,sess):
+    def _fetchjos(self,jos,hksvc):
         """ return the jono -> (poprice,mps,wgts) map """
         return dict([(x.name.value,{"jo":x,"poprice":float(x.po.uprice), \
-                "mps": x.poid, "wgts": hksvc.getjowgts(x.name,psess =sess)}) for x in jos])
+                "mps": x.poid, "wgts": hksvc.getjowgts(x.name)}) for x in jos])
 
     def _processall(self,hksvc,all):
         rsts = {}
-        sess = hksvc.session()
-        try:
+        with hksvc.sessionctx():
             jos = all.values()
             jes = [JOElement(x["jono"]) for x in jos]
-            jes = hksvc.getjos(jes,psess = sess)[0]
-            jes = self._fetchjos(jes,hksvc,sess)
+            jes = hksvc.getjos(jes)[0]
+            jes = self._fetchjos(jes,hksvc)
             idx = 0
             for jo in jos:
                 try:
-                    self._processone(jo,jes,hksvc,sess,True)
+                    self._processone(jo,jes,hksvc,True)
                     rsts.setdefault(jo["result"],[]).append(jo)             
                     idx += 1
                     if idx % 10 == 0:
                         logger.info("%d of %d done" % (idx,len(jos)))
                 except:
                     rsts.setdefault("PROGRAM_ERROR",[]).append(jo)
-        finally:
-            sess.close()
         return rsts
 
     def _writewb(self,rsts,fn,app):

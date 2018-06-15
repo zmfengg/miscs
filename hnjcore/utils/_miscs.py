@@ -11,8 +11,10 @@ import sys
 import os
 import threading
 import inspect
+from sqlalchemy.orm import Session
+from ._res import _logger as logger
 
-__all__ = ["splitarray","appathsep","deepget","getfiles","samekarat","ResourceMgr"]
+__all__ = ["splitarray","appathsep","deepget","getfiles","samekarat","Resctx","Resmgr", "Sessionmgr"]
 
 _silveralphas = set(("4", "5"))
 
@@ -59,43 +61,116 @@ def getfiles(fldr,part = None, nameonly = False):
             fns = [fldr + x for x in fns]
     return fns
 
+class Resmgr(object):
 
-class ResourceMgr(object):
-    """ a resource manager, mainly for session management, Thread safe
-        use acq() to new resource request, ret() to return
-        use get() to borrow an existing one, if no existing, won't return anything
-        this class act like a stack object, ack -> push, ret -> pop, get -> peak        
-    """
+    def __init__(self,crtor,dctr):
+        """ create a thread-safe resource manager by providng the constructor/destructor
+        function which can create/dispose an resource
+        @param crtor: the method to create a resource
+        @param dctor: the method to dispose a resource
+        usage example(direct use Resmgr):
+            def _newcnn():
+                return pyodbc.connect(...)
+            def _dpcnn(cnn):
+                cnn.close()
+            cnnmgr = Resmgr(_newcnn,_dpcnn)
+            cnn,token = cnnmgr.acq()
+            try:
+                ...
+            finally:
+                cnnmgr.ret(token)
+        
+        usage example(using contextmgr):
 
-    def __init__(self,ctr,dtr):
-        """ @param ctr: the construct method for a resource
-            @param dtr: the destruct method of a resource, should accept dtr(res) method
         """
-        self._tl = threading.local()
-        self._tl.stacks = {}
-        self._ctr = ctr
-        self._dtr = dtr
+        self._create = crtor
+        self._dispose = dctr
+        self._storage = {}
+
+    def _getstorage(self):
+        return self._storage.setdefault(threading.get_ident(),([],{}))
+
+    def hasres(self):
+        return bool(self._getstorage()[0])
     
-    def _getlist(self):
-        id = threading.get_ident()
-        return self._tl.stacks.setdefault(id,{})
-
-    def acq(self):
-        '''
-        acquire for a new resource and store it, prepare for returning
-        '''
-        res = self._ctr()
-        self._getlist().append(res)
-        return res
-
-    def ret(self, **kws):
-        """ return the resource to me """
-        lst = self._getlist()
-        if lst:
-            res = lst.pop()
-            self._dtr(res)
-
     def get(self):
-        """ get an existing resource, won't return. If no current, return None """
-        lst = self._getlist()
-        return lst.pop() if lst else None
+        stk = self._getstorage()[0]
+        rc = stk[len(stk) - 1] if stk else None
+        logger.debug("existing resource(%s) reused" % (rc) if rc else "No resource available, use acq() to new one")
+        return rc
+    
+    def acq(self):
+        """ return an tuple, the resource as [0] while the token as [1]
+        you need to provide the token while ret()
+        """
+        import random
+        
+        stg = self._getstorage()
+        stk, rmap, token = stg[0], stg[1], 0
+        while(not token or token in rmap):
+            token = random.randint(1,65535)
+        res = self._create()
+        logger.debug("resource(%s) created by acq() with token(%d)" % (res,token))
+        rmap[token] = res
+        stk.append(res)
+        return res,token
+    
+    def ret(self,token):
+        stg = self._getstorage()
+        stk, rmap = stg[0], stg[1]
+        
+        if not stk:
+            raise Exception("Invalid stack status")
+        if token not in rmap:
+            raise Exception("not returing sth. borrowed from me")
+        res = rmap[token]
+        del rmap[token]; stk.pop()
+        self._dispose(res)
+        logger.debug("resource(%s) return and disposed by token(%d)" % (res,token))
+
+class Resctx(object):
+
+    def __init__(self,resmgrs):
+        from collections import Iterable
+        self._src = list(resmgrs) if isinstance(resmgrs,Iterable) else [resmgrs]
+
+    """ a ball to catch mon(resource)"""
+    def __enter__(self):
+        self._closes, self._ress = [], []
+        for ii in range(len(self._src)):
+            x = self._src[ii]
+            if x.hasres():
+                self._closes.append(False)
+                self._ress.append((x.get(),0,ii))
+            else:
+                self._closes.append(True)
+                lst = list(x.acq()); lst.append(ii)
+                self._ress.append(lst)
+        
+        return self._ress[0][0] if len(self._ress) == 1 else [x[0] for x in self._ress]
+                
+    def __exit__(self, exc_type, exc_value, traceback):
+        cnt = len(self._closes)
+        for ii in range(cnt - 1,-1,-1):
+            if self._closes[ii]:
+                self._src[self._ress[ii][2]].ret(self._ress[ii][1])
+        return True if not exc_type else False
+
+class Sessionmgr(Resmgr):
+    """ a sqlalchemy engine session manager by providing a sqlalchemy engine """
+    def __init__(self,engine):
+        self._engine = engine
+        super(Sessionmgr,self).__init__(self._newsess,self._closesess)
+
+    def _newsess(self):
+        return Session(self._engine)
+    
+    def _closesess(self,sess):
+        sess.close()
+
+    def dispose(self):
+        logger.debug("sqlachemy engine(%s) disposed" % self._engine)
+        self._engine.dispose()
+    
+    def close(self):
+        self.dispose()

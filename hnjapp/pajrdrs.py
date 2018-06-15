@@ -224,7 +224,7 @@ def readbom(fldr):
         if kxl and app: app.quit()
     return pmap
 
-def readbom2jos(fldr,hksvc,fn,mindt = None):
+def readbom2jos(fldr,hksvc,fn = None,mindt = None):
     """ build a jo collection list based on the BOM file provided
         @param fldr: the folder contains the BOM file(s)
         @param hksvc: the HK db service
@@ -265,8 +265,7 @@ def readbom2jos(fldr,hksvc,fn,mindt = None):
     qj = Query([JOhk.name.label("jono"),Styhk.name.label("styno"),JOhk.running]) \
         .join(Orderma, Orderma.id == JOhk.orderid).join(Styhk).filter(JOhk.createdate >= mindt) \
         .order_by(JOhk.createdate)
-    sess = hksvc.session()
-    try:
+    with hksvc.sessionctx() as sess:
         cnt = 0;ln = len(pmap)
         for x in pmap.values():
             lst, wgt = [x["pcode"]], x["wgts"]
@@ -283,7 +282,7 @@ def readbom2jos(fldr,hksvc,fn,mindt = None):
                 q = qj.filter(Orderma.styid == sid).with_session(sess)
                 lst1 = q.all()
                 for jn in lst1:
-                    jowgt = hksvc.getjowgts(jn.jono,psess = sess)
+                    jowgt = hksvc.getjowgts(jn.jono)
                     if not _samewgt(jowgt,wgt):
                         lst = [pcode,jn.jono.value,jn.styno.value,jn.running]
                         lst.extend(_fmtwgt(jowgt))
@@ -308,10 +307,8 @@ def readbom2jos(fldr,hksvc,fn,mindt = None):
             sht.range(1,1).value = data[idx]
             sht.autofit("c")
         wb.save(fn)
-        ffn = wb.name
+        ffn = wb.fullname
         app.quit()
-    finally:
-        sess.close()
     return ffn
 
 class ShpReader:
@@ -664,52 +661,50 @@ class InvReader(object):
         x = (len(dups), len(items))
         e = None
         if any(x):
-            try:
-                # maybe the insert/delete should be implemented by the hksvr
-                cur = self._accessdb.cursor()
-                sess = self._hksvc.session()
-                if x[0]:
-                    lst = list(dups)
-                    cur.execute(
-                        "delete from PajInv where invno in ('%s')" % "','".join(lst))
-                    sess.query(PajInv).filter(PajInv.invno.in_(lst))\
-                        .delete(synchronize_session=False)
-                if x[1]:
-                    dcts = list([x0._asdict() for x0 in items.values()])
-                    jns = [JOElement(x0.jono) for x0 in items.values()]
-                    jns = self._hksvc.getjos(jns,psess = sess)[0]
-                    jns = dict([(x0.name,x0) for x0 in jns])
-                    for dct in dcts:
-                        # todo::make the china value for the user
-                        if not dct["stone"]: dct["stone"] = NA
-                        dct["china"] = 0
-                        dc1 = dict(dct)
-                        dc1["joid"] = jns[JOElement(dc1["jono"])].id
-                        dc1["stspec"] = dc1["stone"]
-                        dc1["uprice"] = dc1["price"]
-                        for y in "lastmodified".split(","):
-                            dct[y] = _accdstr(dct[y])
-                        iv = PajInv()
-                        for it in dc1.items():
-                            k = it[0]
-                            lk = it[0].lower()
-                            if hasattr(iv, lk):
-                                iv.__setattr__(lk, dc1[k])
-                        cur.execute(("insert into PajInv(Invno,Jono,StSpec,Qty,UPrice,Mps,LastModified) values"
-                                     "('%(invno)s','%(jono)s','%(stone)s',%(qty)f,%(price)f,'%(mps)s',#%(lastmodified)s#)") % dct)
-                        iv = sess.add(iv)
-            except Exception as e:  # there might be pyodbc.IntegrityError if dup found
-                logger.debug("Error occur in InvRdr:%s" % e)
-            finally:
-                if not e:
-                    sess.commit()
-                    self._accessdb.commit()
-                else:
-                    sess.rollback()
-                    self._accessdb.rollback()
-                cur.close()
-                sess.close()
-
+            cur = self._accessdb.cursor()
+            with self._hksvc.sessionctx() as sess:
+                try:
+                    # maybe the insert/delete should be implemented by the hksvr                
+                    if x[0]:
+                        lst = list(dups)
+                        cur.execute(
+                            "delete from PajInv where invno in ('%s')" % "','".join(lst))
+                        sess.query(PajInv).filter(PajInv.invno.in_(lst))\
+                            .delete(synchronize_session=False)
+                    if x[1]:
+                        dcts = list([x0._asdict() for x0 in items.values()])
+                        jns = [JOElement(x0.jono) for x0 in items.values()]
+                        jns = self._hksvc.getjos(jns)[0]
+                        jns = dict([(x0.name,x0) for x0 in jns])
+                        for dct in dcts:
+                            # todo::make the china value for the user
+                            if not dct["stone"]: dct["stone"] = NA
+                            dct["china"] = 0
+                            dc1 = dict(dct)
+                            dc1["joid"] = jns[JOElement(dc1["jono"])].id
+                            dc1["stspec"] = dc1["stone"]
+                            dc1["uprice"] = dc1["price"]
+                            for y in "lastmodified".split(","):
+                                dct[y] = _accdstr(dct[y])
+                            iv = PajInv()
+                            for it in dc1.items():
+                                k = it[0]
+                                lk = it[0].lower()
+                                if hasattr(iv, lk):
+                                    iv.__setattr__(lk, dc1[k])
+                            cur.execute(("insert into PajInv(Invno,Jono,StSpec,Qty,UPrice,Mps,LastModified) values"
+                                        "('%(invno)s','%(jono)s','%(stone)s',%(qty)f,%(price)f,'%(mps)s',#%(lastmodified)s#)") % dct)
+                            iv = sess.add(iv)
+                except Exception as e:  # there might be pyodbc.IntegrityError if dup found
+                    logger.debug("Error occur in InvRdr:%s" % e)
+                finally:
+                    if not e:
+                        sess.commit()
+                        self._accessdb.commit()
+                    else:
+                        sess.rollback()
+                        self._accessdb.rollback()
+                    cur.close()
         return (0 if sum(x) == 0 else -1 if e else 1), e
 
     def read(self, invfldr, writeJOBack=True):
