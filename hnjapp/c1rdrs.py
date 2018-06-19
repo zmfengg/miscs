@@ -7,12 +7,16 @@ need to be able to read the 2 kinds of files: C1's original and calculator file
 '''
 
 from collections import namedtuple
-from hnjcore.utils import xwu
+from hnjcore.utils import xwu, daterange
 from xlwings import constants
 from hnjcore import JOElement
+from hnjcore.models.cn import JO,Customer, Customer, Style, MM, MMMa, MMgd
+from hnjcore import karatsvc
 import os, sys
-from ._res import _logger as logger
+from .common import _logger as logger, _date_short
 import numbers
+from sqlalchemy.orm import Query
+from sqlalchemy import and_, func
 
 
 class InvRdr():
@@ -141,3 +145,51 @@ class InvRdr():
         x = xwu.usedrange(sht)
         rng = sht.range((rng.row, x.columns.count), (x.last_cell().row, x.last_cell().column))
         vvs = rng.value
+
+class C1JCReader(object):
+    
+    def __init__(self,cnsvc):
+        self._cnsvc = cnsvc
+
+    """class to create the C1 JOCost file for HK accountant"""
+    def read(self, year, month, day = 1, tplfn=None, tarfldr=None):
+        df, dt = daterange(year,month,day)
+        with self._cnsvc.sessionctx() as cur:
+            mmids, vvs = set(), {}
+            cnmap = xwu.list2dict(("mmid,lastmmdate,jobno,cstname,styno,running,mstone,description,joqty"
+            ",karat,goldwgt,goldcost,extgoldcost,stonecost,laborcost,extlaborcost,extcost,"
+            "totalcost,unitcost,extgoldwgt,cflag").split(","))
+            q = Query([JO.name.label("jono"),Customer.name.label("cstname"),\
+            Style.name.label("styno"),JO.running,JO.karat.label("jokarat"),MMgd.karat, \
+            MM.id,MM.qty,func.sum(MMgd.wgt).label("wgt"),func.max(MMMa.refdate).label("refdate")]).\
+            join(Customer).join(MM).join(MMMa).join(MMgd).join(Style).\
+            group_by(JO.name,Customer.name,Style.name,JO.running,JO.karat,MMgd.karat,MM.id,MM.qty).\
+            filter(and_(MMMa.refdate >= df,MMMa.refdate < dt))
+            lst = q.with_session(cur).all()
+            for x in lst:
+                jn = x.jono.value
+                if jn != "580356": continue
+                if x.id not in mmids:
+                    mmids.add(x.id)
+                    if jn not in vvs:
+                        vvs[jn] = [x.id,x.refdate.strftime(_date_short),x.jono.value, x.cstname.strip(),\
+                            x.styno.value,x.running,"_ST", "_EDESC", x.qty,karatsvc.getfamily(x.jokarat).karat,[],\
+                            0,0,0,0,0,0,0,0,0,"NA"]
+                    else:
+                        vvs[jn][cnmap["joqty"]] += x.qty
+                vvs[jn][cnmap["goldwgt"]].append((karatsvc.getfamily(x.karat).karat,x.wgt))
+        for x in vvs.values():
+            lst1 = x[cnmap["goldwgt"]]
+            if len(lst1) > 1:
+                mmids = {}
+                for y in lst1:
+                    if y[0] in mmids:
+                        mmids[y[0]] += y[1]
+                    else:
+                        mmids[y[0]] = y[1]
+                x[cnmap["goldwgt"]] = mmids[x[cnmap["karat"]]]
+                del mmids[x[cnmap["karat"]]]
+                if len(mmids) > 0:
+                    x[cnmap["extgoldcost"]] = list(mmids.items())
+        print(vvs)
+        return vvs

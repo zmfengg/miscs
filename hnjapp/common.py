@@ -10,3 +10,4 @@
 import logging
 
 _logger = logging.getLogger("hnjapp")
+_date_short = "%Y/%m/%d"

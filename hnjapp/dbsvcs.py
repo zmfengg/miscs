@@ -21,19 +21,19 @@ from hnjcore import JOElement, KaratSvc, StyElement
 from hnjcore.models.cn import JO as JOcn
 from hnjcore.models.cn import Customer as Customercn
 from hnjcore.models.cn import Style as Stylecn
-from hnjcore.models.cn import MM, MMMa
+from hnjcore.models.cn import MM, MMMa, Codetable
 from hnjcore.models.hk import Invoice as IV
 from hnjcore.models.hk import InvoiceItem as IVI
 from hnjcore.models.hk import JOItem as JI
 from hnjcore.models.hk import StockObjectMa as SO
 from hnjcore.models.hk import (JO, Customer, Orderma, PajCnRev, PajInv, PajShp,
                                POItem, Style)
-from hnjcore.utils import samekarat, splitarray, Resmgr, Resctx
+from hnjcore.utils import samekarat, splitarray, ResourceCtx
 from hnjcore.utils.consts import NA
 
 from . import pajcc
 from .pajcc import MPS, PrdWgt, WgtInfo
-from ._res import _logger as logger
+from .common import _logger as logger
 
 __all__ = ["HKSvc", "CNSvc"]
 
@@ -52,7 +52,7 @@ class SvcBase(object):
         self._trmgr = trmgr
 
     def sessionctx(self):
-        return Resctx(self._trmgr)
+        return ResourceCtx(self._trmgr)
 
 class HKSvc(SvcBase):
     _qcaches = {}
@@ -396,3 +396,27 @@ class CNSvc(SvcBase):
                 .filter(and_(MMMa.refdate >= df, MMMa.refdate < dt)).with_session(cur)
             lst = q.all()
         return lst
+    
+    def getjcrefid(self,runn):
+        """ return the referenceId of given runn#, return tuple
+        tuple[0] = the refid, tuple[1] = (runnf,runnt)
+        """
+        x = None
+        with self.sessionctx() as cur:
+            q = Query([Codetable.coden0,Codetable.coden1,Codetable.coden2]).filter(and_(Codetable.tblname == "jocostma",Codetable.colname == "costrefid")).\
+                filter(and_(Codetable.coden1 <= runn,Codetable.coden2 >= runn))
+            x = q.with_session(cur).one_or_none()
+        if x:
+            return int(x.coden0),(int(x.coden1),int(x.coden2))
+
+    def getjcmetalmps(self,refid):
+        """ return the metal ups of given refid as dict """
+        x = None
+        with self.sessionctx() as cur:
+            q = Query(Codetable).filter(and_(Codetable.tblname == "metalma",Codetable.colname == "goldprice")).\
+                filter(Codetable.tag == refid)
+            lst = q.with_session(cur).all()
+            return dict([(int(x.coden0),float(x.coden1)) for x in lst])
+
+
+    
