@@ -22,10 +22,10 @@ from xlwings.constants import LookAt
 
 from hnjcore import JOElement, appathsep, deepget, karatsvc, p17u, xwu
 from hnjcore.models.hk import PajInv, PajShp, Orderma,Style as Styhk, JO as JOhk
-from hnjcore.utils import getfiles
+from hnjcore.utils import getfiles, daterange
 from hnjcore.utils.consts import NA
 
-from ._res import _logger as logger
+from .common import _logger as logger
 from .dbsvcs import CNSvc, HKSvc
 from .pajcc import P17Decoder, PrdWgt, WgtInfo
 from .quordrs import DAO
@@ -825,7 +825,7 @@ class PAJCReader(object):
         self._cnsvc = cnsvc
         self._bcdb = bcdb
 
-    def run(self, year, month, tplfn=None, tarfldr=None):
+    def run(self, year, month, day = 1, tplfn=None, tarfldr=None):
         """ create report file of given year/month"""
 
         def _makemap(sht=None):
@@ -851,19 +851,9 @@ class PAJCReader(object):
             return nmap, imap
 
         dfmt = "%Y/%m/%d"
-        df = dtm.date(year, month, 1)
-        if False:
-            #test purpose, get only 2 day
-            dt = dtm.date(year, month, 3)
-        else:
-            month += 1
-            if month > 12:
-                year += 1
-                month = 1        
-            dt = dtm.date(year, month, 1)
+        df, dt = daterange(year,month,day)
 
-        runns = set()
-        jes = set()
+        runns, jes = set(), set()
         dao = DAO(self._bcdb)
 
         mms = self._cnsvc.getshpforjc(df, dt)

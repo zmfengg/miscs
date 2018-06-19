@@ -15,8 +15,7 @@ import inspect
 from sqlalchemy.orm import Session
 from .common import _logger as logger
 
-__all__ = ["splitarray","appathsep","deepget","getfiles", \
-    "stsizefmt"]
+__all__ = ["splitarray","appathsep","deepget","getfiles", "stsizefmt", "daterange"]
 
 def splitarray(arr, logsize = 100):
     """split an array into arrays whose len is less or equal than logsize
@@ -55,6 +54,18 @@ def getfiles(fldr,part = None, nameonly = False):
         if not nameonly:
             fns = [fldr + x for x in fns]
     return fns
+
+def daterange(year,month,day = 1):
+    """ make a from,thru tuple for the given month, thru is the first date of next month """
+    import datetime as dtm
+    df = dtm.date(year,month,day if day > 0 else 1)
+    month += 1
+    if month > 12:
+        year += 1
+        month = 1        
+    dt = dtm.date(year, month, 1)
+    del dtm
+    return df, dt
 
 def stsizefmt(sz, shortform = False):
     """ format a stone size into long or short form, with big -> small sorting, some examples are

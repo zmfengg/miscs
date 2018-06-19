@@ -13,7 +13,7 @@ all weight related field are GM based
 from collections import namedtuple
 from decimal import Decimal
 from hnjcore import karatsvc,Karat
-from ._res import _logger as logger
+from .common import _logger as logger
 
 
 # the fineness map for this calculation

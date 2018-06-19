@@ -13,7 +13,7 @@ import re
 import sys
 from collections import namedtuple
 from os import path
-from ._res import _logger as logger
+from .common import _logger as logger
 
 import datetime
 from hnjapp.pajcc import MPS,PrdWgt,WgtInfo

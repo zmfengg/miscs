@@ -73,3 +73,29 @@ class MM(CNBase):
     qty = Column(DECIMAL, name = "qty")
     tag = Column(Integer, name = "tag")
 
+class MMgd(CNBase):
+    __tablename__ = "mmgd"
+    id = Column(Integer, ForeignKey("mm.mmid"), name = "mmid", primary_key = True, autoincrement = False)
+    karat = Column(Integer, name = "karat", primary_key = True, autoincrement = False)
+    wgt = Column(DECIMAL, name = "wgt")
+
+class Codetable(CNBase):
+    __tablename__ = "codetable"
+    id = Column(Integer, primary_key = True, autoincrement = False)
+    tblname = Column(VARCHAR(20))
+    colname = Column(VARCHAR(20))
+    coden0 = Column(DECIMAL,name="coden")
+    coden1 = Column(DECIMAL,name="coden1")
+    coden2 = Column(DECIMAL,name="coden2")
+    codec0 = Column(VARCHAR(255),name="codec")
+    codec1 = Column(VARCHAR(255),name="codec1")
+    codec2 = Column(VARCHAR(255),name="codec2")
+    coded0 = Column(DateTime,name="coded")
+    coded1 = Column(DateTime)
+    coded2 = Column(DateTime)
+    code = Column(VARCHAR(255))
+    description = Column(VARCHAR(255))
+    filldate = Column(DateTime, name ="fill_date")
+    tag = Column(Integer)
+    pid = Column(Integer)
+
