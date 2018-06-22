@@ -14,9 +14,10 @@ import threading
 import inspect
 from sqlalchemy.orm import Session
 from .common import _logger as logger
+from collections.abc import Iterator
 
 __all__ = ["splitarray","appathsep","deepget","getfiles", \
-    "stsizefmt", "daterange"]
+    "stsizefmt", "daterange", "isnumeric"]
 
 def splitarray(arr, logsize = 100):
     """split an array into arrays whose len is less or equal than logsize
@@ -26,6 +27,14 @@ def splitarray(arr, logsize = 100):
     if not arr: return
     if not logsize: logsize = 100 
     return [arr[x * logsize:(x + 1) * logsize] for x in range(int(math.ceil(1.0 * len(arr) / logsize)))]
+
+def isnumeric(val):
+    flag = True
+    try:
+        float(val)
+    except:
+        flag = False
+    return flag
 
 def appathsep(fldr):
     """append a path sep into given path if there is not"""
@@ -120,3 +129,53 @@ def stsizefmt(sz, shortform = False):
         else:
             parts.extend(x)                
     return ("-" if rng else "X").join(sorted(parts,reverse = True))
+
+def wraplist(lst,nmap):
+    """
+    return an iterable object which wrap each row in the list into . nation
+    """
+
+class _ListAsDictWrp(object):
+
+    def __init__(self,nmap):
+        self._nmap = nmap
+    
+    def setlist(self,lst):
+        self._list = lst
+
+    def _checkarg(self,name):
+        if name not in self._nmap:
+            raise AttributeError("no attribute(%s)" % name)
+
+    def __getattribute__(self,name):
+        if hasattr(self,name):
+            super().__getattribute__(self,name)
+        else:
+            self._checkarg(name)
+            return self._list[self._nmap[name]]
+
+    def __setattr__(self,name,val):
+        if hasattr(self,name):
+            super().__setattr__(self,name,val)
+        else:
+            self._checkarg(name)
+            self._list[self._nmap[name]] = val 
+
+class NameList(Iterator):    
+    def __init__(self,lsts,nmap):
+        super(NameList,self).__init__()
+        self._lists = lsts
+        self._nmap = nmap
+        self._ptr = -1
+        self._ubnd = len(lsts)
+        self._wrpr = _ListAsDictWrp(nmap)
+            
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        self._ptr += 1
+        if not self._lists or self._ptr > self._ubnd:
+            raise StopIteration()
+        self._wrpr.setlist(self._lists[self._ptr])
+        return self._wrpr

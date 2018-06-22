@@ -21,6 +21,7 @@ from hnjcore import JOElement, xwu, appathsep, utils as hnju
 from hnjcore.utils.consts import NA
 from hnjcore.utils import getfiles
 from . import pajcc
+from xlwings import App
 
 
 def _checkfile(fn, fns):
@@ -45,14 +46,14 @@ def _getexcels(fldr):
         return fns
 
 def readsignetcn(fldr):
-    """ read file format like \\172.16.8.46\pb\dptfile\quotation\date\Date2018\0521\123
+    """ 
+    read file format like \\172.16.8.46\pb\dptfile\quotation\date\Date2018\0521\123
     for signet's "RETURN TO VENDOR" sheet
     """
     if not os.path.exists(fldr): return
     fldr = hnju.appathsep(fldr)
-    fns = [str(x, sys.getfilesystemencoding()) 
-        for x in os.listdir(fldr) if x.lower().find("txt") >= 0]
-    ptncn = re.compile(r"CN\d{3,}")
+    fns = getfiles(fldr,"txt")
+    ptncn = re.compile(r"(CN|QC)\d{3,}")
     ptndec = re.compile(r"\d*\.\d+")
     ptnsty = re.compile(r"[\w/\.]+\s+")
     ptndscerr = re.compile(r"\(?[\w/\.]+\)?(\s{4,})")
@@ -62,13 +63,14 @@ def readsignetcn(fldr):
     cnt = 0
     for fn in fns:
         cnt = cnt + 1
-        with open(fldr + fn,"rb") as fh:
+        with open(fn,"rb") as fh:
             cn = None;stage = 0
             lstfn = [];dct = {}
             for ln in fh:
+                ln = str(ln)
                 if not cn:
                     mt = ptncn.search(ln)
-                    if mt: cn = mt.group()
+                    if mt: cn = ln[mt.start():mt.end()]
                 else:
                     if stage >= 3 or stage <= 0:
                         idx = ln.find(styPFX)                            
@@ -81,8 +83,8 @@ def readsignetcn(fldr):
                                 idx1 = mt1.end() + mt.end()
                             else:
                                 idx1 = mt.end()                                
-                            dct = {"cn":cn,"styno": ln[:idx1].strip(),"fn":fn}
-                            dct["description"] = ln[idx1:].strip()
+                            dct = {"cn":cn,"styno": ln[:idx1].strip(),"fn":os.path.basename(fn)}
+                            dct["description"] = ln[idx1:].strip().replace("\\r\\n'","")
                             lstfn.append(dct)
                             stage = 1
                     elif stage == 1:
@@ -97,6 +99,7 @@ def readsignetcn(fldr):
                     else:
                         pass
             if lstfn: lstall.extend(lstfn)                    
+    fn = None
     if lstall:
         app = xwu.app(True)[1]
         wb = app.books.add()
@@ -106,8 +109,14 @@ def readsignetcn(fldr):
                 lstfn.append((x["styno"],x["qty"],x["cn"],x["description"],"",x["ttl"],x["fn"]))
             else:
                 print("data error:(%s)" % x)
-        rng = wb.sheets(1).range("A1")
+        sht = wb.sheets(1)
+        rng = sht.range("A1")
         rng.value = lstfn
+        wb.save(fldr + "data")
+        sht.autofit("c")
+        fn = wb.fullname
+    return fn
+
 
 def readagq(fn):
     """
@@ -210,32 +219,6 @@ def readagq(fn):
             app.quit()
         else:
             if wb1: app.visible = True
-
-class DAO(object):
-    """a handy Hnjhk dao for data access in this tests
-    now it's only bc services
-    """
-    _querysize = 20  # batch query's batch, don't be too large
-
-    def __init__(self, bcdb=None):
-        if bcdb: self._bcdb = bcdb
-    
-    def getbcsforjc(self, runns):
-        """return running and description from bc with given runnings """
-        if not runns: return
-        if not isinstance(runns[0], str): runns = [str(x) for x in runns]
-        s0 = "select runn,desc from stocks where runn in (%s)";lst = []
-        cur = self._bcdb.cursor()
-        try:
-            for x in hnju.splitarray(runns, self._querysize):
-                cur.execute(s0 % ("'" + "','".join(x) + "'"))
-                rows = cur.fetchall()
-                if rows: lst.extend(rows)
-        except:
-            pass
-        finally:
-            if cur: cur.close()
-        return lst
 
 class PajDataByRunn(object):
     r"""
@@ -626,34 +609,98 @@ class AckPriceCheck(object):
     LBL_RF_NOREF = LBL_REF + CAT_NOREF
     _hdr = ("file,jono,styno,qty,pcode,mps,pajprice,expected,diff."
                 ",poprice,profit,ttl.pft.,ratio,wgts,ref.,rev,revhis,date,result").split(",")
+    
+    _fnsrc = "_src.dat"
+    _fndts = "_fdates.dat"
 
-    def run(self,fldr,hksvc,xlfn = None):
-        """ execute the check process against the given folder, return a tuple of 
-        resultmap,wb
+    @property
+    def fnsrc(self):
+        return self._fldr + self._fnsrc
+    
+    @property
+    def fndts(self):
+        return self._fldr + self._fndts
+
+    def __init__(self,fldr,hksvc):
+        self._fldr = appathsep(fldr)
+        self._hksvc = hksvc
+
+    def _uptodate(self,fns):
+        if not fns: return True
+        fn = self.fndts
+        flag = os.path.exists(fn)
+        if flag:
+            with open(fn,"r") as fh:
+                rdr = csv.DictReader(fh)
+                mp = dict([(x["file"],x) for x in rdr])
+            flag = len(fns) == len(mp)
+            for x in fns:
+                fn = os.path.basename(x)
+                flag =  fn in mp
+                if not flag: break
+                flag = float(mp[fn]["date"]) >= os.path.getmtime(x)
+                if not flag: break
+        return flag
+
+    def _getsrcxlsfns(self):
+        fns = getfiles(self._fldr,"xls",True)
+        if fns:
+            fns = [self._fldr + x for x in fns if x.find("_") != 0]
+        return fns
+
+    def run(self,xlfn = None):
+        """ execute the check process against the given folder, return the result's full filename
         @param: fldr: the folder contains the acks
         @param: hksvc: services of hk system
         @param: xlfn: if provided, save with this file name to the same folder
         """
-        logger.info("Begin to do ack. analyst for folder(%s)" % os.path.basename(fldr))
-        fldr = appathsep(fldr)
-        all,app = self._readsrcdata(fldr)
-        rsts = self._processall(hksvc,all)
-        if not rsts: return None
-        wb = self._writewb(rsts,fldr + xlfn, app)
-        logger.info("folder(%s) processed, total records = %d" % \
-            (os.path.basename(fldr),sum([len(x) for x in rsts.values()])))
-        return rsts, wb
+        fns, err, msg = self._getsrcxlsfns(), "", ""
+        if not fns:
+            rc, err = None, "_no data returned"            
+        utd = self._uptodate(fns)
+        if not xlfn: xlfn = "_rst"
+        tarfn = getfiles(self._fldr,xlfn)
+        if tarfn: tarfn = tarfn[0]
+        rsts = None
+        if tarfn and utd and \
+            os.path.getmtime(tarfn) >= os.path.getmtime(self.fndts):
+            rc, msg = tarfn, "data up to date, don't need further process"
+        else:
+            all,app = self._readsrcdata(fns,utd)
+            rsts = self._processall(all) if all else None
+            if rsts:
+                tarfn = self._fldr + xlfn
+                rc = self._writewb(rsts, tarfn, app)                
+            else:                
+                rc = None
+                if isinstance(app,str):
+                    err = (err + "," if err else "") + app[1:]                    
+                    app = None
+                elif not err:
+                    err = "_no data returned"
+            if app: app.quit()
+        s0 = "process of folder(%s) completed" % os.path.basename(self._fldr[:-1])
+        if rsts:        
+            logger.info("%s, total records = %d" % \
+                (s0,sum([len(x) for x in rsts.values()])))
+        else:
+            if err:
+                logger.info("%s exception(%s) occured" % (s0,err[1:]))
+            elif msg:
+                logger.info("%s %s" % (s0,msg))
+        return rc
 
-    def _readsrcdata(self,fldr):
-        fns = getfiles(fldr,"xls",True)
-        fldr = appathsep(fldr)
-        if fns:
-            fns = [fldr + x for x in fns if x.find("_") != 0]
-        if not fns: return None,None
+    def _readsrcdata(self,fns,utd):
+        def _float(val):
+            try:
+                return float(val)
+            except:
+                return 0
 
-        all = {}; datfn = fldr + "_src.dat"
-        kxl,app,wb = False, None ,None
-        if _checkfile(datfn,fns):
+        if not fns: return None,None        
+        all = {}; datfn = self.fnsrc ; idxfn = self.fndts
+        kxl,app,wb,fds = False, None ,None, {}
+        if utd and os.path.exists(datfn):
             with open(datfn) as fh:
                 rdr = csv.DictReader(fh,dialect="excel")
                 for row in rdr:
@@ -661,32 +708,34 @@ class AckPriceCheck(object):
                     if isinstance(it["pcode"],str):
                         it["pcode"] = []
                     it["pcode"].append(row["pcode"])
-                    it["pajprice"] = float(it["pajprice"])
+                    it["pajprice"] = float(it["pajprice"]) if it["pajprice"] else 0
                     it["qty"] = float(it["qty"])
         if not all:
             try:            
                 kxl,app = xwu.app(False)
+                err = None
                 for fn in fns:
                     logger.debug("Reading file(%s)" % os.path.basename(fn))
+                    fds[os.path.basename(fn)] = os.path.getmtime(fn)
                     wb = app.books.open(fn)
                     shcnt = 0
                     for sht in wb.sheets:
                         adate,sp,gp = None,0,0
                         adate = self._getvalue(sht,"Order Date:")
-                        sp = self._getvalue(sht,"Silver*:")
-                        gp = self._getvalue(sht,"gold*:")
+                        sp = _float(self._getvalue(sht,"Silver*:"))
+                        gp = _float(self._getvalue(sht,"gold*:"))
                         
                         if not (adate and any((sp,gp))):
                             if any((adate,sp,gp)):
                                 logger.debug("sheet(%s) in file(%s) does not have enough arguments" % \
                                 (sht.name,os.path.basename(fn)))
-                            continue
+                                err = "Key argument missing in (%s)" % os.path.basename(fn)
+                            break
                         shcnt += 1
                         mps = MPS("S=%f;G=%f" % (sp,gp)).value
                         #don't use the NO field, sometimes it's blank, use JO# instead
                         rng = xwu.find(sht,"Job*")
                         rng0 = xwu.usedrange(sht)
-                        #rng = sht.range((rng.row,1),(rng0.row,rng.column))
                         rng = sht.range(sht.range(rng.row,1), \
                             sht.range(rng0.row + rng0.rows.count -1 ,rng0.column + rng0.columns.count - 1))
                         vvs = rng.value
@@ -714,20 +763,24 @@ class AckPriceCheck(object):
                         logger.critical("file(%s) doesn't contains any valid sheet" % os.path.basename(fn))
                     wb.close()
                     wb = None
+                    if err: break
             except Exception as e:
-                print(e)
-                if kxl and app:
-                    app.quit()
-                    wb = None
+                err = "file(%s),err(%s)" % (os.path.basename(fn),e)                
             finally:
                 if wb: wb.close()
-                
+                del wb
+
+            if err:
+                if kxl and app:
+                    app.quit()
+                return None,"_" + err
             logger.debug("all file read, record count = %d" % len(all))                   
             if all:
                 with open(datfn,"w") as fh:
                     wtr = None
                     for row in all.values():
                         dct = row.copy()
+                        if not dct["pajprice"]: dct["pajprice"] = 0
                         for c0 in row["pcode"]:                        
                             dct["pcode"] = c0
                             if not wtr:
@@ -735,12 +788,16 @@ class AckPriceCheck(object):
                                 wtr.writeheader()
                             wtr.writerow(dct)
                 logger.debug("result file written to %s" % os.path.basename(datfn))
+                with open(idxfn,"w") as fh:
+                    print("file,date",file = fh)
+                    for x in fds.items():
+                        print(x[0] + "," + str(x[1]), file = fh)
         return all,app        
 
-    def _processone(self,jo,jes,hksvc,smlookup = False):
-
+    def _processone(self,jo,jes,smlookup = False):
+        hksvc = self._hksvc
         jn, pajup, mps= jo["jono"], jo["pajprice"], MPS(jo["mps"])        
-        if pajup < 0:
+        if not pajup or pajup < 0:
             pajup, jo["pajprice"] = 0, 0
         
         if jn in jes:
@@ -793,8 +850,8 @@ class AckPriceCheck(object):
                         jo1["jono"] = x.name.value
                         jo1["pcode"] = jpv.PajShp.pcode
                         jo1["date"] = jpv.PajShp.invdate.strftime(self._dfmt)
-                        jes1 = self._fetchjos([x],hksvc)                        
-                        if self._processone(jo1,jes1,hksvc,False):
+                        jes1 = self._fetchjos([x])                        
+                        if self._processone(jo1,jes1,False):
                             for x in "rev,revhis,expected,diff.".split(","):
                                 if x in jo1: jo[x] = jo1[x]
                             jo["ref."] = self.LBL_REF + self.LBL_SML + "_" \
@@ -817,22 +874,23 @@ class AckPriceCheck(object):
         jo["ref."] = pfx + self._classifyref(pajup,tar.china)
         return True
 
-    def _fetchjos(self,jos,hksvc):
+    def _fetchjos(self,jos):
         """ return the jono -> (poprice,mps,wgts) map """
         return dict([(x.name.value,{"jo":x,"poprice":float(x.po.uprice), \
-                "mps": x.poid, "wgts": hksvc.getjowgts(x.name)}) for x in jos])
+                "mps": x.poid, "wgts": self._hksvc.getjowgts(x.name)}) for x in jos])
 
-    def _processall(self,hksvc,all):
-        rsts = {}
+    def _processall(self,all):
+        if not all: return
+        hksvc, rsts = self._hksvc, {}
         with hksvc.sessionctx():
             jos = all.values()
             jes = [JOElement(x["jono"]) for x in jos]
             jes = hksvc.getjos(jes)[0]
-            jes = self._fetchjos(jes,hksvc)
+            jes = self._fetchjos(jes)
             idx = 0
             for jo in jos:
                 try:
-                    self._processone(jo,jes,hksvc,True)
+                    self._processone(jo,jes,True)
                     rsts.setdefault(jo["result"],[]).append(jo)             
                     idx += 1
                     if idx % 10 == 0:
@@ -842,7 +900,7 @@ class AckPriceCheck(object):
         return rsts
 
     def _writewb(self,rsts,fn,app):
-        wb = None
+        wb, kxl = None, False
         if not app:
             kxl,app = xwu.app(False)
         try:
@@ -868,13 +926,14 @@ class AckPriceCheck(object):
             self._writesht("_PAJPriceExcpt",lst1,wb)        
         finally:
             if not wb and kxl and app:
-                app.quit()
+                kxl = True                
             else:
-                app.visible = True
                 if fn:
                     wb.save(fn)
+                    fn = wb.fullname
                 wb.close()
-        return wb
+        if kxl: app.quit()
+        return fn
 
     def _writesht(self,name,items,wb):
         if not items: return
@@ -978,11 +1037,3 @@ class AckPriceCheck(object):
         return self.LBL_PFT_ERR if not (poup and pajup) \
             else self.LBL_PFT_NRM if poup / pajup >= self.LEVEL_PFT \
             else self.LBL_PFT_LOW
-
-    
-
-
-
-if __name__ == "__main__":
-    for x in (r'd:\temp\1200&15.xls', r'd:\temp\1300&20.xls'):
-        readagq(x)

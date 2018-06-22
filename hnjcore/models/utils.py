@@ -36,12 +36,14 @@ class JOElement(object):
             self.digit = args[1]
             self.suffix = args[2].strip() if(cnt > 2) else "" 
         else:
-            self._reset_()
+            self._reset()
     
     def _parse_(self,jono):
         from numbers import Number        
-        stg = 0
-        strs = ["","",""]
+        if not jono:
+            self._reset()
+            return
+        stg, strs = 0, ["","",""]
         if isinstance(jono,Number): jono = "%d" % jono
         jono = jono.strip()
         for i in range(len(jono)):
@@ -66,9 +68,9 @@ class JOElement(object):
             self.digit = int(strs[1])
             self.suffix = strs[2].strip()
         else:
-            self._reset_()
+            self._reset()
     
-    def _reset_(self):
+    def _reset(self):
         self.alpha = ""
         self.digit = 0
         self.suffix = "" 
@@ -92,7 +94,7 @@ class JOElement(object):
         return self.__str__()
     
     def isvalid(self):
-        return self.alpha and self.digit
+        return bool(self.alpha) and bool(self.digit)
     
     def __composite_values__(self):
         return self.alpha,self.digit        

@@ -22,13 +22,12 @@ from xlwings.constants import LookAt
 
 from hnjcore import JOElement, appathsep, deepget, karatsvc, p17u, xwu
 from hnjcore.models.hk import PajInv, PajShp, Orderma,Style as Styhk, JO as JOhk
-from hnjcore.utils import getfiles, daterange
+from hnjcore.utils import getfiles, daterange, p17u, isnumeric
 from hnjcore.utils.consts import NA
 
 from .common import _logger as logger
-from .dbsvcs import CNSvc, HKSvc
+from .dbsvcs import CNSvc, HKSvc, BCSvc
 from .pajcc import P17Decoder, PrdWgt, WgtInfo
-from .quordrs import DAO
 from sqlalchemy.orm import Query
 
 _accdfmt = "%Y-%m-%d %H:%M:%S"
@@ -413,53 +412,56 @@ class ShpReader:
         if len(dups) + len(items) <= 0:
             return 0, None
         cur = self._accessdb.cursor()
-        sess = self._hksvc.session()
-        e = None
-        try:
-            if dups:
-                cur.execute("delete from jotoP17 where fn in ('%s')" %
-                            "','".join([os.path.basename(x) for x in dups]))
-                # maybe a little stupid: find and delete
-                sess.query(PajShp).filter(PajShp.fn.in_([_removenonascii(os.path.basename(x)) for x in dups]))\
-                    .delete(synchronize_session=False)
-            if items:
-                dcts = list([x._asdict() for x in items.values()])
-                jns = [JOElement(x.jono) for x in items.values()]
-                jns = self._hksvc.getjos(jns)[0]
-                jns = dict([(x.name,x) for x in jns])                
-                for dct in dcts:
-                    dc1 = dict(dct)
-                    dc1["fn"] = _removenonascii(dct["fn"])
-                    dc1["joid"] = jns[JOElement(dct["jono"])].id
-                    dc1["pcode"] = dc1["p17"]
-                    dc1["orderno"] = dc1["ordno"]
-                    for x in "fillDate,lastModified,invDate,shpDate".split(","):
-                        dct[x] = _accdstr(dct[x])
-                    shp = PajShp()
-                    for x in dc1.items():
-                        k = x[0]
-                        lk = k.lower()
-                        if hasattr(shp, lk):
-                            shp.__setattr__(lk, dc1[k])
-                    cur.execute(("insert into jotop17 (fn,jono,p17,fillDate,lastModified,invno,qty"
-                                 ",InvDate,ShpDate,OrdNo,MtlWgt,StWgt) values('%(fn)s','%(jono)s','%(p17)s'"
-                                 ",#%(fillDate)s#,#%(lastModified)s#,'%(invno)s',%(qty)f,#%(invDate)s#"
-                                 ",#%(shpDate)s#,'%(ordno)s',%(mtlWgt)f,%(stWgt)f)") % dct)
-                    sess.add(shp)
-        except Exception as e:
-            logger.debug("Error occur in ShpRdr:%s" % e)
-        finally:
-            if e:
-                sess.rollback()
-                self._accessdb.rollback()
-            else:
-                sess.commit()
-                self._accessdb.commit()
-            if cur:
-                cur.close()
-            if sess:
-                sess.close()
-        return -1 if e else 1, e
+        with self._hksvc.sessionctx() as sess:
+            err = False
+            try:
+                if dups:
+                    cur.execute("delete from jotoP17 where fn in ('%s')" %
+                                "','".join([os.path.basename(x) for x in dups]))
+                    # maybe a little stupid: find and delete
+                    sess.query(PajShp).filter(PajShp.fn.in_([_removenonascii(os.path.basename(x)) for x in dups]))\
+                        .delete(synchronize_session=False)
+                if items:
+                    dcts = list([x._asdict() for x in items.values()])
+                    jns = [JOElement(x.jono) for x in items.values()]
+                    jns = self._hksvc.getjos(jns)[0]
+                    jns = dict([(x.name,x) for x in jns])                
+                    for dct in dcts:
+                        je = JOElement(dct["jono"])
+                        if je not in jns or not p17u.isvalidp17(dct["p17"]):
+                            logger.info("Item(%s) does not contains valid JO# or pcode" % dct)
+                            continue
+                        dc1 = dict(dct)
+                        dc1["fn"] = _removenonascii(dct["fn"])
+                        dc1["joid"] = jns[je].id
+                        dc1["pcode"] = dc1["p17"]
+                        dc1["orderno"] = dc1["ordno"]
+                        for x in "fillDate,lastModified,invDate,shpDate".split(","):
+                            dct[x] = _accdstr(dct[x])
+                        shp = PajShp()
+                        for x in dc1.items():
+                            k = x[0]
+                            lk = k.lower()
+                            if hasattr(shp, lk):
+                                shp.__setattr__(lk, dc1[k])
+                        cur.execute(("insert into jotop17 (fn,jono,p17,fillDate,lastModified,invno,qty"
+                                    ",InvDate,ShpDate,OrdNo,MtlWgt,StWgt) values('%(fn)s','%(jono)s','%(p17)s'"
+                                    ",#%(fillDate)s#,#%(lastModified)s#,'%(invno)s',%(qty)f,#%(invDate)s#"
+                                    ",#%(shpDate)s#,'%(ordno)s',%(mtlWgt)f,%(stWgt)f)") % dct)
+                        sess.add(shp)
+            except Exception as e:
+                logger.debug("Error occur in ShpRdr:%s" % e.args)
+                err = True
+            finally:
+                if err:
+                    sess.rollback()
+                    self._accessdb.rollback()
+                else:
+                    sess.commit()
+                    self._accessdb.commit()
+                if cur:
+                    cur.close()
+        return -1 if err else 1, err
 
     def read(self, fldr):
         """
@@ -493,7 +495,7 @@ class ShpReader:
                 lmd = datetime.fromtimestamp(os.path.getmtime(fn))
                 shd1 = self._getshpdate(fn)
                 shd0 = shd1
-                logger.debug("processing file(%s) of date(%s)" % (fn, shd0))
+                logger.debug("processing file(%s) of date(%s)" % (os.path.basename(fn), shd0))
                 wb = app.books.open(fn)
                 try:
                     # in new sample case, use DL_QUOXXX sheet's weight, so prepare it if there is
@@ -597,7 +599,7 @@ class ShpReader:
         finally:
             if killxls:
                 app.quit()
-        return -1 if errors > 0 else 1, errors
+        return -1 if len(errors) > 0 else 1, errors
 
 
 class InvReader(object):
@@ -678,11 +680,14 @@ class InvReader(object):
                         jns = dict([(x0.name,x0) for x0 in jns])
                         for dct in dcts:
                             # todo::make the china value for the user
-                            if not dct["stone"]: dct["stone"] = NA
+                            if not dct["stone"]:
+                                dct["stone"] = NA
+                            else:
+                                dct["stone"] = _removenonascii(dct["stone"])
                             dct["china"] = 0
                             dc1 = dict(dct)
                             dc1["joid"] = jns[JOElement(dc1["jono"])].id
-                            dc1["stspec"] = dc1["stone"]
+                            dc1["stspec"] = _removenonascii(dc1["stone"])
                             dc1["uprice"] = dc1["price"]
                             for y in "lastmodified".split(","):
                                 dct[y] = _accdstr(dct[y])
@@ -716,8 +721,6 @@ class InvReader(object):
 
         if not os.path.exists(invfldr):
             return
-        invs = {}
-        errs = list()
         PajInvItem = namedtuple(
             "PajInvItem", "invno,p17,jono,qty,price,mps,stone,lastmodified")
         fns = getfiles(invfldr,"xls",True)
@@ -728,6 +731,7 @@ class InvReader(object):
             return
         killexcel, app = xwu.app(False)
 
+        items, errs, invs = {}, [], {}
         for fn in fns:
             invno = self._getinv(fn).upper()
             if invno in invs:
@@ -770,9 +774,11 @@ class InvReader(object):
                         if not tr[tm["price"]]:
                             continue
                         p17 = tr[tm["p17"]]
-                        if not p17u.isvalidp17(p17):
+                        if not (p17u.isvalidp17(p17) and 
+                                len([1 for y in [x for x in "qty,price,silver,gold".split(",")]\
+                                if not isnumeric(tr[tm[y]])]) == 0):
                             logger.debug(
-                                "invalid p17 code(%s) in %s" % (p17, fn))
+                                "invalid p17 code(%s) or wgt/qty/price data in %s" % (p17, fn))
                             continue
                         jn = JOElement(tr[tm["jono"]]).value if "jono" in tm else None
                         if not jn:
@@ -814,7 +820,8 @@ class InvReader(object):
                               fn + ("" if x[0] else " but all are repairing"))
         if killexcel:
             app.quit()
-        return x[0], items if x[0] == 1 else () if x[0] == 0 else x[1]
+        #return x[0], items if x[0] == 1 else () if x[0] == 0 else errs
+        return -1, errs if errs else 1, items if items else 0, None
 
 
 class PAJCReader(object):
@@ -854,7 +861,7 @@ class PAJCReader(object):
         df, dt = daterange(year,month,day)
 
         runns, jes = set(), set()
-        dao = DAO(self._bcdb)
+        bcsvc = BCSvc(self._bcdb)
 
         mms = self._cnsvc.getshpforjc(df, dt)
         for x in mms:
@@ -866,11 +873,9 @@ class PAJCReader(object):
             if jn not in jes:
                 jes.add(jn)
         runns = tuple(runns)
-        bcs = dict([(x.runn.strip(), x.desc.strip()) for x
-                    in dao.getbcsforjc(runns)])
+        bcs = dict([(x.runn, x.desc) for x in bcsvc.getbcsforjc(runns)])
         lst = self._hksvc.getpajinvbyjes(jes)
-        pajs = {}
-        pajsjn = {}
+        pajs, pajsjn = {}, {}
         for x in lst:
             jn = x.JO.name
             pajs["%s,%s" % (jn, x.PajShp.invdate.strftime(dfmt))] = x
@@ -882,8 +887,7 @@ class PAJCReader(object):
         ios = dict([("%s,%s,%s" % (x.running, x.jmp, x.shpdate.strftime(dfmt)), x) for x
                     in self._hksvc.getmmioforjc(df, dt, runns)])
         killxls, app = xwu.app(False)
-        lst = []
-        fn = None
+        lst, fn = [], None
         try:
             wb = xwu.fromtemplate(tplfn, app)
             sht = wb.sheets("Data")
@@ -988,5 +992,5 @@ class PriceTracker(object):
                     je = JOElement(ln)
                     if je.isvalid and not je in stynos:
                         stynos.add(je)
-        dao = DAO(self._hkdb)
+        dao = BCSvc(self._hkdb)
         #lst = dao.getpajinvbyse(stynos)

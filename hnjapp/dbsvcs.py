@@ -35,7 +35,7 @@ from . import pajcc
 from .pajcc import MPS, PrdWgt, WgtInfo
 from .common import _logger as logger
 
-__all__ = ["HKSvc", "CNSvc"]
+__all__ = ["HKSvc", "CNSvc",]
 
 def fmtsku(skuno):
     if not skuno:
@@ -409,7 +409,7 @@ class CNSvc(SvcBase):
         if x:
             return int(x.coden0),(int(x.coden1),int(x.coden2))
 
-    def getjcmetalmps(self,refid):
+    def getjcmps(self,refid):
         """ return the metal ups of given refid as dict """
         x = None
         with self.sessionctx() as cur:
@@ -418,5 +418,35 @@ class CNSvc(SvcBase):
             lst = q.with_session(cur).all()
             return dict([(int(x.coden0),float(x.coden1)) for x in lst])
 
+class BCSvc(object):
+    """a handy Hnjhk dao for data access in this tests
+    now it's only bc services
+    """
+    _querysize = 20  # batch query's batch, don't be too large
 
+    def __init__(self, bcdb=None):
+        if bcdb: self._bcdb = bcdb
     
+    def getbcsforjc(self, runns):
+        """return running and description from bc with given runnings """
+        if not (self._bcdb and runns): return
+        runns = [str(x) for x in runns]
+        s0 = "select runn,desc,ston from stocks where runn in (%s)";lst = []
+        cur = self._bcdb.cursor()
+        try:
+            for x in splitarray(runns, self._querysize):
+                cur.execute(s0 % ("'" + "','".join(x) + "'"))
+                rows = cur.fetchall()
+                if rows: lst.extend(rows)
+        except:
+            pass
+        finally:
+            if cur: cur.close()
+        #trim the spaces
+        if lst:
+            for x in lst:
+                for idx in range(len(x)):
+                    s0 = x[idx]
+                    if s0 and isinstance(s0,str) and s0.find(" ") >= 0:
+                        x[idx] = s0.strip()
+        return lst
