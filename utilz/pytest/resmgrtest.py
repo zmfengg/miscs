@@ -6,12 +6,16 @@
 * @Last Modified time: 2018-06-16 14:41:00 
 '''
 
-from .. import ResourceMgr, ResourceCtx
 import unittest
 from unittest import TestCase
+import random
+
+from utilz.resourcemgr import ResourceCtx, ResourceMgr
+from utilz._miscs import NamedList, NamedLists
+from utilz.xwu import list2dict
+
 
 class ResourceMgrTest(TestCase):
-
     def testResourceMgr(self):
         class A(object):
             def __init__(self,name):
@@ -42,23 +46,46 @@ class ResourceMgrTest(TestCase):
             r[0].run()
             r[1].run()
 
-
-    
     def testNamedList(self):
-        lsts = [("name","group","age"),
-            ("Peter","Admin",30),
-            ("Watson","Admin",45),
-            ("Biz","Mail",20)
-        ]
-        nm = list2dict(lsts[0])
-        nl = NameList(lsts[1:],nm)
+        lsts = (["name","group","age"],
+            ["Peter","Admin",30],
+            ["Watson","Admin",45],
+            ["Biz","Mail",20]
+        )
+        nl = NamedLists(lsts)
         lsts1 = [x for x in nl]
-        self.assertEqual(3,lsts1,"len of list")
+        self.assertEqual(3,len(lsts1),"len of list")
         idx = -1
-        for x in nl:
+        for x in lsts1:
             idx += 1
             if idx == 0:
                 self.assertEqual("Peter",x.name,"the name property")
                 self.assertEqual("Admin",x.group,"the group property")
                 self.assertEqual(30,x.age,"the age property")
-        self.assertEqual(2,idx, "the count of iterator")
+        nl = lsts1[0]
+        self.assertEqual(lsts[1], nl.data,"title off, first row of data")
+        self.assertEqual(lsts[1][0], nl[0],"access by index")
+        sl = slice(1,None)
+        self.assertEqual(lsts[1][sl], nl[sl],"access by slice")
+
+        #now try the setter
+        nl.name = "FF"
+        self.assertEqual("FF",lsts[1][0],"They representing the same object")
+        self.assertEqual("FF",nl.name,"They representing the same object")
+        nl["name"] = "JJ"
+        self.assertEqual("JJ",lsts[1][0],"They representing the same object")
+        self.assertEqual("JJ",nl.name,"They representing the same object")
+
+        #a smatter usage, use the nl to wrap a list
+        nl.setdata(lsts[3])
+        self.assertEqual(lsts[3][0],nl.name,"NamedList wrapping a list")
+
+        idx = 0
+        for x in NamedLists(lsts, newinst = False):
+            idx += 1
+            self.assertEqual(x.data,lsts[idx],"same object, newinst=False don't affect iterator")
+        lsts1 = [x for x in NamedLists(lsts,newinst = False)]
+        self.assertEqual(lsts[3],lsts1[0].data,"newinst=False affect list()")
+        self.assertEqual(lsts[3],lsts1[1].data,"newinst=False affect list()")
+        self.assertEqual(lsts[3],lsts1[2].data,"newinst=False affect list()")
+

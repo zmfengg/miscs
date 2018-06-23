@@ -94,6 +94,10 @@ class SessionMgr(ResourceMgr):
     
     def _closesess(self,sess):
         sess.close()
+    
+    @property
+    def engine(self):
+        return self._engine
 
     def dispose(self):
         logger.debug("sqlachemy engine(%s) disposed" % self._engine)

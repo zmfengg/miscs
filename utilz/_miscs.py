@@ -1,4 +1,4 @@
-#! coding=utf-8 
+#! coding=utf-8
 '''
 * @Author: zmFeng 
 * @Date: 2018-06-16 15:44:32 
@@ -6,27 +6,34 @@
 * @Last Modified time: 2018-06-16 15:44:32 
 '''
 
-from os import path
-import math
-import sys
-import os
-import threading
-import inspect
-from sqlalchemy.orm import Session
-from .common import _logger as logger
+from collections import OrderedDict
 from collections.abc import Iterator
+from math import ceil
+from numbers import Integral
+from os import listdir, path
+from random import random
+from sys import getfilesystemencoding, version_info
 
-__all__ = ["splitarray","appathsep","deepget","getfiles", \
-    "stsizefmt", "daterange", "isnumeric"]
+from sqlalchemy.orm import Session
 
-def splitarray(arr, logsize = 100):
+from .common import _logger as logger
+
+__all__ = ["splitarray", "appathsep", "deepget", "getfiles",
+           "stsizefmt", "daterange", "isnumeric", "list2dict", 
+           "NamedList", "NamedLists"]
+
+
+def splitarray(arr, logsize=100):
     """split an array into arrays whose len is less or equal than logsize
     @param arr: the sequence object that need to split
     @param logsize: len of each sub-array's size  
-    """    
-    if not arr: return
-    if not logsize: logsize = 100 
-    return [arr[x * logsize:(x + 1) * logsize] for x in range(int(math.ceil(1.0 * len(arr) / logsize)))]
+    """
+    if not arr:
+        return
+    if not logsize:
+        logsize = 100
+    return [arr[x * logsize:(x + 1) * logsize] for x in range(int(ceil(1.0 * len(arr) / logsize)))]
+
 
 def isnumeric(val):
     flag = True
@@ -36,19 +43,64 @@ def isnumeric(val):
         flag = False
     return flag
 
+
 def appathsep(fldr):
     """append a path sep into given path if there is not"""
     return fldr + path.sep if fldr[len(fldr) - 1:] != path.sep else fldr
 
-def deepget(obj,names):
+
+def list2dict(lst, trmap=None, dupdiv="", bname=None):
+    """ turn a list into zero-id based, name -> id lookup map 
+    @param lst: the list or one-dim array containing the strings that need to do the name-> pos map
+    @param trmap: An translation map, make the description -> name translation, if ommitted, description become name
+                  if the description is not sure, split them with candidates, for example, "Job,JS":"jono"
+    @param dupdiv: when duplicated item found, a count will be generated, dupdiv will be
+        placed between the original and count
+    @param bname: default name for the blank item
+    @return: a dict with name -> id map   
+    """
+    if not lst:
+        return None, None
+    lstl = [x.lower() if x and isinstance(x, str) else "" for x in lst]
+    mp = {}
+    for ii in range(len(lstl)):
+        x = lstl[ii]
+        if not x and bname:
+            lstl[ii] = bname
+        if x in mp:
+            mp[x] += 1
+            if dupdiv == None:
+                dupdiv = ""
+            lstl[ii] += dupdiv + str(mp[x])
+        else:
+            mp[x] = 0
+    if not trmap:
+        trmap = {}
+    else:
+        for x in [x for x in trmap.keys() if(x.find(",") >= 0)]:
+            for y in x.split(","):
+                if not y:
+                    continue
+                y = y.lower()
+                cnds = [x0 for x0 in range(len(lstl)) if lstl[x0].find(y) >= 0]
+                if(len(cnds) > 0):
+                    s0 = str(random())
+                    lstl[cnds[0]] = s0
+                    trmap[s0] = trmap[x]
+                    break
+    return OrderedDict(zip([trmap[x] if(x in trmap) else x for x in lstl], range(len(lstl))))
+
+
+def deepget(obj, names):
     """ get deeply from the object """
     rc = None
     for k in names.split("."):
-        rc = rc.__getattribute__(
-            k) if rc else obj.__getattribute__(k)
+        rc = rc.__getattr__(
+            k) if rc else obj.__getattr__(k)
     return rc
 
-def getfiles(fldr,part = None, nameonly = False):
+
+def getfiles(fldr, part=None, nameonly=False):
     """ return files under given folder """
     """ @param nameonly : don't return the full-path """
 
@@ -56,28 +108,30 @@ def getfiles(fldr,part = None, nameonly = False):
         fldr = appathsep(fldr)
         if part:
             part = part.lower()
-            fns = [x if sys.version_info.major >= 3 else str(x, sys.getfilesystemencoding()) 
-                for x in os.listdir(fldr) if x.lower().find(part) >= 0]
+            fns = [x if version_info.major >= 3 else str(x, getfilesystemencoding())
+                   for x in listdir(fldr) if x.lower().find(part) >= 0]
         else:
-            fns = [x if sys.version_info.major >= 3 else str(x, sys.getfilesystemencoding()) 
-                for x in os.listdir(fldr)]
+            fns = [x if version_info.major >= 3 else str(x, getfilesystemencoding())
+                   for x in listdir(fldr)]
         if not nameonly:
             fns = [fldr + x for x in fns]
     return fns
 
-def daterange(year,month,day = 1):
+
+def daterange(year, month, day=1):
     """ make a from,thru tuple for the given month, thru is the first date of next month """
     import datetime as dtm
-    df = dtm.date(year,month,day if day > 0 else 1)
+    df = dtm.date(year, month, day if day > 0 else 1)
     month += 1
     if month > 12:
         year += 1
-        month = 1        
+        month = 1
     dt = dtm.date(year, month, 1)
     del dtm
     return df, dt
 
-def stsizefmt(sz, shortform = False):
+
+def stsizefmt(sz, shortform=False):
     """ format a stone size into long or short form, with big -> small sorting, some examples are
     @param sz: the string to format
     @param shortform: return a short format
@@ -97,13 +151,15 @@ def stsizefmt(sz, shortform = False):
     def _inc(segs):
         segs.append("")
         return len(segs) - 1
+
     def _fmtpart(s0, shortform):
         ln = len(s0)
         if ln < 4 or s0.find(".") >= 0:
             s0 = "%04d" % (float(s0) * 100)
-            if shortform: s0 = "%d" % (int(s0) / 100)
+            if shortform:
+                s0 = "%d" % (int(s0) / 100)
         else:
-            s0 = splitarray(s0,4)
+            s0 = splitarray(s0, 4)
             if shortform:
                 for ii in range(len(s0)):
                     s0[ii] = "%d" % (int(s0[ii]) / 100)
@@ -117,65 +173,109 @@ def stsizefmt(sz, shortform = False):
         elif x == "-":
             idx = _inc(segs)
             rng = True
-        elif x in ("X","*"):
+        elif x in ("X", "*"):
             idx = _inc(segs)
-            if rng: break            
+            if rng:
+                break
         elif rng:
             break
     for x in segs:
-        x = _fmtpart(x,shortform)
-        if isinstance(x,str):
+        x = _fmtpart(x, shortform)
+        if isinstance(x, str):
             parts.append(x)
         else:
-            parts.extend(x)                
-    return ("-" if rng else "X").join(sorted(parts,reverse = True))
+            parts.extend(x)
+    return ("-" if rng else "X").join(sorted(parts, reverse=True))
 
-def wraplist(lst,nmap):
-    """
-    return an iterable object which wrap each row in the list into . nation
-    """
 
-class _ListAsDictWrp(object):
+class NamedList(object):
+    """ the wrapper of the list/tuple that make it operatable by .name or [name] or [i] """
 
-    def __init__(self,nmap):
+    def __init__(self, nmap, lst=None):
         self._nmap = nmap
-    
-    def setlist(self,lst):
-        self._list = lst
+        if lst:
+            self.setdata(lst)
 
-    def _checkarg(self,name):
-        if name not in self._nmap:
-            raise AttributeError("no attribute(%s)" % name)
+    def setdata(self, lst):
+        if lst and (isinstance(lst, list) or isinstance(lst, tuple)) and len(self._nmap) == len(lst):
+            self._lst = lst
 
-    def __getattribute__(self,name):
-        if hasattr(self,name):
-            super().__getattribute__(self,name)
+    def _checkarg(self, name):
+        if not (self._lst and name in self._nmap):
+            raise AttributeError("no attribute(%s) found" % name)
+
+    def __getattr__(self, name):
+        self._checkarg(name)
+        return self._lst[self._nmap[name]]
+
+    def __setattr__(self, name, val):
+        if name in("_nmap", "_lst"):
+            object.__setattr__(self, name, val)
         else:
             self._checkarg(name)
-            return self._list[self._nmap[name]]
+            self._lst[self._nmap[name]] = val
 
-    def __setattr__(self,name,val):
-        if hasattr(self,name):
-            super().__setattr__(self,name,val)
+    def __getitem__(self, key):
+        if isinstance(key, slice) or isinstance(key, Integral):
+            return self._lst[key]
+        return self.__getattr__(key)
+
+    def __setitem__(self, key, val):
+        if isinstance(key, Integral):
+            self._lst[key] = val
         else:
-            self._checkarg(name)
-            self._list[self._nmap[name]] = val 
+            self.__setattr__(key, val)
 
-class NameList(Iterator):    
-    def __init__(self,lsts,nmap):
-        super(NameList,self).__init__()
-        self._lists = lsts
-        self._nmap = nmap
-        self._ptr = -1
-        self._ubnd = len(lsts)
-        self._wrpr = _ListAsDictWrp(nmap)
-            
+    @property
+    def data(self):
+        return self._lst
+
+
+class NamedLists(Iterator):
+    """ 
+    make a list of list(2d array) accessable by name, for example, you read data from a csv
+    lsts = (("id","name","price"),(1,"Jan",23.45),(2,"Pet",30.25)), you don't want to get id by
+        lsts[0][0] 
+        or 
+        nmap = dict([(lsts[0][idx],idx) for x in range(len(lsts[0]))])
+        lsts[0][nmap["id"]]
+
+    Use this as:
+        its = NamedLists(lsts):
+        for x in its:
+            id = x.id...
+
+    """
+
+    def __init__(self, lsts, nmap=None, trmap=None, newinst=True):
+        """ 
+        init one named list instance
+        @param lsts: the list(or tuple) of a list(or tuple, but when it's a tuple, you can not assigned value)
+        @param nmap: the name -> idx mapping, when it's None, lsts[0] is the names
+        @param trmap: nmap translation map. used when nmap == None and you want to do some name tranlation
+                    @refer to list2dict for more info.
+        @param newinst: set this to False if you use "for" loop to save memory
+            set it to True if you use lst = [x for x in nl] or lst = list(nl).
+            for safe reason, it's True by default
+        """
+        super(NamedLists, self).__init__()
+        if nmap == None:
+            nmap = list2dict(lsts[0], trmap)
+            lsts = lsts[1:]
+        self._lsts, self._nmap, self._ptr, self._ubnd, self._newinst = lsts, nmap, \
+            -1, len(lsts), newinst
+        if not newinst:
+            self._wrpr = NamedList(nmap)
+
     def __iter__(self):
         return self
 
     def __next__(self):
         self._ptr += 1
-        if not self._lists or self._ptr > self._ubnd:
+        if not self._lsts or self._ptr >= self._ubnd:
             raise StopIteration()
-        self._wrpr.setlist(self._lists[self._ptr])
-        return self._wrpr
+        if self._newinst:
+            return NamedList(self._nmap, self._lsts[self._ptr])
+        else:
+            self._wrpr.setdata(self._lsts[self._ptr])
+            return self._wrpr
