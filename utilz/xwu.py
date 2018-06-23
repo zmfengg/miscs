@@ -13,7 +13,7 @@ from ._miscs import list2dict
 
 __all__ = ["app","find","fromtemplate","list2dict","usedrange"]
 
-def app(vis=True):    
+def app(vis=True,dspalerts = False):    
     """ launch an excel or connect to existing one
     return (flag,app), where flag is True means it's created by me, the caller should
     dispose() it
@@ -21,7 +21,7 @@ def app(vis=True):
     
     flag = xlwings.apps.count == 0
     app = xlwings.apps.active if not flag else xlwings.App(visible=vis, add_book=False)
-    if app: app.api.DisplayAlerts = False
+    if app and dspalerts is not None: app.api.DisplayAlerts = bool(dspalerts)
     return flag, app
 
 

@@ -1,15 +1,13 @@
 {
+    "python.unitTest.unittestEnabled": true,
+    "python.unitTest.nosetestsEnabled": false,
+    "python.unitTest.pyTestEnabled": false,
     "python.unitTest.unittestArgs": [
         "-v",
         "-s",
-        ".",
+        ".",        
         "-p",
         "*test.py"
     ],
-    "python.unitTest.pyTestArgs": [
-        "pytest"
-    ],
-    "python.unitTest.unittestEnabled": false,
-    "python.unitTest.nosetestsEnabled": false,
-    "python.unitTest.pyTestEnabled": true
+    "python.unitTest.autoTestDiscoverOnSaveEnabled": false
 }

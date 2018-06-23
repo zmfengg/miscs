@@ -3,7 +3,8 @@
 * @Author: zmFeng 
 * @Date: 2018-06-22 22:15:00 
 * @Last Modified by:   zmFeng 
-* @Last Modified time: 2018-06-22 22:15:00 
+* @Last Modified time: 2018-06-22 22:15:00
+tests that I can choose to run. use along with VS's debug function
 '''
 
 import unittest
@@ -18,7 +19,7 @@ def main():
         for x in mdls:
             unittest.main(x, argv = args, verbosity= vl)
     else:
-        mdls = "pytest.resmgrtest".split(",")
+        mdls = "tests.keytest".split(",")
         if mdls:
             #below won't work, find better way, it run only one test and quit
             for x in mdls:

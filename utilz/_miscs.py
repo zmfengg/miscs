@@ -61,7 +61,8 @@ def list2dict(lst, trmap=None, dupdiv="", bname=None):
     """
     if not lst:
         return None, None
-    lstl = [x.lower() if x and isinstance(x, str) else "" for x in lst]
+    _tnl = lambda x: x.lower().strip() if x and isinstance(x, str) else ""
+    lstl = [_tnl(x) for x in lst]
     mp = {}
     for ii in range(len(lstl)):
         x = lstl[ii]
@@ -86,7 +87,7 @@ def list2dict(lst, trmap=None, dupdiv="", bname=None):
                 if(len(cnds) > 0):
                     s0 = str(random())
                     lstl[cnds[0]] = s0
-                    trmap[s0] = trmap[x]
+                    trmap[s0] = _tnl(trmap[x])
                     break
     return OrderedDict(zip([trmap[x] if(x in trmap) else x for x in lstl], range(len(lstl))))
 
@@ -247,11 +248,11 @@ class NamedLists(Iterator):
 
     """
 
-    def __init__(self, lsts, nmap=None, trmap=None, newinst=True):
+    def __init__(self, lsts, trmap=None, newinst=True):
         """ 
         init one named list instance
         @param lsts: the list(or tuple) of a list(or tuple, but when it's a tuple, you can not assigned value)
-        @param nmap: the name -> idx mapping, when it's None, lsts[0] is the names
+            always send the title rows to the first item
         @param trmap: nmap translation map. used when nmap == None and you want to do some name tranlation
                     @refer to list2dict for more info.
         @param newinst: set this to False if you use "for" loop to save memory
@@ -259,9 +260,8 @@ class NamedLists(Iterator):
             for safe reason, it's True by default
         """
         super(NamedLists, self).__init__()
-        if nmap == None:
-            nmap = list2dict(lsts[0], trmap)
-            lsts = lsts[1:]
+        nmap = list2dict(lsts[0], trmap)
+        lsts = lsts[1:]
         self._lsts, self._nmap, self._ptr, self._ubnd, self._newinst = lsts, nmap, \
             -1, len(lsts), newinst
         if not newinst:
