@@ -18,10 +18,10 @@ from sqlalchemy.orm import Session
 
 from .common import _logger as logger
 
-__all__ = ["splitarray", "appathsep", "deepget", "getfiles",
-           "stsizefmt", "daterange", "isnumeric", "list2dict", 
-           "NamedList", "NamedLists"]
+__all__ = ["splitarray", "appathsep", "deepget", "getfiles", "stsizefmt", "trimu",
+           "triml", "daterange", "isnumeric", "list2dict", "NamedList", "NamedLists","na"]
 
+na = "N/A"
 
 def splitarray(arr, logsize=100):
     """split an array into arrays whose len is less or equal than logsize
@@ -61,7 +61,8 @@ def list2dict(lst, trmap=None, dupdiv="", bname=None):
     """
     if not lst:
         return None, None
-    _tnl = lambda x: x.lower().strip() if x and isinstance(x, str) else ""
+
+    def _tnl(x): return x.lower().strip() if x and isinstance(x, str) else ""
     lstl = [_tnl(x) for x in lst]
     mp = {}
     for ii in range(len(lstl)):
@@ -189,6 +190,20 @@ def stsizefmt(sz, shortform=False):
     return ("-" if rng else "X").join(sorted(parts, reverse=True))
 
 
+def trimu(s0):
+    """ trim/strip and upper case """
+    if s0 and isinstance(s0, str):
+        return s0.strip().upper()
+    return s0
+
+
+def triml(s0):
+    """ trim and lower case """
+    if s0 and isinstance(s0, str):
+        return s0.strip().lower()
+    return s0
+
+
 class NamedList(object):
     """ the wrapper of the list/tuple that make it operatable by .name or [name] or [i] """
 
@@ -279,3 +294,30 @@ class NamedLists(Iterator):
         else:
             self._wrpr.setdata(self._lsts[self._ptr])
             return self._wrpr
+
+class Alias(object):
+    def __init__(self, nmap,obj = None):
+        self._nmap = dict((x[1],x[0]) for x in nmap.items())
+        if obj: self.setobj(obj)
+
+    def settarget(self,obj):
+        self._obj = obj 
+        
+    def __setattr__(self, name, obj):
+        if name in ("_nmap", "_obj"):
+            object.__setattr__(self, name, obj)
+        else:
+            if name in self._nmap:
+                name = self._nmap[name]
+            object.__setattr__(self, name, obj)
+
+    def __getattr__(self, name):
+        if name in ("_obj","gettarget","_nmap","__dict__"):
+            return self.__dict__[name] 
+        if name in self._nmap:
+            name = self._nmap[name]
+        return getattr(self._obj, name)
+
+    def gettarget(self):
+        return self._obj
+

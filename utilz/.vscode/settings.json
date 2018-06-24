@@ -1,13 +1,38 @@
+// Place your settings in this file to overwrite the default settings
 {
+    "editor.minimap.enabled": false,    
+    "explorer.confirmDelete": false,
+    "window.zoomLevel": 0,
+
+    "fileheader.Author": "zmFeng",
+    "fileheader.LastModifiedBy": "zmFeng",
+    "fileheader.tpl": "#! coding=utf-8 \r\n'''\r\n* @Author: {author} \r\n* @Date: {createTime} \r\n* @Last Modified by:   {lastModifiedBy} \r\n* @Last Modified time: {updateTime} \r\n'''",
+    
+    "terminal.integrated.rendererType": "canvas",
+    "terminal.integrated.shell.windows": "C:\\windows\\System32\\cmd.exe",
+
+    "files.exclude": {
+        "**/.git": true,
+        "**/.svn": true,
+        "**/.hg": true,
+        "**/CVS": true,
+        "**/.pyc": true,
+        "**/.DS_Store": true
+      },
+
+    "python.venvPath": "d:\\vens",
+    "python.pythonPath": "d:\\vens\\3dev",
+    "python.terminal.launchArgs": [],
+    
     "python.unitTest.unittestEnabled": true,
     "python.unitTest.nosetestsEnabled": false,
     "python.unitTest.pyTestEnabled": false,
+    "python.unitTest.autoTestDiscoverOnSaveEnabled": false,
     "python.unitTest.unittestArgs": [
         "-v",
         "-s",
-        ".",        
+        ".",    //maybe "./tests is more specified
         "-p",
         "*test.py"
-    ],
-    "python.unitTest.autoTestDiscoverOnSaveEnabled": false
+    ]
 }

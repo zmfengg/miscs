@@ -12,8 +12,7 @@ from os import path
 from unittest import TestCase
 
 from utilz import xwu
-from utilz._miscs import (NamedList, NamedLists, appathsep, getfiles,
-                          list2dict, stsizefmt)
+from utilz._miscs import (NamedList, NamedLists, appathsep, getfiles,Alias,list2dict, stsizefmt)
 from utilz.resourcemgr import ResourceCtx, ResourceMgr
 
 from . import logger, thispath
@@ -153,3 +152,12 @@ class KeyTests(TestCase):
         self.assertEqual(2,len(fns),"the count of files")
         fns = set([x for x in fns])
         self.assertTrue(u"厉害为国為幗.txt" in fns, "utf-8 based system can return mixing charset")
+
+    def testAlias(self):
+        class A(object):
+            name,id,age = None,0,0
+        al = Alias({"name":"nick"})
+        it = A()
+        al.settarget(it) 
+        self.assertEqual(it.name, al.nick,"One object, 2 name or more")
+        self.assertEqual(it, al.gettarget(),"return the object")
