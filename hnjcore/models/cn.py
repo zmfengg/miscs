@@ -5,11 +5,14 @@ models for hnjcn
 @author: zmFeng
 '''
 
+from sqlalchemy import text
+from sqlalchemy.dialects.sybase.base import TINYINT
 #from sqlalchemy.orm import relationship, relation
 from sqlalchemy.ext.declarative.api import declarative_base
-from sqlalchemy.orm import composite,relationship
+from sqlalchemy.orm import composite, relationship
 from sqlalchemy.sql.schema import Column, ForeignKey, UniqueConstraint
-from sqlalchemy.sql.sqltypes import VARCHAR, Float, Integer, DateTime, DECIMAL
+from sqlalchemy.sql.sqltypes import (DECIMAL, VARCHAR, DateTime, Float,
+                                     Integer, SmallInteger)
 
 #from main import hnjcnCtx
 from .utils import JOElement, StyElement
@@ -99,3 +102,115 @@ class Codetable(CNBase):
     tag = Column(Integer)
     pid = Column(Integer)
 
+class StoneMaster(CNBase):
+    __tablename__ = 'stone_master'
+
+    id = Column(SmallInteger, primary_key=True, name = "stid")
+    name = Column(VARCHAR(4), nullable=False, unique=True,name = "stname")
+    edesc = Column(VARCHAR(50), nullable=False)
+    cdesc = Column(VARCHAR(50), nullable=False)
+    sttype = Column(VARCHAR(20), nullable=False)
+    settype = Column(TINYINT, nullable=False)
+    filldate = Column(DateTime, nullable=False,name="fill_date")
+    tag = Column(TINYINT, nullable=False)
+    lastuserid = Column(SmallInteger, server_default=text("0"))
+    lastupdate = Column(DateTime, server_default=text("getdate()"))
+
+class StoneOut(CNBase):
+    __tablename__ = 'stone_out'
+
+    id = Column(Integer, primary_key=True, nullable=False)
+    idx = Column(TINYINT, primary_key=True, nullable=False)
+    btchid = Column(ForeignKey('stone_in.btchid'), nullable=False, index=True)
+    workerid = Column(SmallInteger, nullable=False,name="worker_id")
+    qty = Column(Integer, nullable=False,name="quantity")
+    wgt = Column(Float, nullable=False,name="weight")
+    checkid = Column(SmallInteger, nullable=False,name="checker_id ")
+    checkdate = Column(DateTime, nullable=False,name="check_date ")
+    joqty = Column(SmallInteger,name="qty")
+    printid = Column(Integer)
+    lastuserid = Column(SmallInteger, server_default=text("0"))
+    lastupdate = Column(DateTime, server_default=text("getdate()"))
+
+    stonein = relationship('StoneIn')
+
+class StoneIn(CNBase):
+    __tablename__ = 'stone_in'
+
+    id = Column(Integer, primary_key=True,name="btchid ")
+    pkid = Column(ForeignKey('stone_pkma.pkid'), nullable=False)
+    name = Column(VARCHAR(15), nullable=False, unique=True,name="batch_id ")
+    docno = Column(VARCHAR(15), nullable=False,name="bill_id ")
+    qty = Column(Integer, nullable=False,name="quantity ")
+    wgt = Column(Float, nullable=False,name="weight ")
+    qtyused = Column(Integer, nullable=False, server_default=text("0"),name="qty_used ")
+    wgtused = Column(Float, nullable=False, server_default=text("0"),name="wgt_used ")
+    qtybck = Column(Integer, server_default=text("0"),name="qty_bck ")
+    wgtbck = Column(Float, nullable=False, server_default=text("0"),name="wgt_bck ")
+    size = Column(VARCHAR(60), nullable=False)
+    filldate = Column(DateTime, nullable=False,name="fill_date ")
+    tag = Column(SmallInteger, nullable=False, index=True,name="is_used_up ")
+    wgtadj= Column(Float, nullable=False, server_default=text("0"),name="adjust_wgt ")
+    cstid = Column(ForeignKey('cstinfo.cstid'), nullable=False)
+    cstref = Column(VARCHAR(60), nullable=False)
+    qtytrans = Column(Integer, nullable=False, server_default=text("0"))
+    wgttrans = Column(Float, nullable=False, server_default=text("0"))
+    wgttmptrans= Column(Float, nullable=False, server_default=text("0"),name="wgt_tmptrans ")
+    wgtprep = Column(Float, nullable=False, server_default=text("0"),name="wgt_prepared ")
+    lastuserid = Column(SmallInteger, server_default=text("0"))
+    lastupdate = Column(DateTime, server_default=text("getdate()"))
+
+    cstinfo = relationship('Cstinfo')
+    package = relationship('StonePkma')
+
+class StonePkma(CNBase):
+    __tablename__ = 'stone_pkma'
+
+    id = Column(Integer, primary_key=True,name="pkid ")
+    name = Column(VARCHAR(20), nullable=False, unique=True,name="package_id ")
+    unit = Column(SmallInteger, nullable=False)
+    pricec = Column(VARCHAR(6), nullable=False,name="price")
+    stid = Column(ForeignKey('stone_master.stid'))
+    stshpid = Column(SmallInteger)
+    tag = Column(TINYINT)
+    filldate = Column(DateTime,name="fill_date ")
+    relpkid = Column(Integer)
+    stsizeidf = Column(SmallInteger)
+    stsizeidt = Column(SmallInteger)
+    lastuserid = Column(SmallInteger, server_default=text("0"))
+    lastupdate = Column(DateTime, server_default=text("getdate()"))
+    wgtunit = Column(Float, server_default=text("0.2"))
+    color = Column(VARCHAR(50), server_default=text("N/A"))
+
+    stone_master = relationship('StoneMaster')
+
+class StoneOutMaster(CNBase):
+    __tablename__ = 'stone_out_master'
+
+    id = Column(Integer, primary_key=True)
+    name = Column(Integer, nullable=False,name="bill_id ")
+    isout = Column(SmallInteger, nullable=False,name="is_out ")
+    joid = Column(ForeignKey('b_cust_bill.jsid'), nullable=False,name="jsid ")
+    qty = Column(DECIMAL, nullable=False)
+    filldate = Column(DateTime, nullable=False,name="fill_date ")
+    packed = Column(TINYINT, nullable=False, index=True)
+    subcnt = Column(TINYINT, nullable=False)
+    workerid = Column(SmallInteger, server_default=text("0"),name="worker_id ")
+    lastuserid = Column(SmallInteger, server_default=text("0"))
+    lastupdate = Column(DateTime, server_default=text("getdate()"))
+
+    jo = relationship('JO')
+
+class StoneBck(CNBase):
+    __tablename__ = 'stone_bck'
+
+    id = Column(ForeignKey('stone_in.btchid'), primary_key=True, nullable=False,name="btchid ")
+    idx = Column(SmallInteger, primary_key=True, nullable=False)
+    wgt = Column(Float, nullable=False,name="weight")
+    docno = Column(VARCHAR(8), nullable=False,name="bill_id ")
+    filldate = Column(DateTime, nullable=False,name="fill_date ")
+    lastuserid = Column(SmallInteger, server_default=text("0"))
+    lastupdate = Column(DateTime, server_default=text("getdate()"))
+    qty = Column(Integer, server_default=text("0"),name="quantity ")
+
+    stonein = relationship('StoneIn')

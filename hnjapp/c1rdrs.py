@@ -12,6 +12,7 @@ from os import path
 import re
 import sys
 from collections import namedtuple
+from utilz import NamedList, list2dict, NamedLists
 
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Query
@@ -76,6 +77,7 @@ class InvRdr():
                                 rngs.append(rng)
                         if len(cnsc1) == len(rngs):
                             items.extend(self._readcalc(sht))
+                wb.close()
         finally:
             if killxw:
                 app.quit()
@@ -92,46 +94,44 @@ class InvRdr():
         rng = sht.range(sht.range(rng.row, rng.column),
                         xwu.usedrange(sht).last_cell)
         vvs = rng.value
-        tr = vvs[0]
-        km = {u"工单号": "jono", u"镶工": "setting", u"胚底,": "labor", u"备注,": "remark",
-              u"数量": "joqty", u"石名称": "stname", u"粒数": "stqty", u"石重,": "stwgt"}
-        tm = xwu.list2dict(tr, km)
-        if len(tm) < len(km):
-            logger.debug("key columns(%s) not found in sheet(%s)" %
-                         (tm, sht.name))
-            return None
-
         C1InvItem = namedtuple(
             "C1InvItem", "source,jono,qty,labor,setting,remarks,stones,parts")
         C1InvStone = namedtuple("C1InvStone", "stone,qty,wgt,remark")
 
+        km = {u"工单号": "jono", u"镶工": "setting", u"胚底,": "labor", u"备注,": "remark",
+              u"数量": "joqty", u"石名称": "stname", u"粒数": "stqty", u"石重,": "stwgt"}
+        nls = NamedLists(vvs,km,False)
+        if len(nls.namemap) < len(km):
+            logger.debug("key columns(%s) not found in sheet(%s)" %
+                         (nls.namemap, sht.name))
+            return None
+
         items = list()
-        for ridx in range(1, len(vvs)):
-            tr = vvs[ridx]
-            s0 = tr[tm["jono"]]
+        for nl in nls: 
+            s0 = nl.jono
             if isinstance(s0, numbers.Number):
                 s0 = str(int(s0))
             je = JOElement(s0)
             if je.isvalid():
                 snl = []
                 for x in self._cnsnl:
-                    a0 = tr[tm[x]]
+                    a0 = nl[x]
                     snl.append(float(a0) if isnumeric(a0) else 0)
                 if any(snl):
                     c1 = C1InvItem(
-                        "C1", je.value, tr[tm["joqty"]], snl[1], snl[0], tr[tm["remark"]], [], "N/A")
+                        "C1", je.value, nl.joqty, snl[1], snl[0], nl.remark, [], "N/A")
                     items.append(c1)
             qnw = []
             for x in self._cnstqnw:
-                if not isnumeric(tr[tm[x]]):
+                if not isnumeric(nl[x]):
                     break
-                qnw.append(float(tr[tm[x]]))
+                qnw.append(float(nl[x]))
             if len(qnw) == 2:
-                s0 = tr[tm["stname"]]
+                s0 = nl.stname
                 if s0 and isinstance(s0, str):
                     joqty = c1.qty
                     c1.stones.append(C1InvStone(
-                        tr[tm["stname"]], qnw[0] / joqty, qnw[1] / joqty, "N/A"))
+                        nl.stname, qnw[0] / joqty, qnw[1] / joqty, "N/A"))
         return items
 
     def _readcalc(self, sht):
@@ -204,7 +204,8 @@ class C1JCReader(object):
             ttls = ("mmid,lastmmdate,jobno,cstname,styno,running,mstone,description,joqty"
                     ",karat,goldwgt,goldcost,extgoldcost,stonecost,laborcost,extlaborcost,extcost,"
                     "totalcost,unitcost,extgoldwgt,cflag").split(",")
-            cnmap = xwu.list2dict(ttls)
+            cnmap= xwu.list2dict(ttls)
+            nl = NamedList(cnmap)            
             q = Query([JO.name.label("jono"), Customer.name.label("cstname"),
                        Style.name.label("styno"), JO.running, JO.karat.label(
                            "jokarat"), MMgd.karat,
@@ -222,39 +223,38 @@ class C1JCReader(object):
                     mmids.add(x.id)
                     if jn not in vvs:
                         ll = [x.id, "'" + x.refdate.strftime(_date_short), "'" + x.jono.value, x.cstname.strip(),
-                              x.styno.value, x.running, "_ST", "_EDESC", float(
-                                  x.qty), karatsvc.getfamily(x.jokarat).karat, [],
+                              x.styno.value, x.running, "_ST", "_EDESC", 0, karatsvc.getfamily(x.jokarat).karat, [],
                               0, 0, 0, 0, 0, 0, 0, 0, 0, "NA"]
                         mt = ptncx.search(x.docno)
                         if mt:
                             ll[cnmap["cflag"]] = "'" + mt.group()
                         vvs[jn] = ll
                         runns.add(int(x.running))
-                    else:
-                        vvs[jn][cnmap["joqty"]] += float(x.qty)
+                    vvs[jn][cnmap["joqty"]] += float(x.qty)
                 vvs[jn][cnmap["goldwgt"]].append(
                     (karatsvc.getfamily(x.karat).karat, x.wgt))
             bcs = self._bcsvc.getbcsforjc(runns)
-            bcs = dict([(x.runn, (x.desc, x.ston)) for x in bcs])
+            bcs = dict([(x.runn, (x.desc, x.ston)) for x in bcs])            
             for x in vvs.values():
                 # the title
                 if x[0] == ttls[0]:
                     continue
-                joqty = x[cnmap["joqty"]]
-                runn = str(x[cnmap["running"]])
+                nl.setdata(x)
+                joqty = nl.joqty
+                runn = str(nl.running)
                 if runn in bcs:
                     dns = bcs[runn]
-                    x[cnmap["description"]], x[cnmap["mstone"]] = dns[0], dns[1]
+                    nl.description, nl.mstone = dns[0], dns[1]
 
-                runn = x[cnmap["jobno"]][1:]
+                runn = nl.jobno[1:]
                 if runn in invs:
                     inv = invs[runn]
-                    x[cnmap["laborcost"]] = (inv.setting + inv.labor) * joqty
+                    nl.laborcost = (inv.setting + inv.labor) * joqty
                 else:
                     logger.info("no labor data from c1 invoice(%s) for JO(%s)" %
                                 (os.path.basename(self._invfldr), runn))
 
-                lst1 = x[cnmap["goldwgt"]]
+                lst1 = nl.goldwgt
                 if len(lst1) > 1:
                     mmids = {}
                     for knw in lst1:
@@ -262,16 +262,16 @@ class C1JCReader(object):
                             mmids[knw[0]] += knw[1]
                         else:
                             mmids[knw[0]] = knw[1]
-                    kt = x[cnmap["karat"]]
-                    x[cnmap["goldwgt"]] = [(kt, mmids[kt])]
+                    kt = nl.karat
+                    nl.goldwgt = [(kt, mmids[kt])]
                     del mmids[kt]
                     if len(mmids) > 0:
-                        x[cnmap["extgoldwgt"]] = list(mmids.items())
-                lst1 = x[cnmap["goldwgt"]]
-                refid = self._getrefid(x[cnmap["running"]], refs)
+                        nl.extgoldwgt = list(mmids.items())
+                lst1 = nl.goldwgt
+                refid = self._getrefid(nl.running, refs)
                 if not refid:
                     logger.critical(("No refid found for running(%d),"
-                                     " Pls. create one in codetable with (jocostma/costrefid) ") % x[cnmap["running"]])
+                                     " Pls. create one in codetable with (jocostma/costrefid) ") % nl.running)
                     vvs = None
                     break
                 mp = self._getmps(refid, mpsmp)
@@ -285,7 +285,7 @@ class C1JCReader(object):
                             ttlwgt += float(knw[1])
                             if kt not in mp:
                                 logger.critical("No MPS found for running(%d)'s karat(%d)" %
-                                                (x[cnmap["running"]], kt))
+                                                (nl.running, kt))
                                 x[cnmap[vv[1]]] = -1000
                             else:
                                 x[cnmap[vv[1]]
@@ -302,15 +302,111 @@ class C1JCReader(object):
         else:
             fns = getfiles(fldr,"xls")
         kxl, app = xwu.app(False)
+
+        def _fmtbtno(btno):
+            if isinstance(btno,numbers.Number): btno = "%08d" % int(btno)
+            return btno
+
+        def _fmtpkno(pkno):
+            if not pkno: return
+            #contain invalid character, not a PK#
+            if sum([1 for x in pkno if ord(x) <= 31 or ord(x) >= 127]) > 0:
+                return
+            pkno0 = pkno
+            if pkno.find("-") >= 0: pkno = pkno.replace("-","")
+            pfx, pkno, sfx = pkno[:3], pkno[3:], ""
+            for idx in range(len(pkno) - 1,-1,-1):
+                ch = pkno[idx]
+                if ch >= "A" and ch <= "Z":
+                    sfx = ch + sfx
+                else:
+                    if len(sfx) > 0:
+                        idx += 1
+                        break
+                    sfx = ch + sfx
+            pkno = pkno[:idx]
+            if isnumeric(pkno):
+                pkno = ("%0" + str(8 - len(pfx) - len(sfx)) + "d") % (int(float(pkno)))
+                special = False 
+            else:
+                special =True
+                rpm = {"O":"0","*":"X","S":"5"}
+                for x in rpm.items():
+                    if pkno.find(x[0]) >= 0:
+                        logger.debug("PK#(%s)'s %s -> %s in it's numeric part" % (pkno0,x[0],x[1]))
+                        pkno = pkno.replace(x[0],x[1])
+                        special = True
+            pkno = pfx + pkno + sfx
+            return pkno,special
+
+        btches, pkdff , usgs = [], [], []
+        btnos, pknos , jonos = set(), set(), set() 
         try:
             for fn in fns:
                 wb = app.books.open(fn)
+                shts = {}
                 for sht in wb.sheets:
-                    if sht.name == u"进":
-                        vvs = sht.range("A1").expand("table").value
-                        #TODO::                        
-                    elif sht.name == u"用":
-                        pass
+                    shts[sht.name] = sht
+                sht = shts[u"进"]
+                vvs = sht.range("A1").expand("table").value
+                km = {u"序号":"id",u"水号":"btchno",u"包头":"pkno",u"日期,":"date",u"类别":"type",u"成色":"karat",u"数量,":"qty",u"重量,":"wgt",u"数量单位":"qtyunit",u"重量单位":"unit",u"备注":"btchid"}
+                nls = NamedLists(vvs,km)
+                if len(nls.namemap) < len(km):
+                    logger.debug("not enough key column provided")
+                    break 
+                for nl in nls:
+                    if nl.karat: continue
+                    if not nl.btchno: break
+                    pkno = _fmtpkno(nl.pkno)
+                    if not pkno: continue
+                    flag = pkno[1]; pkno = pkno[0]
+                    if pkno != nl.pkno or flag:
+                        pkdff.append((int(nl.id),nl.pkno,pkno, "Special" if flag else "Normal"))
+                        nl.pkno = pkno
+                    nl.btchno = _fmtbtno(nl.btchno)
+                    btnos.add(nl.btchno)
+                    pknos.add(nl.pkno) 
+                    btches.append(nl)
+                btches = dict([(x.btchno,x) for x in btches])
+                sht = shts[u"用"]
+                vvs = sht.range("A1").expand("table").value
+                km = {u"序号":"id",u"水号":"btchno",u"工单":"jono",u"数量":"qty",u"重量":"wgt",u"记录":"type",u"备注":"btchid"}
+                nls = NamedLists(vvs,km)
+                skipcnt = 0
+                for nl in nls:
+                    btno = nl.btchno
+                    if not (btno and nl.qty):
+                        skipcnt += 1
+                        if skipcnt > 3:
+                            break
+                        else:
+                            continue
+                    skipcnt = 0
+                    btno = _fmtbtno(btno)
+                    if btno not in btches:
+                        continue
+                    usgs.append(nl) 
+                    jonos.add(nl.jono)
                 wb.close()
         finally:
             if kxl: app.quit()
+        if False:
+            with open(r"d:\temp\btchs.csv","w") as fh:
+                if pkdff:
+                    print("---the converted PK#---",file = fh)
+                    for x in pkdff:
+                        print(str(x),file = fh)
+                if btches:
+                    print("---the converted result---",file = fh)
+                    for x in btches.values():
+                        print(str(x.data),file = fh)
+                if usgs:
+                    print("---usage data---")
+                    for x in usgs:
+                        print(str(x.value),file=fh)
+                
+        if usgs:
+            d0 = {}
+            for x in usgs:
+                d0.setdefault(x.btchno,[]).append(x)
+        return btches,usgs

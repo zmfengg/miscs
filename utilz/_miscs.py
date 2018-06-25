@@ -295,6 +295,10 @@ class NamedLists(Iterator):
             self._wrpr.setdata(self._lsts[self._ptr])
             return self._wrpr
 
+    @property
+    def namemap(self):
+        return self._nmap
+
 class Alias(object):
     def __init__(self, nmap,obj = None):
         self._nmap = dict((x[1],x[0]) for x in nmap.items())
