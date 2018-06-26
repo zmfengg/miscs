@@ -18,7 +18,7 @@ from sqlalchemy import and_, desc, or_, true
 from sqlalchemy.orm import Query, Session
 
 from hnjcore import JOElement, KaratSvc, StyElement
-from hnjcore.models.cn import JO as JOcn
+from hnjcore.models.cn import JO as JOcn,StoneIn,StonePk
 from hnjcore.models.cn import Customer as Customercn
 from hnjcore.models.cn import Style as Stylecn
 from hnjcore.models.cn import MM, MMMa, Codetable
@@ -53,6 +53,30 @@ class SvcBase(object):
 
     def sessionctx(self):
         return ResourceCtx(self._trmgr)
+    
+    def _getbyids(self,q0, objs, qmkr, smkr):
+        """
+        get object by providing a list of vars, return tuple with valid object tuple and not found set
+        """
+        if not objs: return
+        if not(isinstance(objs,tuple) or isinstance(objs,list)):
+            objs = tuple(objs)
+        objss = splitarray(objs,self._querysize)
+        al = []
+        with self.sessionctx() as cur:
+            for x in objss:
+                lst = q0.filter(qmkr(x)).with_session(cur).all()
+                if lst: al.extend(lst) 
+        if al:
+            if len(al) < len(objs):
+                a0 = set(objs)
+                x = smkr(al)
+                na = a0.difference(x)
+            else:
+                na = None
+        else:
+            na = set(objs) 
+        return al,na
 
 class HKSvc(SvcBase):
     _qcaches = {}
@@ -100,10 +124,7 @@ class HKSvc(SvcBase):
         # else treatd them as joid
         if not jesorrunns:
             return
-        jes = set()
-        rns = set()
-        ids = set()
-        jos = {}
+        jes, rns,ids,jos = set(),set(),set(),{}
         for x in jesorrunns:
             if isinstance(x, JOElement):
                 jes.add(x)
@@ -111,7 +132,8 @@ class HKSvc(SvcBase):
                 ids.add(x)
             elif isinstance(x, str):
                 if x.find("r") >= 0:
-                    rns.add(int(x[1:]))
+                    i0 = int(x[1:])
+                    if i0 > 0: rns.add(i0)
                 else:
                     je = JOElement(x)
                     if(je.isvalid):
@@ -119,47 +141,25 @@ class HKSvc(SvcBase):
         if not any((jes, rns, ids)):
             return
 
-        def _putjos(jos, mp, groupby):
-            if not jos:
-                return
-            #groupby = "name" if not groupby else groupby.lower()
-            if groupby.find("name") >= 0:
-                mp1 = [(x.name, x) for x in jos]
-            elif groupby.find("runn") >= 0:
-                mp1 = [(x.running, x) for x in jos]
-            else:
-                mp1 = [(x.id, x) for x in jos]
-            mp.update(dict(mp1))
-
-        with self.sessionctx() as cur:
-            q0 = Query(JO)
-            if jes:
-                for ii in splitarray(list(jes), self._querysize):
-                    q = JO.name == ii[0]
-                    for yy in ii[1:]:
-                        q = or_(JO.name == yy, q)
-                    q = q0.filter(q).with_session(cur)
-                    _putjos(q.all(), jos, "id")
-            if rns:
-                for ii in splitarray(list(rns), self._querysize):
-                    q = q0.filter(JO.running.in_(ii)).with_session(cur)
-                    _putjos(q.all(), jos, "id")
-            if ids:
-                for ii in splitarray(list(ids), self._querysize):
-                    q = q0.filter(JO.id.in_(ii)).with_session(cur)
-                    _putjos(q.all(), jos, "id")
-        failed = set()
-        # check what's not got
-        its = list(jos.values())
-        if jes:
-            failed.update(jes.difference(set([x.name for x in its])))
-        if rns:
-            failed.update(rns.difference(set([x.running for x in its])))
+        q0 = Query(JO)
+        rsts = [None,None,None]
         if ids:
-            failed.update(ids.difference(set([x.id for x in its])))
-        if not failed:
-            failed = None
-        return (its, failed)
+            rsts[0] = self._getbyids(q0,ids,lambda x: JO.id.in_(x),lambda x: set([y.id for y in x]))
+        if rns:
+            rsts[1] = self._getbyids(q0,rns,lambda x: JO.running.in_(x),lambda x: set([y.running for y in x]))
+        if jes:
+            def _qmkr(x):
+                q = JO.name == x[0]
+                for y in x[1:]:
+                    q = or_(JO.name == y,q)
+                return q
+            rsts[2] = self._getbyids(q0,jes,_qmkr,lambda x: set([y.name for y in x]))
+        its, failed = dict(), []
+        for x in rsts:
+            if not x: continue
+            if x[0]: its.update(dict([(y.id,y) for y in x[0]]))
+            if x[1]: failed.extend(x[1])
+        return list(its.values()),failed
 
     def getjo(self, jeorrunn):
         """ a convenient way for getjos """
@@ -175,7 +175,7 @@ class HKSvc(SvcBase):
         from operator import attrgetter
         with self.sessionctx() as cur:
             rows = None
-            q = Query(PajCnRev).filter(PajCnRev.pcode ==
+            q = Query(PajCnRev).filter(PajCnRev.pcode == 
                                     pcode).order_by(desc(PajCnRev.tag))
             if limit:
                 q = q.limit(limit)
@@ -417,6 +417,37 @@ class CNSvc(SvcBase):
                 filter(Codetable.tag == refid)
             lst = q.with_session(cur).all()
             return dict([(int(x.coden0),float(x.coden1)) for x in lst])
+    
+    def getstins(self,btnos):
+        """
+        return the stonein's by provding a list of btchnos or btchid
+        btchno or id is determined by the fist item in btchnos
+        @param btnos: should be a collection of btchno(str) or btchid(int)
+        """
+        if not(isinstance(btnos,tuple) or isinstance(btnos,list)):
+            btnos = tuple(btnos)
+        isstr = isinstance(btnos[0],str)
+        if isstr:
+            qmkr = lambda x: StoneIn.name.in_(x)
+            smkr = lambda x: set([y.name for y in x])
+        else:
+            qmkr = lambda x: StoneIn.id.in_(x)
+            smkr = lambda x: set([y.id for y in x])
+        return self._getbyids(Query(StoneIn),btnos,qmkr,smkr)
+
+    def getstpks(self,pknos):
+        if not(isinstance(pknos,tuple) or isinstance(pknos,list)):
+            pknos = tuple(pknos)
+        isstr = isinstance(pknos[0],str)
+        if isstr:
+            qmkr = lambda x: StonePk.name.in_(x)
+            smkr = lambda x: set([y.name for y in x])
+        else:
+            qmkr = lambda x: StonePk.id.in_(x)
+            smkr = lambda x: set([y.id for y in x])
+        return self._getbyids(Query(StonePk),pknos,qmkr,smkr)
+
+
 
 class BCSvc(object):
     """a handy Hnjhk dao for data access in this tests

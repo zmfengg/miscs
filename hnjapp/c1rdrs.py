@@ -17,6 +17,7 @@ from utilz import NamedList, list2dict, NamedLists
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Query
 from xlwings import constants
+import tempfile
 
 from hnjcore import JOElement, karatsvc
 from hnjcore.models.cn import JO, MM, Customer, MMgd, MMMa, Style
@@ -390,23 +391,45 @@ class C1JCReader(object):
                 wb.close()
         finally:
             if kxl: app.quit()
+
+        btnos = self._cnsvc.getstins(btnos)
+        pknos = self._cnsvc.getstpks(pknos)
+        if pknos[1]:
+            #print this out and ask for pkdata, or I can not create any further
+            fn = tempfile.gettempdir() + path.sep + "newPks.txt"
+            with open(fn,"w") as fh:
+                print("Below PK# does not exist, Pls. acquire them from HK first",file = fh)
+                for x in pknos[1]:
+                    print(x,file = fh)
         if False:
-            with open(r"d:\temp\btchs.csv","w") as fh:
-                if pkdff:
-                    print("---the converted PK#---",file = fh)
-                    for x in pkdff:
-                        print(str(x),file = fh)
-                if btches:
-                    print("---the converted result---",file = fh)
-                    for x in btches.values():
-                        print(str(x.data),file = fh)
-                if usgs:
-                    print("---usage data---")
-                    for x in usgs:
-                        print(str(x.value),file=fh)
-                
-        if usgs:
-            d0 = {}
-            for x in usgs:
-                d0.setdefault(x.btchno,[]).append(x)
+            btbyns = dict([(x.name,x) for x in btnos[0]])
+            pkbyns = dict([(x.name,x) for x in pknos[0]])
+            lstnpk, lstnsti, lstnstom,lstnsto,lstbck = [],[],[],[],[]
+            psabyjn = {}
+            #TODO::fetch max(som.id,som.billid) for each category
+            msomid,msobid = 0,0
+            for x in btches.items():
+                if x[0] not in btbyns:
+                    #create som/so, som need to group by jo#            
+                    pass                
+                    
+            if False:
+                with open(r"d:\temp\btchs.csv","w") as fh:
+                    if pkdff:
+                        print("---the converted PK#---",file = fh)
+                        for x in pkdff:
+                            print(str(x),file = fh)
+                    if btches:
+                        print("---the converted result---",file = fh)
+                        for x in btches.values():
+                            print(str(x.data),file = fh)
+                    if usgs:
+                        print("---usage data---")
+                        for x in usgs:
+                            print(str(x.value),file=fh)
+                    
+            if usgs:
+                d0 = {}
+                for x in usgs:
+                    d0.setdefault(x.btchno,[]).append(x)
         return btches,usgs
