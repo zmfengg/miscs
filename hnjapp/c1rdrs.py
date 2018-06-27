@@ -8,20 +8,22 @@ need to be able to read the 2 kinds of files: C1's original and calculator file
 
 import numbers
 import os
-from os import path
 import re
 import sys
+import tempfile
 from collections import namedtuple
-from utilz import NamedList, list2dict, NamedLists
+from os import path
+import datetime
 
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Query
 from xlwings import constants
-import tempfile
 
 from hnjcore import JOElement, karatsvc
-from hnjcore.models.cn import JO, MM, Customer, MMgd, MMMa, Style
+from hnjcore.models.cn import JO, MM, Customer, MMgd, MMMa, Style,StoneOutMaster,StoneOut,Codetable,StoneIn,StoneBck
 from hnjcore.utils import appathsep, daterange, getfiles, isnumeric, xwu
+from hnjcore.utils.consts import NA
+from utilz import NamedList, NamedLists, list2dict, trimu
 
 from .common import _date_short
 from .common import _logger as logger
@@ -303,14 +305,21 @@ class C1JCReader(object):
         else:
             fns = getfiles(fldr,"xls")
         kxl, app = xwu.app(False)
+        ptnbtno = re.compile(r"(\d+)([A-Z]{3})(\d+)")
 
         def _fmtbtno(btno):
-            if isinstance(btno,numbers.Number): btno = "%08d" % int(btno)
+            if isinstance(btno,numbers.Number):
+                btno = "%08d" % int(btno)
+            else:
+                mt = ptnbtno.search(btno)
+                if mt:
+                    btno = btno[mt.start(1):mt.end(2)] + ("%03d" % int(mt.group(3)))
             return btno
 
         def _fmtpkno(pkno):
             if not pkno: return
             #contain invalid character, not a PK#
+            pkno = trimu(pkno)
             if sum([1 for x in pkno if ord(x) <= 31 or ord(x) >= 127]) > 0:
                 return
             pkno0 = pkno
@@ -371,65 +380,129 @@ class C1JCReader(object):
                 btches = dict([(x.btchno,x) for x in btches])
                 sht = shts[u"用"]
                 vvs = sht.range("A1").expand("table").value
-                km = {u"序号":"id",u"水号":"btchno",u"工单":"jono",u"数量":"qty",u"重量":"wgt",u"记录":"type",u"备注":"btchid"}
+                km = {u"序号":"id",u"水号":"btchno",u"工单":"jono",u"数量":"qty",u"重量":"wgt",u"记录,":"type",u"备注":"btchid"}
                 nls = NamedLists(vvs,km)
                 skipcnt = 0
                 for nl in nls:
-                    btno = nl.btchno
-                    if not (btno and nl.qty):
+                    btchno = nl.btchno
+                    if not (btchno and nl.qty):
                         skipcnt += 1
                         if skipcnt > 3:
                             break
                         else:
                             continue
                     skipcnt = 0
-                    btno = _fmtbtno(btno)
-                    if btno not in btches:
+                    btchno = _fmtbtno(btchno)
+                    if btchno not in btches:
                         continue
                     usgs.append(nl) 
-                    jonos.add(nl.jono)
+                    nl.jono = JOElement(nl.jono)
+                    if nl.jono.isvalid():
+                        jonos.add(nl.jono)
                 wb.close()
         finally:
             if kxl: app.quit()
 
         btnos = self._cnsvc.getstins(btnos)
         pknos = self._cnsvc.getstpks(pknos)
+        jonos = self._cnsvc.getjos(jonos)
+        tmpf = tempfile.gettempdir() + path.sep
         if pknos[1]:
             #print this out and ask for pkdata, or I can not create any further
-            fn = tempfile.gettempdir() + path.sep + "newPks.txt"
+            fn = tmpf + "newItems.txt"
             with open(fn,"w") as fh:
-                print("Below PK# does not exist, Pls. acquire them from HK first",file = fh)
-                for x in pknos[1]:
-                    print(x,file = fh)
-        if False:
-            btbyns = dict([(x.name,x) for x in btnos[0]])
-            pkbyns = dict([(x.name,x) for x in pknos[0]])
-            lstnpk, lstnsti, lstnstom,lstnsto,lstbck = [],[],[],[],[]
-            psabyjn = {}
-            #TODO::fetch max(som.id,som.billid) for each category
-            msomid,msobid = 0,0
+                if pknos[1]:
+                    print("Below PK# does not exist, Pls. acquire them from HK first",file = fh)
+                    for x in pknos[1]:
+                        print(x,file = fh)
+                if btnos[1]:
+                    print("Below BT# does not exists, Pls. get confirm from Kary",file = fh)
+                    for x in btnos[1]:
+                        print(x,file = fh)
+                if jonos[1]:
+                    print("Below JOs does not exists",file = fh)
+                    for x in jonos[1]:
+                        print(x.name,file  = fh)
+            print("not existing PK/Bt/JOs were saved to %s" % fn)
+        if True:
+            lnm = lambda cl: dict([(x.name,x) for x in cl])
+
+            btbyns = lnm(btnos[0])
+            pkbyns = lnm(pknos[0])
+            jobyns = lnm(jonos[0])
+            nbt, sos, nbck = {},{},[]
+            with self._cnsvc.sessionctx() as cur:
+                lst = cur.query(Codetable.codec0,Codetable.coden0).filter(and_(Codetable.tblname == "stone_out_master",Codetable.colname == "is_out")).all()
+                msomids = dict([(x.codec0.strip(),int(x.coden0)) for x in lst])
+                msomid = cur.query(func.max(StoneOutMaster.id.label("id"))).first()[0]
+                lst =cur.query(StoneOutMaster.isout,func.max(StoneOutMaster.name).label("bid")).filter(StoneOutMaster.isout.in_(list(msomids.values()))).group_by(StoneOutMaster.isout).all()
+                lst = dict([(x.isout,x.bid) for x in lst])
+                #make it a isoutname -> (isout,maxid) tuple
+                msomids = dict([(x[0],[x[1],lst[x[1]]]) for x in msomids.items() if x[1] in lst])
+                mbtid =cur.query(func.max(StoneIn.id)).first()[0]
+            td = datetime.datetime.today()
             for x in btches.items():
                 if x[0] not in btbyns:
-                    #create som/so, som need to group by jo#            
-                    pass                
-                    
-            if False:
-                with open(r"d:\temp\btchs.csv","w") as fh:
-                    if pkdff:
-                        print("---the converted PK#---",file = fh)
-                        for x in pkdff:
-                            print(str(x),file = fh)
-                    if btches:
-                        print("---the converted result---",file = fh)
-                        for x in btches.values():
-                            print(str(x.data),file = fh)
-                    if usgs:
-                        print("---usage data---")
-                        for x in usgs:
-                            print(str(x.value),file=fh)
-                    
-            if usgs:
-                d0 = {}
-                for x in usgs:
-                    d0.setdefault(x.btchno,[]).append(x)
+                    si = StoneIn()
+                    mbtid += 1
+                    si.id,si.cstref,si.docno,si.filldate,si.lastupdate,si.lastuserid = mbtid,NA,"ATXXXXX",td,td,1
+                    si.name, si.qty, si.qtytrans,si.qtyused,si.cstid = x[0],x[1].qty,0,0,1
+                    si.size,si.tag,si.wgt,si.wgtadj,si.wgtbck = NA, 0,x[1].wgt,0,0
+                    si.wgtprep, si.wgttrans, si.wgtused, si.qtybck, si.wgttmptrans = 0,0,0,0,0
+                    if x[1].pkno in pkbyns:
+                        si.pkid = pkbyns[x[1].pkno]
+                    else:
+                        print("PK#(%s) not found" % x[1].pkno)
+                    nbt[si.name] = si
+            #the transation types of usage is as follow:
+            #补烂-> 补石,*退烂石; 补失 -> 补石,*退失石;,配出,退回, it's related isoutflag below
+            for x in usgs:
+                s0 = x.type
+                tps = "补石,*退烂石".split(",") if s0 == "补烂" else "补石,*退失石".split(",") if s0 == "补失" \
+                else ["配出"] if s0 == "配出" else None
+                if tps == None:
+                    nb = StoneBck()
+                    nbck.append(nb)
+                    if x.btchno in btbyns:
+                        nb.id = btbyns[x.btchno]
+                    else:
+                        nb.id = nbt[x.btchno]
+                    nb.idx, nb.docno, nb.filldate, nb.lastupdate = 1, "ATXXXXX", td,td
+                    nb.lastuserid, nb.qty, nb.wgt = 1, x.qty, x.wgt
+                else:
+                    for y in tps:
+                        iof = msomids[y]
+                        key = x.jono.value + "," + str(iof[0])
+                        somso = sos.setdefault(key,{})                        
+                        if len(somso) == 0:
+                            som = StoneOutMaster()
+                            somso["som"] = som
+                            msomid += 1
+                            iof[1] += 1                            
+                            som.id, som.isout, som.name = msomid, iof[1], iof[1]
+                            if x.jono.isvalid():
+                                som.joid = jobyns[x.jono].id 
+                            som.packed, som.qty, som.subcnt, som.workerid = 0,0,0,1393
+                            som.lastupdate, som.lastuserid = td,1
+                        lst1 = somso.setdefault("sos",[])
+                        so = StoneOut()
+                        lst1.append(s0)
+                        so.id, so.idx, so.joqty,so.lastupdate,so.lastuserid  = msomid,len(lst1) + 1,0,td,1
+                        so.printid,so.qty,so.wgt, so.workerid = 0,x.qty,x.wgt,1393
+
+        if True:
+            with open(tmpf + r"btchs.csv","w") as fh:
+                if pkdff:
+                    print("---the converted PK#---",file = fh)
+                    for x in pkdff:
+                        print(str(x),file = fh)
+                if btches:
+                    print("---the converted result---",file = fh)
+                    for x in btches.values():
+                        print(str(x.data),file = fh)
+                if usgs:
+                    print("---usage data---",file=fh)
+                    for x in usgs:
+                        print(str(x[1]),file=fh)
+                
         return btches,usgs

@@ -33,7 +33,7 @@ from hnjcore.utils.consts import NA
 
 from . import pajcc
 from .pajcc import MPS, PrdWgt, WgtInfo
-from .common import _logger as logger
+from .common import _logger as logger, splitjns
 
 __all__ = ["HKSvc", "CNSvc",]
 
@@ -44,6 +44,29 @@ def fmtsku(skuno):
     if skuno.upper() == NA:
         return None
     return skuno
+
+def _getjos(self, tarobj, q0, jns):
+    ss = splitjns(jns)
+    if not(ss and any(ss)): return
+    jes, rns,ids= ss[0],ss[1],ss[2] 
+    rsts = [None,None,None]
+    if ids:
+        rsts[0] = self._getbyids(q0,ids,lambda x: tarobj.id.in_(x),lambda x: set([y.id for y in x]))
+    if rns:
+        rsts[1] = self._getbyids(q0,rns,lambda x: tarobj.running.in_(x),lambda x: set([y.running for y in x]))
+    if jes:
+        def _qmkr(x):
+            q = tarobj.name == x[0]
+            for y in x[1:]:
+                q = or_(tarobj.name == y,q)
+            return q
+        rsts[2] = self._getbyids(q0,jes,_qmkr,lambda x: set([y.name for y in x]))
+    its, failed = dict(), []
+    for x in rsts:
+        if not x: continue
+        if x[0]: its.update(dict([(y.id,y) for y in x[0]]))
+        if x[1]: failed.extend(x[1])
+    return list(its.values()),failed
 
 class SvcBase(object):
     _querysize = 20
@@ -120,46 +143,7 @@ class HKSvc(SvcBase):
             starts with 'r' for example, 'r410100', id should be integer,
             name should be JOElement or string without 'r' as prefix
         """
-        # todo:append a pattern to match a r\d{6} case to extract running
-        # else treatd them as joid
-        if not jesorrunns:
-            return
-        jes, rns,ids,jos = set(),set(),set(),{}
-        for x in jesorrunns:
-            if isinstance(x, JOElement):
-                jes.add(x)
-            elif isinstance(x, int):
-                ids.add(x)
-            elif isinstance(x, str):
-                if x.find("r") >= 0:
-                    i0 = int(x[1:])
-                    if i0 > 0: rns.add(i0)
-                else:
-                    je = JOElement(x)
-                    if(je.isvalid):
-                        jes.add(je)
-        if not any((jes, rns, ids)):
-            return
-
-        q0 = Query(JO)
-        rsts = [None,None,None]
-        if ids:
-            rsts[0] = self._getbyids(q0,ids,lambda x: JO.id.in_(x),lambda x: set([y.id for y in x]))
-        if rns:
-            rsts[1] = self._getbyids(q0,rns,lambda x: JO.running.in_(x),lambda x: set([y.running for y in x]))
-        if jes:
-            def _qmkr(x):
-                q = JO.name == x[0]
-                for y in x[1:]:
-                    q = or_(JO.name == y,q)
-                return q
-            rsts[2] = self._getbyids(q0,jes,_qmkr,lambda x: set([y.name for y in x]))
-        its, failed = dict(), []
-        for x in rsts:
-            if not x: continue
-            if x[0]: its.update(dict([(y.id,y) for y in x[0]]))
-            if x[1]: failed.extend(x[1])
-        return list(its.values()),failed
+        return _getjos(self,JO, Query(JO),jesorrunns)
 
     def getjo(self, jeorrunn):
         """ a convenient way for getjos """
@@ -446,8 +430,9 @@ class CNSvc(SvcBase):
             qmkr = lambda x: StonePk.id.in_(x)
             smkr = lambda x: set([y.id for y in x])
         return self._getbyids(Query(StonePk),pknos,qmkr,smkr)
-
-
+    
+    def getjos(self, jns):
+        return _getjos(self,JOcn, Query(JOcn),jns)
 
 class BCSvc(object):
     """a handy Hnjhk dao for data access in this tests
