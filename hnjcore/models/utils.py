@@ -103,6 +103,15 @@ class JOElement(object):
         return isinstance(other,JOElement) and \
             self.alpha == other.alpha and \
             self.digit == other.digit
+    
+    def __lt__(self,other):
+        if isinstance(other,JOElement):
+            flag = self.alpha < other.alpha
+            if not flag:
+                if self.alpha == other.digit:
+                    flag = self.digit < other.digit
+            return flag
+        raise ValueError("given object(%r) is not a %s" % (other,type(self).name))
 
     def __hash__(self):
         return hash((self.alpha,self.digit))

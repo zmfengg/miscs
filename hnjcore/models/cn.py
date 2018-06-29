@@ -116,28 +116,10 @@ class StoneMaster(CNBase):
     lastuserid = Column(SmallInteger, server_default=text("0"))
     lastupdate = Column(DateTime, server_default=text("getdate()"))
 
-class StoneOut(CNBase):
-    __tablename__ = 'stone_out'
-
-    id = Column(Integer, primary_key=True, nullable=False)
-    idx = Column(TINYINT, primary_key=True, nullable=False)
-    btchid = Column(ForeignKey('stone_in.btchid'), nullable=False, index=True)
-    workerid = Column(SmallInteger, nullable=False,name="worker_id")
-    qty = Column(Integer, nullable=False,name="quantity")
-    wgt = Column(Float, nullable=False,name="weight")
-    checkid = Column(SmallInteger, nullable=False,name="checker_id")
-    checkdate = Column(DateTime, nullable=False,name="check_date")
-    joqty = Column(SmallInteger,name="qty")
-    printid = Column(Integer)
-    lastuserid = Column(SmallInteger, server_default=text("0"))
-    lastupdate = Column(DateTime, server_default=text("getdate()"))
-
-    stonein = relationship('StoneIn')
-
 class StoneIn(CNBase):
     __tablename__ = 'stone_in'
 
-    id = Column(Integer, primary_key=True,name="btchid")
+    id = Column(Integer, primary_key=True,name="btchid",autoincrement = False)
     pkid = Column(ForeignKey('stone_pkma.pkid'), nullable=False)
     name = Column(VARCHAR(15), nullable=False, unique=True,name="batch_id")
     docno = Column(VARCHAR(15), nullable=False,name="bill_id")
@@ -187,7 +169,7 @@ class StonePk(CNBase):
 class StoneOutMaster(CNBase):
     __tablename__ = 'stone_out_master'
 
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True,autoincrement = False)
     name = Column(Integer, nullable=False,name="bill_id")
     isout = Column(SmallInteger, nullable=False,name="is_out")
     joid = Column(ForeignKey('b_cust_bill.jsid'), nullable=False,name="jsid")
@@ -201,10 +183,29 @@ class StoneOutMaster(CNBase):
 
     jo = relationship('JO')
 
+class StoneOut(CNBase):
+    __tablename__ = 'stone_out'
+
+    id = Column(ForeignKey('stone_out_master.id'),primary_key=True, nullable=False,autoincrement = False)
+    idx = Column(TINYINT, primary_key=True, nullable=False)
+    btchid = Column(ForeignKey('stone_in.btchid'), nullable=False, index=True)
+    workerid = Column(SmallInteger, nullable=False,name="worker_id")
+    qty = Column(Integer, nullable=False,name="quantity")
+    wgt = Column(Float, nullable=False,name="weight")
+    checkerid = Column(SmallInteger, nullable=False,name="checker_id")
+    checkdate = Column(DateTime, nullable=False,name="check_date")
+    joqty = Column(SmallInteger,name="qty")
+    printid = Column(Integer)
+    lastuserid = Column(SmallInteger, server_default=text("0"))
+    lastupdate = Column(DateTime, server_default=text("getdate()"))
+
+    stonein = relationship('StoneIn')
+
+
 class StoneBck(CNBase):
     __tablename__ = 'stone_bck'
 
-    id = Column(ForeignKey('stone_in.btchid'), primary_key=True, nullable=False,name="btchid")
+    btchid = Column(ForeignKey('stone_in.btchid'), primary_key=True, nullable=False,name="btchid")
     idx = Column(SmallInteger, primary_key=True, nullable=False)
     wgt = Column(Float, nullable=False,name="weight")
     docno = Column(VARCHAR(8), nullable=False,name="bill_id")
