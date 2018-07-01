@@ -7,5 +7,8 @@
 '''
 
 import logging
+from os import path
 
 _logger = logging.getLogger(__package__)
+thispath = path.dirname(__file__)
+del path

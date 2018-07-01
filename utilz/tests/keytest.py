@@ -14,8 +14,10 @@ from unittest import TestCase
 from utilz import xwu
 from utilz._miscs import (NamedList, NamedLists, appathsep, getfiles,Alias,list2dict, stsizefmt)
 from utilz.resourcemgr import ResourceCtx, ResourceMgr
+from functools import cmp_to_key
 
 from . import logger, thispath
+from utilz import karatsvc
 import datetime
 
 
@@ -161,3 +163,24 @@ class KeyTests(TestCase):
         al.settarget(it) 
         self.assertEqual(it.name, al.nick,"One object, 2 name or more")
         self.assertEqual(it, al.gettarget(),"return the object")
+
+    def testKaratSvc(self):
+        ks = karatsvc
+        k0 = ks[9]
+        k1 = ks["9K"]
+        self.assertEqual(k0,k1, "same object return from byId/byName")
+        k1 = ks["9KR"]
+        self.assertEqual(k0.fineness,k1.fineness,"same fineness, different karat")
+        k1 = ks.getfamily(k1)
+        self.assertEqual(k0,k1,"9KR's family is 9K")
+        self.assertTrue(ks.issamecategory(9,91),"9K and 9KW are all gold")
+        self.assertTrue(ks.issamecategory(9,"9KW"),"9K and 9KW are all gold")
+        self.assertFalse(ks.issamecategory(9,200), "gold is not bronze")
+        self.assertTrue(ks.compare(k0,k0) == 0, "the same karat")
+        self.assertTrue(ks.compare(k0,ks[200]) > 0,"Gold is larger than copper")
+        self.assertTrue(ks.compare(k0,ks[91]) < 0, "9K is smaller than 9KR")
+        lst = [ks[9],ks[18],ks[200],ks[925]]
+        lst = sorted(lst,key = cmp_to_key(ks.compare))
+        self.assertEqual(ks[200],lst[0],"sort method")
+        self.assertEqual(ks[925],lst[1],"sort method")
+        self.assertEqual(ks[18],lst[-1],"sort method")

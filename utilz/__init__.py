@@ -9,5 +9,8 @@ Some handy utils for most of my projects
 
 from .resourcemgr import ResourceMgr, ResourceCtx, SessionMgr
 from ._miscs import *
+from ._jewelry import Karat, KaratSvc
 from . import odbctpl
 from . import xwu
+
+karatsvc = KaratSvc()
