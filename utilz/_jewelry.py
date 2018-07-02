@@ -11,6 +11,10 @@ from numbers import Number
 from operator import attrgetter
 from os import path
 from .common import thispath
+from ._miscs import trimu
+from threading import RLock
+
+__all__ = ["Karat","KaratSvc","RingSizeSvc"]
 
 Karat = namedtuple("Karat","karat,name,fineness,category,color")
 
@@ -105,3 +109,69 @@ class KaratSvc(object):
         rc = 1 if rc > 0 else -1 if rc < 0 else 0
             
         return rc
+
+class RingSizeSvc(object):
+    _szcht,_szgrp = None, None
+    _rlck = RLock()
+
+    def _loadrgcht(self):
+        #if the file with BOM as first character, use utf-8-sig to open it
+        with open(path.join(thispath,"res","rszcht.csv"),"r+t",encoding="utf-8-sig") as fh:
+            rdr = DictReader(fh)
+            lst = list(rdr)
+        #use a 2 layer dict to index the size chart
+        d0 = {}
+        for x in lst:
+            for k in x.keys():
+                d1 = d0.setdefault(k,{})
+                d1[x[k]] = x
+        dg0 = {}
+        with open(path.join(thispath,"res","rszgrp.csv")) as fh:
+            for x in fh.readlines():
+                if x.startswith("#"): continue
+                ss = trimu(x).split("=")
+                for yy in ss[1].split(","):
+                    dg0[yy] = ss[0]        
+        return d0,dg0
+    
+    def _getgrp(self,cn):
+        self._rlck.acquire()    
+        try:
+            if not self._szcht:
+                self._szcht,self._szgrp = self._loadrgcht()
+        except:
+            pass
+        finally:
+            self._rlck.release()
+        cn = trimu(cn)
+        return cn if cn in self._szcht else None if cn not in self._szgrp else self._szgrp[cn]
+
+    def _getitem(self,cn0,sz0):
+        cn0 = self._getgrp(cn0)
+        if not cn0: return
+        d0,sz0 = self._szcht[cn0], trimu(sz0)
+        if sz0 not in d0: return
+        return d0[sz0]
+        
+    def convert(self,cn0,sz0,cn1):
+        """ convert ring size between different standards
+        @param cn0: the country name sth. like "US","HK"
+        @param sz0,sz1: the size code
+        """
+        it = self._getitem(cn0,sz0)
+        if not it: return
+        cn1 = self._getgrp(cn1)
+        if not cn1: return
+        sz1 = it[cn1]
+        if sz1 == "-": sz1 = None
+        return sz1
+
+    def getcirc(self,cn,sz):
+        """
+        return the ring's circumference of a ring size. EU's size is the circumference in mm
+        @param cn: the country code, sth. like "US","EU","CN","HK"
+        @param sz: the ring size
+        """
+        sz1 = self.convert(cn,sz,"EU")
+        if not sz1: return
+        return float(sz1)

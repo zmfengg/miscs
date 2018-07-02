@@ -19,6 +19,7 @@ from functools import cmp_to_key
 from . import logger, thispath
 from utilz import karatsvc
 import datetime
+from utilz._jewelry import RingSizeSvc
 
 
 class KeyTests(TestCase):
@@ -184,3 +185,11 @@ class KeyTests(TestCase):
         self.assertEqual(ks[200],lst[0],"sort method")
         self.assertEqual(ks[925],lst[1],"sort method")
         self.assertEqual(ks[18],lst[-1],"sort method")
+
+    def testRingSizeCvt(self):
+        rgsvc = RingSizeSvc()
+        self.assertEqual("M",rgsvc.convert("US","6","UK"),"US#6 = UK#M")
+        self.assertEqual("M",rgsvc.convert("US","6","AU"),"US#6 = UK#M, AU using UK")
+        self.assertEqual("4 1/4",rgsvc.convert("EU","47","US"),"EU#47 = US#4 1/4")
+        self.assertTrue(rgsvc.convert("EU","A","US") is None,"EU#A does not exist")
+        self.assertAlmostEqual(47.0,rgsvc.getcirc("US","4 1/4"),"the circumference of US#4 1/4 is 47.0mm")

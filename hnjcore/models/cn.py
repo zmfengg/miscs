@@ -48,6 +48,9 @@ class JO(CNBase):
     description = Column(VARCHAR(50),name ="description", nullable = False)
     qty = Column(Float,name = 'quantity')
     karat = Column(Integer,name ="karat")
+    deadline = Column(DateTime, nullable=False, name="dead_line")
+    lastupdate = Column(DateTime, nullable=False, name = "modi_date")
+    docno = Column(VARCHAR(7), nullable=False, name = "dept_bill_id")
     
     styid = Column(Integer,ForeignKey('styma.styid'))
     style = relationship("Style")
@@ -152,6 +155,7 @@ class StonePk(CNBase):
     name = Column(VARCHAR(20), nullable=False, unique=True,name="package_id")
     unit = Column(SmallInteger, nullable=False)
     pricec = Column(VARCHAR(6), nullable=False,name="price")
+    pricen = Column(Float, name = "pricen") 
     stid = Column(ForeignKey('stone_master.stid'))
     stshpid = Column(SmallInteger)
     tag = Column(TINYINT)

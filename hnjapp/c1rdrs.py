@@ -20,7 +20,7 @@ from sqlalchemy.orm import Query
 from xlwings import constants
 
 from hnjcore import JOElement, karatsvc
-from hnjcore.models.cn import JO, MM, Customer, MMgd, MMMa, Style,StoneOutMaster,StoneOut,Codetable,StoneIn,StoneBck
+from hnjcore.models.cn import JO, MM, Customer, MMgd, MMMa, Style,StoneOutMaster,StoneOut,Codetable,StoneIn,StoneBck,StonePk
 from hnjcore.utils import appathsep, daterange, getfiles, isnumeric, xwu, splitarray
 from hnjcore.utils.consts import NA
 from utilz import NamedList, NamedLists, list2dict, trimu
@@ -188,7 +188,67 @@ class C1JCReader(object):
         if refid in mpsmp:
             return mpsmp[refid]
 
-    def read(self, year, month, day=1, tplfn=None, tarfldr=None):
+    def _getstcosts(self,runns):
+        """
+        return the stone costs by map, running as key and cost as value
+        """
+        lst, cdmap  = [], None
+        sign = lambda x: 0 if x == 0 else 1 if x > 0 else -1
+        q0 = Query([JO.running,StoneOutMaster.isout,StonePk.pricen,StonePk.unit,func.sum(StoneOut.qty).label("qty"),func.sum(StoneOut.wgt).label("wgt")]).join(StoneOutMaster).join(StoneOut).join(StoneIn).join(StonePk).group_by(JO.running,StoneOutMaster.isout,StonePk.pricen,StonePk.unit)
+        with self._cnsvc.sessionctx() as cur:
+            for arr in splitarray(runns,50):
+                try:
+                    lst1 = q0.filter(JO.running.in_(arr)).with_session(cur).all()
+                    if lst1: lst.extend(lst1)
+                except:
+                    pass
+            if lst:
+                lst1 = Query([Codetable.coden0,Codetable.tag]).filter(and_(Codetable.tblname == "stone_pkma",Codetable.colname == "unit")).with_session(cur).all()
+                cdmap = dict([(int(x.coden0),x.tag) for x in lst1])
+        if lst and cdmap:
+            costs = dict(zip(runns,[0 for x in range(len(runns))]))
+            for x in lst:
+                costs[int(x.running)] += round(sign(float(x.isout)) * float(x.pricen) * (float(x.qty) if cdmap[x.unit] == 0 else float(x.wgt)),2)
+        return costs
+ 
+    def _getjostone(self,runns):
+        ttl = "jobn,styno,running,package_id,quantity,weight,pricen,unit,is_out,bill_id,fill_date,check_date".split(",")
+        lst = []
+        with self._cnsvc.sessionctx() as cur:
+            q = Query([JO.name.label("jono"),JO.deadline,Style.name.label("styno"),JO.running,\
+            StonePk.name.label("pkno"),StoneOut.qty,StoneOut.wgt,StonePk.pricen,StonePk.unit,\
+            StoneOutMaster.isout,StoneOutMaster.name.label("billid"),StoneOutMaster.filldate,\
+            StoneOut.checkdate]).join(Style).join(StoneOutMaster).join(StoneOut).\
+            join(StoneIn).join(StonePk)
+            for arr in splitarray(runns,50):
+                try:
+                    lst1 = q.filter(JO.running.in_(arr)).with_session(cur).all()
+                    lst.extend(lst1)
+                except:
+                    pass
+        lst1, lst = lst, [ttl]
+        lst.extend([("'" + x.jono.value,x.styno.value,x.running,x.pkno,x.qty,round(float(x.wgt),3)\
+        ,x.pricen,x.unit,x.isout,x.billid,x.filldate,x.checkdate) for x in lst1])
+        return lst
+
+    def _getbroken(self,df,dt):
+        lst = None
+        with self._cnsvc.sessionctx() as cur:
+            q = Query([JO.name.label("jono"),JO.deadline,Style.name.label("styno"),JO.running,\
+            StonePk.name.label("pkno"),StoneOut.qty,StoneOut.wgt,StonePk.pricen,StonePk.unit,\
+            StoneOutMaster.isout,StoneOutMaster.name.label("billid"),StoneOut.idx,StoneOutMaster.filldate,\
+            StoneOut.checkdate]).join(Style).join(StoneOutMaster).join(StoneOut).\
+            join(StoneIn).join(StonePk).filter(and_(StoneOutMaster.filldate >= df,StoneOutMaster.filldate< dt)).\
+            filter(and_(StoneOutMaster.isout >= -10,StoneOutMaster.isout <= 10))            
+            lst = q.with_session(cur).all()
+        if not lst:return
+        ttl = "jobn,styno,running,package_id,quantity,weight,pricen,unit,is_out,bill_id,idx,fill_date,check_date".split(",")
+        lst1, lst = lst, [ttl]
+        lst.extend([("'" + x.jono.value,x.styno.value,x.running,x.pkno,x.qty,round(float(x.wgt),3)\
+        ,x.pricen,x.unit,x.isout,x.billid,x.idx,x.filldate,x.checkdate) for x in lst1])
+        return lst
+
+    def read(self, year, month, day=1, rmbtohk = 1.25, tplfn=None, tarfldr=None):
         """class to create the C1 JOCost file for HK accountant"""
         df, dt = daterange(year, month, day)
         refs, mpsmp, runns = [], {}, set()
@@ -236,13 +296,17 @@ class C1JCReader(object):
                 vvs[jn][cnmap["goldwgt"]].append((karatsvc.getfamily(x.karat).karat, x.wgt))
             bcs = self._bcsvc.getbcsforjc(runns)
             bcs = dict([(x.runn, (x.desc, x.ston)) for x in bcs])            
+            stcosts = self._getstcosts(runns)
+            cstlst = "goldcost,extgoldcost,stonecost,laborcost".split(",")
             for x in vvs.values():
                 # the title
                 if x[0] == ttls[0]:
                     continue
                 nl.setdata(x)
-                joqty = nl.joqty
-                runn = str(nl.running)
+                runn = nl.running
+                if runn in stcosts:
+                    nl.stonecost = stcosts[runn]
+                runn = str(runn)
                 if runn in bcs:
                     dns = bcs[runn]
                     nl.description, nl.mstone = dns[0], dns[1]
@@ -250,7 +314,7 @@ class C1JCReader(object):
                 runn = nl.jobno[1:]
                 if runn in invs:
                     inv = invs[runn]
-                    nl.laborcost = (inv.setting + inv.labor) * joqty
+                    nl.laborcost = round((inv.setting + inv.labor) * rmbtohk,2)
                 else:
                     logger.info("no labor data from c1 invoice(%s) for JO(%s)" %
                                 (os.path.basename(self._invfldr), runn))
@@ -275,26 +339,31 @@ class C1JCReader(object):
                                      " Pls. create one in codetable with (jocostma/costrefid) ") % nl.running)
                     vvs = None
                     break
-                mp = self._getmps(refid, mpsmp)
-                for vv in gccols:
-                    lst1 = x[cnmap[vv[0]]]
-                    if lst1:
-                        ttlwgt = 0.0
-                        for knw in lst1:
-                            kt = knw[0]
-                            # in extgold case, if different karat exists, the weight is merged
-                            ttlwgt += float(knw[1])
-                            if kt not in mp:
-                                logger.critical("No MPS found for running(%d)'s karat(%d)" %
-                                                (nl.running, kt))
-                                x[cnmap[vv[1]]] = -1000
-                            else:
-                                x[cnmap[vv[1]]
-                                  ] += round(float(mp[kt]) * float(knw[1]), 2)
-                        x[cnmap[vv[0]]] = ttlwgt
+                else:
+                    mp = self._getmps(refid, mpsmp)
+                    for vv in gccols:
+                        lst1 = x[cnmap[vv[0]]]
+                        if lst1:
+                            ttlwgt = 0.0
+                            for knw in lst1:
+                                kt = knw[0]
+                                # in extgold case, if different karat exists, the weight is merged
+                                ttlwgt += float(knw[1])
+                                if kt not in mp:
+                                    logger.critical("No MPS found for running(%d)'s karat(%d)" %
+                                                    (nl.running, kt))
+                                    x[cnmap[vv[1]]] = -1000
+                                else:
+                                    x[cnmap[vv[1]]
+                                    ] += round(float(mp[kt]) * float(knw[1]), 2)
+                            x[cnmap[vv[0]]] = ttlwgt
                 if vvs == None:
                     break
-        return list(vvs.values()) if vvs else None
+                for cx in cstlst:
+                    nl["totalcost"] += nl[cx]
+                nl.unitcost = round(nl["totalcost"] / nl["joqty"],2)
+        if vvs:
+            return [x[1:] for x in vvs.values()],self._getjostone(runns),self._getbroken(df,dt)
 
 class C1STIOReader(object):
     """

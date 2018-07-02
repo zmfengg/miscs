@@ -158,11 +158,11 @@ class PajCalc():
     """the PAJ related calculations"""
 
     @classmethod
-    def getfiness(self, karat, vendor="PAJ"):
+    def getfineness(self, karat, vendor="PAJ"):
         #only PAJ's 925 item has different fineness
         if vendor and karat == 925: karat = "925PAJ"
         kt = karatsvc.getkarat(karat)
-        return kt.finess if kt else 0
+        return kt.fineness if kt else 0
 
     @classmethod
     def calclossrate(self, prdwgt):
@@ -185,7 +185,7 @@ class PajCalc():
             if not mp and x.karat != 200:
                 r0 = MPSINVALID
                 break
-            r0 += (x.wgt * self.getfiness(x.karat, vendor) * (lr0 if idx < 2 else 1.0) *
+            r0 += (x.wgt * self.getfineness(x.karat, vendor) * (lr0 if idx < 2 else 1.0) *
                 mp / 31.1035)
         return round(r0, 2)
 
@@ -211,7 +211,7 @@ class PajCalc():
             kw = kws[idx]
             # parts does not have loss
             r0 = kw.wgt * \
-                self.getfiness(kw.karat, vendor) * \
+                self.getfineness(kw.karat, vendor) * \
                                (lossrate if(idx < 2) else 1.0) / 31.1035
             if(kw.karat == 925):
                 s += r0

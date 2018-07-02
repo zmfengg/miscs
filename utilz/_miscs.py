@@ -28,8 +28,8 @@ def splitarray(arr, logsize=100):
     @param arr: the sequence object that need to split
     @param logsize: len of each sub-array's size  
     """
-    if not arr:
-        return
+    if not arr: return
+    if not (isinstance(arr,tuple) or isinstance(arr,list)):arr = tuple(arr)
     if not logsize:
         logsize = 100
     return [arr[x * logsize:(x + 1) * logsize] for x in range(int(ceil(1.0 * len(arr) / logsize)))]

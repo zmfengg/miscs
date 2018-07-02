@@ -97,7 +97,7 @@ def readbom(fldr):
                 if mt:
                     kt = int(mt.group(1))
                     if not karatsvc.getkarat(kt):
-                        karat = karatsvc.getbyfiness(kt)
+                        karat = karatsvc.getbyfineness(kt)
                         if karat: kt = karat.karat
         if not kt:
             #not found, has must have keyword? if yes, follow master
