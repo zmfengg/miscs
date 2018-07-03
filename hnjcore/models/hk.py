@@ -207,6 +207,18 @@ class PajCnRev(HKBase):
     filldate = Column(DateTime, name="filldate")
     tag = Column(Integer, name="tag")
 
+class PajAck(HKBase):
+    __tablename__ = "pajack"
+    id = Column(Integer, name="id", primary_key=True)
+    joid = Column(ForeignKey("jo.joid"),nullable = False,index = True)
+    pcode = Column(VARCHAR(30), name="pcode", index = True)
+    uprice = Column(DECIMAL, name="uprice")
+    ackdate = Column(DateTime)
+    filldate = Column(DateTime)
+    lastmodified = Column(DateTime)
+    tag = Column(Integer, name="tag")
+
+    jo = relationship("JO")
 
 class StockObjectMa(HKBase):
     __tablename__ = "stockobjectma"

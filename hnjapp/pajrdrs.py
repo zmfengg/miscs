@@ -582,7 +582,7 @@ class ShpReader:
                                                         tr[tm["invno"]], ivd, qmap[p17][0], qmap[p17][1], ivd, lmd, td0)
                                     else:
                                         logger.critical(
-                                            "failed to get quoinfo for pcode(%s)" % p17)
+                                            "failed to get quo info for pcode(%s)" % p17)
                                     # new sample won't have duplicated items
                                     items[random.random()] = si
                             else:

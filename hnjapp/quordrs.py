@@ -20,6 +20,8 @@ from hnjapp.pajcc import MPS,PrdWgt,WgtInfo
 from hnjcore import JOElement, xwu, appathsep, utils as hnju
 from hnjcore.utils.consts import NA
 from hnjcore.utils import getfiles
+
+from hnjcore.models.hk import PajAck
 from . import pajcc
 from xlwings import App
 
@@ -648,7 +650,25 @@ class AckPriceCheck(object):
             fns = [self._fldr + x for x in fns if x.find("_") != 0]
         return fns
 
-    def run(self,xlfn = None):
+    def persist(self):
+        fns = self._getsrcxlsfns()
+        data,app = self._readsrcdata(fns,self._uptodate(fns))
+        def _newinst(td):
+            ins = PajAck()
+            ins.tag, ins.filldate,ins.lastmodified = 0,td,td
+            return ins
+        try:
+            lst,dfmt,td = [], "%Y%m%d", datetime.datetime.today()
+            for x in data.values():
+                ins = _newinst(td)
+                lst.append(ins)
+                ins.ackdate, ins.mps = datetime.datetime.strptime(x["date"],dfmt), x["mps"]
+                ins.uprice = float(x["pajprice"])
+        finally:
+            if app: app.quit()
+        return lst
+
+    def analyse(self,xlfn = None):
         """ execute the check process against the given folder, return the result's full filename
         @param: fldr: the folder contains the acks
         @param: hksvc: services of hk system
@@ -666,12 +686,12 @@ class AckPriceCheck(object):
             os.path.getmtime(tarfn) >= os.path.getmtime(self.fndts):
             rc, msg = tarfn, "data up to date, don't need further process"
         else:
-            all,app = self._readsrcdata(fns,utd)
-            rsts = self._processall(all) if all else None
+            data,app = self._readsrcdata(fns,utd)
+            rsts = self._processall(data) if data else None
             if rsts:
                 tarfn = self._fldr + xlfn
                 rc = self._writewb(rsts, tarfn, app)                
-            else:                
+            else:
                 rc = None
                 if isinstance(app,str):
                     err = (err + "," if err else "") + app[1:]                    
@@ -691,6 +711,13 @@ class AckPriceCheck(object):
         return rc
 
     def _readsrcdata(self,fns,utd):
+        """
+        read necessary data from source excel file. return a dict of dict with "jono" as key and the value
+        dict with these columns: "jono,pajprice,file,mps,styno,date,qty,pcode"
+        An example: 
+        {"Y12345":{"jono":"Y12345","pajprice":11.11,"file":"a:/b/c.xlsx","mps":"S=11;G=22","styno":"R9926",
+        "date":datetime(2018,1,1),"qty":10,"pcode":"AXfdfd"}}
+        """
         def _float(val):
             try:
                 return float(val)
@@ -698,19 +725,19 @@ class AckPriceCheck(object):
                 return 0
 
         if not fns: return None,None        
-        all = {}; datfn = self.fnsrc ; idxfn = self.fndts
+        data = {}; datfn = self.fnsrc ; idxfn = self.fndts
         kxl,app,wb,fds = False, None ,None, {}
         if utd and os.path.exists(datfn):
             with open(datfn) as fh:
                 rdr = csv.DictReader(fh,dialect="excel")
                 for row in rdr:
-                    it = all.setdefault(row["jono"],row.copy())
+                    it = data.setdefault(row["jono"],row.copy())
                     if isinstance(it["pcode"],str):
                         it["pcode"] = []
                     it["pcode"].append(row["pcode"])
                     it["pajprice"] = float(it["pajprice"]) if it["pajprice"] else 0
                     it["qty"] = float(it["qty"])
-        if not all:
+        if not data:
             try:            
                 kxl,app = xwu.app(False)
                 err = None
@@ -746,7 +773,7 @@ class AckPriceCheck(object):
                             if not jono: break
                             if isinstance(jono,numbers.Number): jono = "%d" % jono
                             pcode = vvs[idx][cmap["pcode"]];pajup = vvs[idx][cmap["price"]]
-                            it = all.setdefault(jono,{"jono":jono})
+                            it = data.setdefault(jono,{"jono":jono})
 
                             it["pajprice"],it["file"] = pajup,os.path.basename(fn)
                             it["mps"], it["styno"] = mps, vvs[idx][cmap["styno"]]
@@ -774,11 +801,11 @@ class AckPriceCheck(object):
                 if kxl and app:
                     app.quit()
                 return None,"_" + err
-            logger.debug("all file read, record count = %d" % len(all))                   
-            if all:
+            logger.debug("all file read, record count = %d" % len(data))                   
+            if data:
                 with open(datfn,"w") as fh:
                     wtr = None
-                    for row in all.values():
+                    for row in data.values():
                         dct = row.copy()
                         if not dct["pajprice"]: dct["pajprice"] = 0
                         for c0 in row["pcode"]:                        
@@ -792,9 +819,15 @@ class AckPriceCheck(object):
                     print("file,date",file = fh)
                     for x in fds.items():
                         print(x[0] + "," + str(x[1]), file = fh)
-        return all,app        
+        return data,app        
 
     def _processone(self,jo,jes,smlookup = False):
+        """ calc the expected price based on JO's wgt/poprice/pajprice,
+        append these colums to jo dict:
+        "rev,revhis,expected,diff.,ref."
+        @param jo: a dict, refer to @_readsrcdata()
+        @param jes: a dict with jono as key and a dict with these columns: "jo,mps,wgts"
+        """
         hksvc = self._hksvc
         jn, pajup, mps= jo["jono"], jo["pajprice"], MPS(jo["mps"])        
         if not pajup or pajup < 0:
@@ -875,11 +908,16 @@ class AckPriceCheck(object):
         return True
 
     def _fetchjos(self,jos):
-        """ return the jono -> (poprice,mps,wgts) map """
+        """
+        return a dict with jono as key and dict with columns: "poprice,mps,wgts"
+        """
         return dict([(x.name.value,{"jo":x,"poprice":float(x.po.uprice), \
                 "mps": x.poid, "wgts": self._hksvc.getjowgts(x.name)}) for x in jos])
 
     def _processall(self,all):
+        """
+        @param all: a dict with jono as key and a dict with these keys: "jono,pajprice,file,mps,styno,date,qty,pcode". ref @_readsrcdata() FMI.
+        """
         if not all: return
         hksvc, rsts = self._hksvc, {}
         with hksvc.sessionctx():
@@ -977,6 +1015,9 @@ class AckPriceCheck(object):
         xwu.freeze(sht.range(2,4),False)
 
     def _writereadme(self,wb):
+        """
+        create a readme sheet
+        """
         cnt = len(self.LEVEL_ABS)
         lst = [("Ref. Classifying:","","")]
         lst.append("Ref.Suffix,Diff$,DiffRatio".split(","))

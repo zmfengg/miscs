@@ -252,12 +252,7 @@ class C1JCReader(object):
         """class to create the C1 JOCost file for HK accountant"""
         df, dt = daterange(year, month, day)
         refs, mpsmp, runns = [], {}, set()
-        invs = InvRdr().read(self._invfldr)
-        if not invs:
-            logger.debug(
-                "failed to read C1's invoice data from folder(%s)" % self._invfldr)
-            return
-        invs = dict([(x.jono, x) for x in invs])
+        actname = "C1JOCost of (%04d%02d)" % (year,month)
         ptncx = re.compile(r"C(\d)$")
         with self._cnsvc.sessionctx() as cur:
             mmids, vvs, refs = set(), {}, []
@@ -295,8 +290,18 @@ class C1JCReader(object):
                     vvs[jn][cnmap["joqty"]] += float(x.qty)
                 vvs[jn][cnmap["goldwgt"]].append((karatsvc.getfamily(x.karat).karat, x.wgt))
             bcs = self._bcsvc.getbcsforjc(runns)
+            if not bcs or len(bcs) < len(runns):
+                logger.debug("%s:Not all records found in BCSystem" % actname)
             bcs = dict([(x.runn, (x.desc, x.ston)) for x in bcs])            
             stcosts = self._getstcosts(runns)
+            if not stcosts or len(stcosts) < len(runns) / 2:
+                logger.debug("%s:No stone or less than 1/2 has stone, make sure you've prepared stone data with C1STIOData" % actname)
+            invs = InvRdr().read(self._invfldr)
+            x = set([x.jono for x in invs if x.jono in vvs]) if invs else set()
+            if not invs or len(x) < len(runns):
+                logger.debug(
+                    "%s:No or not enough C1 invoice data from file(%s)" % (actname,self._invfldr))
+            invs = dict([(x.jono, x) for x in invs]) if invs else {}
             cstlst = "goldcost,extgoldcost,stonecost,laborcost".split(",")
             for x in vvs.values():
                 # the title
@@ -316,9 +321,8 @@ class C1JCReader(object):
                     inv = invs[runn]
                     nl.laborcost = round((inv.setting + inv.labor) * rmbtohk,2)
                 else:
-                    logger.info("no labor data from c1 invoice(%s) for JO(%s)" %
-                                (os.path.basename(self._invfldr), runn))
-
+                    logger.debug("%s:No invoice data for JO(%s)" %
+                                (actname,runn))
                 lst1 = nl.goldwgt
                 if len(lst1) > 1:
                     mmids = {}
