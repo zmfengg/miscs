@@ -35,7 +35,7 @@ from . import pajcc
 from .pajcc import MPS, PrdWgt, WgtInfo
 from .common import _logger as logger, splitjns
 
-__all__ = ["HKSvc", "CNSvc",]
+__all__ = ["HKSvc", "CNSvc","jsin","idsin","idset","namesin","nameset"]
 
 def fmtsku(skuno):
     if not skuno:
@@ -45,22 +45,32 @@ def fmtsku(skuno):
         return None
     return skuno
 
-def _getjos(self, tarobj, q0, jns):
+def jesin(jes,objclz):
+    """ simulate a in operation for jo.name """
+    if not (isinstance(jes,tuple) or isinstance(jes,list)):
+        jes = list(jes)
+    q = objclz.name == jes[0]
+    for y in jes[1:]:
+        q = or_(objclz.name == y,q)
+    return q
+
+#these 4 object for sqlalcehmy's query maker for ids/names
+idsin = lambda ids,objclz: objclz.id.in_(ids)
+idset = lambda ids: set([y.id for y in ids])
+namesin = lambda names,objclz: objclz.name.in_(names)
+nameset =lambda names: set([y.name for y in names])
+
+def _getjos(self, objclz, q0, jns):
     ss = splitjns(jns)
     if not(ss and any(ss)): return
     jes, rns,ids= ss[0],ss[1],ss[2] 
     rsts = [None,None,None]
     if ids:
-        rsts[0] = self._getbyids(q0,ids,lambda x: tarobj.id.in_(x),lambda x: set([y.id for y in x]))
+        rsts[0] = self._getbyids(q0,ids,idsin,objclz,idset)
     if rns:
-        rsts[1] = self._getbyids(q0,rns,lambda x: tarobj.running.in_(x),lambda x: set([y.running for y in x]))
-    if jes:
-        def _qmkr(x):
-            q = tarobj.name == x[0]
-            for y in x[1:]:
-                q = or_(tarobj.name == y,q)
-            return q
-        rsts[2] = self._getbyids(q0,jes,_qmkr,lambda x: set([y.name for y in x]))
+        rsts[1] = self._getbyids(q0,rns,lambda x,y: y.running.in_(x),objclz,lambda x: set([y.running for y in x]))
+    if jes:       
+        rsts[2] = self._getbyids(q0,jes,jesin,objclz,nameset)
     its, failed = dict(), []
     for x in rsts:
         if not x: continue
@@ -77,7 +87,7 @@ class SvcBase(object):
     def sessionctx(self):
         return ResourceCtx(self._trmgr)
     
-    def _getbyids(self,q0, objs, qmkr, smkr):
+    def _getbyids(self,q0, objs, qmkr, objclz, smkr):
         """
         get object by providing a list of vars, return tuple with valid object tuple and not found set
         """
@@ -88,7 +98,7 @@ class SvcBase(object):
         al = []
         with self.sessionctx() as cur:
             for x in objss:
-                lst = q0.filter(qmkr(x)).with_session(cur).all()
+                lst = q0.filter(qmkr(x,objclz)).with_session(cur).all()
                 if lst: al.extend(lst) 
         if al:
             if len(al) < len(objs):
@@ -412,24 +422,20 @@ class CNSvc(SvcBase):
             btnos = tuple(btnos)
         isstr = isinstance(btnos[0],str)
         if isstr:
-            qmkr = lambda x: StoneIn.name.in_(x)
-            smkr = lambda x: set([y.name for y in x])
+            qmkr, smkr = namesin, nameset
         else:
-            qmkr = lambda x: StoneIn.id.in_(x)
-            smkr = lambda x: set([y.id for y in x])
-        return self._getbyids(Query(StoneIn),btnos,qmkr,smkr)
+            qmkr, smkr = idsin, idset
+        return self._getbyids(Query(StoneIn),btnos,qmkr,StoneIn,smkr)
 
     def getstpks(self,pknos):
         if not(isinstance(pknos,tuple) or isinstance(pknos,list)):
             pknos = tuple(pknos)
         isstr = isinstance(pknos[0],str)
         if isstr:
-            qmkr = lambda x: StonePk.name.in_(x)
-            smkr = lambda x: set([y.name for y in x])
+            qmkr,smkr =  namesin,nameset
         else:
-            qmkr = lambda x: StonePk.id.in_(x)
-            smkr = lambda x: set([y.id for y in x])
-        return self._getbyids(Query(StonePk),pknos,qmkr,smkr)
+            qmkr,smkr = idsin,idset
+        return self._getbyids(Query(StonePk),pknos,qmkr,StonePk,smkr)
     
     def getjos(self, jns):
         return _getjos(self,JOcn, Query(JOcn),jns)
