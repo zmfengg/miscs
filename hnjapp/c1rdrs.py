@@ -24,6 +24,7 @@ from hnjcore.models.cn import JO, MM, Customer, MMgd, MMMa, Style,StoneOutMaster
 from hnjcore.utils import appathsep, daterange, getfiles, isnumeric, xwu, splitarray
 from hnjcore.utils.consts import NA
 from utilz import NamedList, NamedLists, list2dict, trimu
+from hnjapp.dbsvcs import jesin
 
 from .common import _date_short
 from .common import _logger as logger
@@ -252,12 +253,7 @@ class C1JCReader(object):
         """class to create the C1 JOCost file for HK accountant"""
         df, dt = daterange(year, month, day)
         refs, mpsmp, runns = [], {}, set()
-        invs = InvRdr().read(self._invfldr)
-        if not invs:
-            logger.debug(
-                "failed to read C1's invoice data from folder(%s)" % self._invfldr)
-            return
-        invs = dict([(x.jono, x) for x in invs])
+        actname = "C1JOCost of (%04d%02d)" % (year,month)
         ptncx = re.compile(r"C(\d)$")
         with self._cnsvc.sessionctx() as cur:
             mmids, vvs, refs = set(), {}, []
@@ -295,8 +291,18 @@ class C1JCReader(object):
                     vvs[jn][cnmap["joqty"]] += float(x.qty)
                 vvs[jn][cnmap["goldwgt"]].append((karatsvc.getfamily(x.karat).karat, x.wgt))
             bcs = self._bcsvc.getbcsforjc(runns)
+            if not bcs or len(bcs) < len(runns):
+                logger.debug("%s:Not all records found in BCSystem" % actname)
             bcs = dict([(x.runn, (x.desc, x.ston)) for x in bcs])            
             stcosts = self._getstcosts(runns)
+            if not stcosts or len(stcosts) < len(runns) / 2:
+                logger.debug("%s:No stone or less than 1/2 has stone, make sure you've prepared stone data with C1STIOData" % actname)
+            invs = InvRdr().read(self._invfldr)
+            x = set([x.jono for x in invs if x.jono in vvs]) if invs else set()
+            if not invs or len(x) < len(runns):
+                logger.debug(
+                    "%s:No or not enough C1 invoice data from file(%s)" % (actname,self._invfldr))
+            invs = dict([(x.jono, x) for x in invs]) if invs else {}
             cstlst = "goldcost,extgoldcost,stonecost,laborcost".split(",")
             for x in vvs.values():
                 # the title
@@ -316,9 +322,8 @@ class C1JCReader(object):
                     inv = invs[runn]
                     nl.laborcost = round((inv.setting + inv.labor) * rmbtohk,2)
                 else:
-                    logger.info("no labor data from c1 invoice(%s) for JO(%s)" %
-                                (os.path.basename(self._invfldr), runn))
-
+                    logger.debug("%s:No invoice data for JO(%s)" %
+                                (actname,runn))
                 lst1 = nl.goldwgt
                 if len(lst1) > 1:
                     mmids = {}
@@ -522,6 +527,22 @@ class C1STIOReader(object):
             if kxl: app.quit()
         return pkmap,btmap,usgs,pkfmted
 
+    def _getjoshpdate(self,jes):
+        """
+        return the max shipment data of given JOElement collection as a dict of
+        (JOElement,maxRefdate)
+        """
+        if not jes: return
+        q0 = Query([JO.name,func.max(MMMa.refdate)]).join(MM).join(MMMa)
+        d0 = []
+        with self._cnsvc.sessionctx() as cur:
+            for arr in splitarray(list(jes)):
+                try:
+                    d0.extend(q0.filter(jesin(arr,JO)).group_by(JO.name).with_session(cur).all())
+                except:
+                    pass
+        return dict([(x[0],x[1]) for x in d0])
+            
     def _buildrst(self, pkmap,btmap,usgs,pkfmted):
         with self._cnsvc.sessionctx() as cur:
             lst = cur.query(Codetable.codec0,Codetable.coden0).filter(and_(Codetable.tblname == "stone_out_master",Codetable.colname == "is_out")).all()
@@ -543,6 +564,7 @@ class C1STIOReader(object):
                     jonos.add(nl.jono)
         btnos = self._cnsvc.getstins(btmap.keys())
         pknos = self._cnsvc.getstpks(pkmap.keys())
+        jes = jonos
         jonos = self._cnsvc.getjos(jonos)
         tmpf = tempfile.gettempdir() + path.sep
         #print this out and ask for pkdata, or I can not create any further
@@ -598,6 +620,7 @@ class C1STIOReader(object):
                     si.pkid = x[1].pkno
                 nbtmap[si.name] = si
         if usgs:
+            joshd = self._getjoshpdate(jes)
             for x in usgs:
                 s0 = x.type
                 if s0 not in ionmap:
@@ -626,7 +649,7 @@ class C1STIOReader(object):
                             iof[1] += 1                            
                             som.id, som.isout, som.name = msomid, iof[0], iof[1]
                             som.packed, som.qty, som.subcnt, som.workerid = 0,0,0,1393
-                            som.filldate, som.lastupdate, som.lastuserid = td, td,1
+                            som.filldate, som.lastupdate, som.lastuserid = joshd[x.jono], td,1
                         else:
                             som = somso["som"]
                         lst1 = somso.setdefault("sos",[])

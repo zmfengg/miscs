@@ -207,6 +207,38 @@ class PajCnRev(HKBase):
     filldate = Column(DateTime, name="filldate")
     tag = Column(Integer, name="tag")
 
+class PajAck(HKBase):
+    __tablename__ = "pajack"
+    id = Column(Integer, name="id", primary_key=True, autoincrement = True)
+    joid = Column(ForeignKey("jo.joid"),nullable = False,index = True)
+    pcode = Column(VARCHAR(30), name="pcode", index = True)
+    docno = Column(VARCHAR(50))
+    uprice = Column(DECIMAL, name="uprice")
+    mps = Column(VARCHAR(50), name="mps")
+    ackdate = Column(DateTime)
+    filldate = Column(DateTime)
+    lastmodified = Column(DateTime)
+    tag = Column(Integer, name="tag")
+
+    jo = relationship("JO")
+"""
+create table pajack
+(
+id numeric(8,0) identity not null,
+joid integer not null,
+pcode varchar(30) not null,
+docno varchar(100) not null,
+mps varchar(50) not null,
+uprice smallmoney,
+ackdate smalldatetime,
+filldate smalldatetime,
+lastmodified smalldatetime,
+tag smallint,
+constraint pk_pajack primary key(id)
+)
+
+create unique index idx_pajack_name on pajack(joid,pcode,ackdate)
+"""
 
 class StockObjectMa(HKBase):
     __tablename__ = "stockobjectma"
