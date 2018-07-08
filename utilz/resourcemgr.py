@@ -77,7 +77,7 @@ class ResourceMgr(object):
         if not stk:
             raise Exception("Invalid stack status")
         if token not in rmap:
-            raise Exception("not returing sth. borrowed from me")
+            raise Exception("not returning sth. borrowed from me")
         res = rmap[token]
         del rmap[token]; stk.pop()
         self._dispose(res)
@@ -85,14 +85,24 @@ class ResourceMgr(object):
 
 class SessionMgr(ResourceMgr):
     """ a sqlalchemy engine session manager by providing a sqlalchemy engine """
-    def __init__(self,engine):
+    def __init__(self,engine,autocommit = False):
         self._engine = engine
-        super(SessionMgr,self).__init__(self._newsess,self._closesess)
+        #super(SessionMgr,self).__init__(self._newsess,self._closesess)
+        super().__init__(self._newsess,self._closesess)
+        self._autocommit = autocommit
 
     def _newsess(self):
         return Session(self._engine)
     
     def _closesess(self,sess):
+        if True:
+            #thise will cause sqlalchemy.orm.exc.DetachedInstanceError even you're loading a single object
+            #but if you use session.expunge()/expunge_all() before closing, the items is accessable
+            # outside the session 
+            if self._autocommit:
+                sess.commit()
+            else:
+                sess.rollback()
         sess.close()
     
     @property

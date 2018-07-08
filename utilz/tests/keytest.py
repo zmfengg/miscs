@@ -158,12 +158,16 @@ class KeyTests(TestCase):
 
     def testAlias(self):
         class A(object):
-            name,id,age = None,0,0
+            name,id,age = "Hello",0,0
         al = Alias({"name":"nick"})
         it = A()
         al.settarget(it) 
+        #the getter
         self.assertEqual(it.name, al.nick,"One object, 2 name or more")
         self.assertEqual(it, al.gettarget(),"return the object")
+        #the setter
+        al.nick = "WXXX"
+        self.assertEqual("WXXX",it.name)
 
     def testKaratSvc(self):
         ks = karatsvc

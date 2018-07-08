@@ -26,3 +26,10 @@ class TechTests(TestCase):
         self.assertEqual(("1",),mt.groups(),"The so-call zero group")
         self.assertEqual("1",mt.group(1),"The so-call first group")
     
+    def testSeveralForItr(self):
+        rngs = ((1,3),(4,9))
+        slots = [x for y in rngs for x in range(y[0],y[1])]
+        #print(slots)
+        self.assertEqual(7,len(slots))
+        self.assertEqual(1,slots[0])
+    

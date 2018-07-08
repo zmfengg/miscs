@@ -18,8 +18,7 @@ from sqlalchemy.orm import Session
 
 from .common import _logger as logger
 
-__all__ = ["splitarray", "appathsep", "deepget", "getfiles", "stsizefmt", "trimu",
-           "triml", "daterange", "isnumeric", "list2dict", "NamedList", "NamedLists","na"]
+__all__ = ["Alias", "NamedList", "NamedLists", "appathsep", "daterange", "deepget", "getfiles", "isnumeric", "list2dict", "na", "splitarray", "stsizefmt", "triml", "trimu"]
 
 na = "N/A"
 
@@ -306,6 +305,7 @@ class Alias(object):
 
     def settarget(self,obj):
         self._obj = obj 
+        return self
         
     def __setattr__(self, name, obj):
         if name in ("_nmap", "_obj"):
@@ -313,7 +313,7 @@ class Alias(object):
         else:
             if name in self._nmap:
                 name = self._nmap[name]
-            object.__setattr__(self, name, obj)
+            object.__setattr__(self._obj, name, obj)
 
     def __getattr__(self, name):
         if name in ("_obj","gettarget","_nmap","__dict__"):
