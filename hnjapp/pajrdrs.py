@@ -29,6 +29,8 @@ from .common import _logger as logger
 from .dbsvcs import CNSvc, HKSvc, BCSvc
 from .pajcc import P17Decoder, PrdWgt, WgtInfo
 from sqlalchemy.orm import Query
+from sqlalchemy.engine import create_engine
+from utilz import SessionMgr
 
 _accdfmt = "%Y-%m-%d %H:%M:%S"
 
@@ -973,24 +975,29 @@ class PriceTracker(object):
     """ class to keep track of Pcode price changes
     to use this method, put a dat file inside a folder which should contains sty#
     then I will read and show the price trends
+
+    The sql to fetch jo for each pcode here
+
+    select top 100 s.pcode,jo.alpha,jo.digit,inv.uprice,inv.mps,od.karat,jo.wgt
+    from tmp t join pajshp s on t.remark = s.pcode join pajinv inv on s.joid = inv.joid and s.invno = inv.invno
+    join jo on s.joid = jo.joid join orderma od on jo.orderid = od.orderid
+
     """
 
-    def __init__(self, hkdb):
+    def __init__(self, hkdb, srcfn):
         self._hkdb = hkdb
+        self._srcfn = srcfn
 
-    def read(self, fldr):
-        if not fldr:
-            return
-        fldr = appathsep(fldr)
-        fns = getfiles(fldr,"dat")
-        if not fns:
-            return
-        stynos = set()
-        for x in fns:
-            with open(fldr + x, "wb") as fh:
-                for ln in fh:
-                    je = JOElement(ln)
-                    if je.isvalid and not je in stynos:
-                        stynos.add(je)
-        dao = BCSvc(self._hkdb)
-        #lst = dao.getpajinvbyse(stynos)
+    def readpcodes(self):
+        with open(self._srcfn,"r+t") as fh:
+            return set([x[:-1] for x in fh.readlines() if x[0] != "#"])
+
+   
+    def getccfactor(self,pcode):
+        #get local
+        #if not, get from hk and insert into local
+        pass
+
+    def run(self):
+        pass
+        

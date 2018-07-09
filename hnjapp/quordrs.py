@@ -24,6 +24,7 @@ from hnjcore.utils import getfiles
 from hnjcore.models.hk import PajAck
 from . import pajcc
 from xlwings import App
+from sqlalchemy.orm import Query
 
 
 def _checkfile(fn, fns):
@@ -653,7 +654,8 @@ class AckPriceCheck(object):
     def persist(self):
         fns = self._getsrcxlsfns()
         data,app = self._readsrcdata(fns,self._uptodate(fns))
-        fds = dict([(x, path.getmtime(path.join(self._fldr, x))) for x in os.listdir(self._fldr)])
+        if not data: return
+        fds = dict([(x, datetime.datetime.fromtimestamp(path.getmtime(path.join(self._fldr, x))).replace(second = 0,microsecond=0)) for x in os.listdir(self._fldr)])
         fns = set(x["file"] for x in data.values())
         def _newinst(td):
             ins = PajAck()
@@ -661,7 +663,9 @@ class AckPriceCheck(object):
             return ins
         with self._hksvc.sessionctx() as cur:
             try:
-                dds = cur.query([PajAck.docno,PajAck.lastmodified]).filter(PajAck.docno.in_(list(fns))).distinct().all()
+                dds = Query([PajAck.docno,PajAck.lastmodified]).filter(PajAck.docno.in_(list(fns))).distinct()
+                dds = dds.with_session(cur).all()
+                dds = dict([(x[0],x[1]) for x in dds])
             except:
                 dds = {}
             exps = set()
@@ -675,32 +679,35 @@ class AckPriceCheck(object):
                             exps.add(fn)
                         else:
                             continue
+                    if not (x["pajprice"] and x["date"] and x["mps"]): continue
                     ins = _newinst(td)
                     lst.append(ins)                
                     je = JOElement(x["jono"])
                     jes.add(je)
                     ins.ackdate, ins.mps = datetime.datetime.strptime(x["date"],dfmt), x["mps"]
                     ins.uprice, ins.docno, ins.pcode, ins.joid = float(x["pajprice"]), fn, x["pcode"][0],je
-                    ins.lastmodified = fds["file"]
+                    ins.lastmodified = fds[fn]
                 if exps:
                     cur.query(PajAck).filter(PajAck.docno.in_(list(exps))).delete(synchronize_session=False)
-                jes = self._hksvc.getjos(jes)
-                if jes[1]:
-                    for x in jes[1]:
-                        logger.debug("invalid JO#(%s)" % x.value)
-                else:
-                    flag, jes = True, dict([(x.name,x) for x in jes[0]])
-                    try:
-                        for x in lst:
-                            x.joid = jes[x.joid].id
-                            cur.add(x)
-                    except:
-                        flag = False
-                    finally:
-                        if flag:
-                            cur.commit()
-                        else:
-                            cur.rollback()
+                if lst:
+                    jes = self._hksvc.getjos(jes)
+                    if jes[1]:
+                        for x in jes[1]:
+                            logger.debug("invalid JO#(%s)" % x.value)
+                    else:
+                        flag, jes = True, dict([(x.name,x) for x in jes[0]])
+                        try:
+                            for x in lst:
+                                x.joid = jes[x.joid].id
+                                cur.add(x)
+                            cur.flush()
+                        except:
+                            flag = False
+                        finally:
+                            if flag:
+                                cur.commit()
+                            else:
+                                cur.rollback()
             finally:
                 if app: app.quit()
         return lst

@@ -95,7 +95,7 @@ class SessionMgr(ResourceMgr):
         return Session(self._engine)
     
     def _closesess(self,sess):
-        if True:
+        if False:
             #thise will cause sqlalchemy.orm.exc.DetachedInstanceError even you're loading a single object
             #but if you use session.expunge()/expunge_all() before closing, the items is accessable
             # outside the session 

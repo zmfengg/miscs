@@ -35,7 +35,7 @@ from . import pajcc
 from .pajcc import MPS, PrdWgt, WgtInfo
 from .common import _logger as logger, splitjns
 
-__all__ = ["HKSvc", "CNSvc","jsin","idsin","idset","namesin","nameset"]
+__all__ = ["HKSvc", "CNSvc","jesin","idsin","idset","namesin","nameset"]
 
 def fmtsku(skuno):
     if not skuno:
