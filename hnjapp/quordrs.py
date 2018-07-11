@@ -958,15 +958,19 @@ class AckPriceCheck(object):
         return dict([(x.name.value,{"jo":x,"poprice":float(x.po.uprice), \
                 "mps": x.poid, "wgts": self._hksvc.getjowgts(x.name)}) for x in jos])
 
-    def _processall(self,all):
+    def _processall(self,data):
         """
         @param all: a dict with jono as key and a dict with these keys: "jono,pajprice,file,mps,styno,date,qty,pcode". ref @_readsrcdata() FMI.
         """
-        if not all: return
+        if not data: return
         hksvc, rsts = self._hksvc, {}
         with hksvc.sessionctx():
-            jos = all.values()
-            jes = [JOElement(x["jono"]) for x in jos]
+            if True:
+                jos = data.values()
+                jes = [JOElement(x["jono"]) for x in jos]
+            else:
+                jos = [x for x in data.values() if x["jono"] == "B106739"]
+                jes = [JOElement(x["jono"]) for x in jos if x["jono"] == "B106739"]
             jes = hksvc.getjos(jes)[0]
             jes = self._fetchjos(jes)
             idx = 0

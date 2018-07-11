@@ -74,7 +74,7 @@ class KeyTests(TestCase):
         self.assertEqual("5X4X3",stsizefmt("0300X0500X0400", True) ,"Size format")
     
     def testNamedList(self):
-        lsts = (["name","group","age"],
+        lsts = (["Name","group","age"],
             ["Peter","Admin",30],
             ["Watson","Admin",45],
             ["Biz","Mail",20]
@@ -102,6 +102,14 @@ class KeyTests(TestCase):
         nl["name"] = "JJ"
         self.assertEqual("JJ",lsts[1][0],"They representing the same object")
         self.assertEqual("JJ",nl.name,"They representing the same object")
+
+        #the column name<->id translate
+        self.assertEqual(0,nl.getcol("Name"))
+        self.assertEqual(0,nl.getcol("name "))
+        self.assertEqual(2,nl.getcol("age"))
+        self.assertTrue(nl.getcol("age_") is None)
+        self.assertEqual(tuple("name,group,age".split(",")),nl._colnames)
+        self.assertEqual((0,1,2),nl._colids)
 
         #a smatter usage, use the nl to wrap a list
         nl.setdata(lsts[3])

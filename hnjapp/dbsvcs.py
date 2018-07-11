@@ -83,6 +83,9 @@ class SvcBase(object):
 
     def __init__(self, trmgr):
         self._trmgr = trmgr
+    
+    def sessmgr(self):
+        return self._trmgr
 
     def sessionctx(self):
         return ResourceCtx(self._trmgr)
@@ -211,19 +214,23 @@ class HKSvc(SvcBase):
         jns = None
         with self.sessionctx() as cur:        
             #don't lookup too much, only return data since 2015
-            q = Query([JO, POItem.skuno]).join(Orderma).join(POItem,POItem.id == JO.poid)\
+            q = Query([JO,POItem.skuno]).join(Orderma).join(POItem,POItem.id == JO.poid)\
                 .filter(Orderma.styid == jo.orderma.style.id)
             if mindate:
                 q = q.filter(JO.createdate >= mindate)
-            rows = q.with_session(cur).all()
+            try:
+                rows = q.with_session(cur).all()
+            except Exception as e:
+                if isinstance(e,UnicodeDecodeError):
+                    logger.debug("some jos of sty#(%s) contains invalid Big5 character " % jo.orderma.style.name.value)
+                rows = None
             if(rows):
                 jns = {}
                 for x in rows:
                     if x.JO.name == je:
                         continue
-                    key = fmtsku(x.skuno)
-                    lst = jns.setdefault(key, [])
-                    lst.append(x.JO)
+                    key = fmtsku(x.JO.po.skuno)
+                    jns.setdefault(key, []).append(x.JO)
             if jns:
                 skuno = fmtsku(jo.po.skuno)
                 sks = jns[skuno] if skuno and skuno in jns else None

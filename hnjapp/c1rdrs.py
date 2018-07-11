@@ -29,6 +29,48 @@ from hnjapp.dbsvcs import jesin
 from .common import _date_short
 from .common import _logger as logger
 
+_ptnbtno = re.compile(r"(\d+)([A-Z]{3})(\d+)")
+def _fmtbtno(btno):
+    if isinstance(btno,numbers.Number):
+        btno = "%08d" % int(btno)
+    else:
+        mt = _ptnbtno.search(btno)
+        if mt:
+            btno = btno[mt.start(1):mt.end(2)] + ("%03d" % int(mt.group(3)))
+    return btno
+
+def _fmtpkno(pkno):
+    if not pkno: return
+    #contain invalid character, not a PK#
+    pkno = trimu(pkno)
+    if sum([1 for x in pkno if ord(x) <= 31 or ord(x) >= 127]) > 0:
+        return
+    pkno0 = pkno
+    if pkno.find("-") >= 0: pkno = pkno.replace("-","")
+    pfx, pkno, sfx = pkno[:3], pkno[3:], ""
+    for idx in range(len(pkno) - 1,-1,-1):
+        ch = pkno[idx]
+        if ch >= "A" and ch <= "Z":
+            sfx = ch + sfx
+        else:
+            if len(sfx) > 0:
+                idx += 1
+                break
+            sfx = ch + sfx
+    pkno = pkno[:idx]
+    if isnumeric(pkno):
+        pkno = ("%0" + str(8 - len(pfx) - len(sfx)) + "d") % (int(float(pkno)))
+        special = False 
+    else:
+        special =True
+        rpm = {"O":"0","*":"X","S":"5"}
+        for x in rpm.items():
+            if pkno.find(x[0]) >= 0:
+                logger.debug("PK#(%s)'s %s -> %s in it's numeric part" % (pkno0,x[0],x[1]))
+                pkno = pkno.replace(x[0],x[1])
+                special = True
+    pkno = pfx + pkno + sfx
+    return pkno,special
 
 class InvRdr():
     """
@@ -431,50 +473,7 @@ class C1STIOReader(object):
         if not path.exists(fn): return
         fns = [fn]
         kxl, app = xwu.app(False)
-        ptnbtno = re.compile(r"(\d+)([A-Z]{3})(\d+)")
-
-        def _fmtbtno(btno):
-            if isinstance(btno,numbers.Number):
-                btno = "%08d" % int(btno)
-            else:
-                mt = ptnbtno.search(btno)
-                if mt:
-                    btno = btno[mt.start(1):mt.end(2)] + ("%03d" % int(mt.group(3)))
-            return btno
-
-        def _fmtpkno(pkno):
-            if not pkno: return
-            #contain invalid character, not a PK#
-            pkno = trimu(pkno)
-            if sum([1 for x in pkno if ord(x) <= 31 or ord(x) >= 127]) > 0:
-                return
-            pkno0 = pkno
-            if pkno.find("-") >= 0: pkno = pkno.replace("-","")
-            pfx, pkno, sfx = pkno[:3], pkno[3:], ""
-            for idx in range(len(pkno) - 1,-1,-1):
-                ch = pkno[idx]
-                if ch >= "A" and ch <= "Z":
-                    sfx = ch + sfx
-                else:
-                    if len(sfx) > 0:
-                        idx += 1
-                        break
-                    sfx = ch + sfx
-            pkno = pkno[:idx]
-            if isnumeric(pkno):
-                pkno = ("%0" + str(8 - len(pfx) - len(sfx)) + "d") % (int(float(pkno)))
-                special = False 
-            else:
-                special =True
-                rpm = {"O":"0","*":"X","S":"5"}
-                for x in rpm.items():
-                    if pkno.find(x[0]) >= 0:
-                        logger.debug("PK#(%s)'s %s -> %s in it's numeric part" % (pkno0,x[0],x[1]))
-                        pkno = pkno.replace(x[0],x[1])
-                        special = True
-            pkno = pfx + pkno + sfx
-            return pkno,special
-
+        
         btmap, pkfmted , usgs = {},[], []
         pkmap  =  {}
         try:

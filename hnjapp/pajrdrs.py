@@ -18,19 +18,25 @@ from datetime import date, datetime
 from decimal import Decimal
 
 import xlwings.constants as const
+from sqlalchemy import and_
+from sqlalchemy.engine import create_engine
+from sqlalchemy.orm import Query
 from xlwings.constants import LookAt
 
 from hnjcore import JOElement, appathsep, deepget, karatsvc, p17u, xwu
-from hnjcore.models.hk import PajInv, PajShp, Orderma,Style as Styhk, JO as JOhk
-from hnjcore.utils import getfiles, daterange, p17u, isnumeric
+from hnjcore.models.hk import JO as JOhk
+from hnjcore.models.hk import Orderma, PajInv, PajShp
+from hnjcore.models.hk import Style as Styhk
+from hnjcore.utils import daterange, getfiles, isnumeric, p17u
 from hnjcore.utils.consts import NA
+from utilz import NamedList, ResourceCtx, SessionMgr, list2dict, splitarray
 
 from .common import _logger as logger
-from .dbsvcs import CNSvc, HKSvc, BCSvc
-from .pajcc import P17Decoder, PrdWgt, WgtInfo
-from sqlalchemy.orm import Query
-from sqlalchemy.engine import create_engine
-from utilz import SessionMgr
+from .dbsvcs import BCSvc, CNSvc, HKSvc
+from .localstore import PajInv as PajInvSt
+from .localstore import PajItem
+from .localstore import PajWgt as PrdWgtSt
+from .pajcc import PAJCHINAMPS, P17Decoder, PajCalc, PrdWgt, WgtInfo
 
 _accdfmt = "%Y-%m-%d %H:%M:%S"
 
@@ -982,22 +988,187 @@ class PriceTracker(object):
     from tmp t join pajshp s on t.remark = s.pcode join pajinv inv on s.joid = inv.joid and s.invno = inv.invno
     join jo on s.joid = jo.joid join orderma od on jo.orderid = od.orderid
 
+    view to get data
+    select iv.pcode,iv.jono,iv.mps,iv.uprice,iv.cn,iv.invdate,w.tag,w.karat,w.wgt from pajinv iv join pajwgt w on iv.id = w.pid order by iv.id,w.tag
+
     """
 
-    def __init__(self, hkdb, srcfn):
-        self._hkdb = hkdb
+    def __init__(self, hksvc,localeng, srcfn):
+        self._hksvc = hksvc
         self._srcfn = srcfn
+        self._localsm = SessionMgr(localeng)
+        sess = ResourceCtx(self._localsm)
+        with sess as cur:
+            try:
+                ext = cur.query(PajInvSt).limit(1).first()
+            except:
+                ext = None
+            if not ext:
+                PajInvSt.metadata.create_all(localeng)
 
     def readpcodes(self):
         with open(self._srcfn,"r+t") as fh:
             return set([x[:-1] for x in fh.readlines() if x[0] != "#"])
 
-   
-    def getccfactor(self,pcode):
-        #get local
-        #if not, get from hk and insert into local
-        pass
+    def createcache(self,pcodes):
+        cc = PajCalc()
+        td = datetime.today()
+        for pcode in pcodes:
+            wgts = None
+            with ResourceCtx((self._localsm,self._hksvc.sessmgr())) as curs:
+                try:
+                    ivca = Query(PajItem).filter(PajItem.pcode == pcode).with_session(curs[0]).first()
+                    if ivca:
+                        logger.debug("pcode(%s) already localized" % pcode)
+                        continue
+                    q0 =Query([PajShp.pcode,JOhk.name.label("jono"),Styhk.name.label("styno"),JOhk.createdate,PajShp.invdate,PajInv.uprice,PajInv.mps]).join(JOhk).join(Orderma).join(Styhk).join(PajInv,and_(PajShp.joid == PajInv.joid, PajShp.invno == PajInv.invno)).filter(PajShp.pcode == pcode)
+                    lst = q0.with_session(curs[1]).all()
+                    if not lst: continue
 
-    def run(self):
-        pass
+                    pi = PajItem()
+                    pi.pcode, pi.createdate, pi.tag = pcode, td, 0
+                    curs[0].add(pi)
+                    curs[0].flush()
+                    jeset = set()
+                    for jnv in lst:
+                        je = jnv.jono
+                        if je in jeset: continue
+                        jeset.add(je)
+                        if not wgts:
+                            wgts = self._hksvc.getjowgts(je)
+                            if not wgts: continue
+                            wgtarr = wgts.wgts
+                            for idx in range(len(wgtarr)):                        
+                                if not wgtarr[idx]: continue
+                                pw = PrdWgtSt()
+                                pw.pid, pw.karat, pw.wgt, pw.remark,pw.tag = pi.id, wgtarr[idx].karat, wgtarr[idx].wgt, je.value, 0
+                                pw.createdate, pw.lastmodified = td, td
+                                pw.wtype = 0 if idx == 0 else 100 if idx == 2 else 10
+                                curs[0].add(pw)
+                        up,mps = jnv.uprice, jnv.mps
+                        cn = cc.calchina(wgts,up,mps,PAJCHINAMPS)
+                        if cn:
+                            ic = PajInvSt()
+                            ic.pid, ic.uprice,ic.mps = pi.id, up, mps
+                            ic.cn = cn.china
+                            ic.jono, ic.styno = je.value,jnv.styno.value
+                            ic.jodate, ic.createdate, ic.invdate, ic.lastmodified = jnv.createdate, td, jnv.invdate, td
+                            ic.mtlcost, ic.otcost = cn.metalcost, cn.china - cn.metalcost
+                            curs[0].add(ic)                  
+                    curs[0].commit()
+                    logger.debug("pcode(%s) localized" % pcode)
+                except Exception as e:
+                    logger.debug("Error occur while persisting localize result %s" % e)
+                    curs[0].rollback()
+
+    def localize(self):
+        pcodes = list(self.readpcodes())
+        if not pcodes: return
+        logger.debug("totally %d pcodes send for localize" % len(pcodes))
+        cnt = 0
+        for arr in splitarray(pcodes,50):
+            self.createcache(arr)
+            cnt += 1
+    
+    def analyse(self,cutdate = None):
+        if not cutdate: cutdate = datetime(2018,5,1)
         
+        mixcols = "oc,cn,invdate,jono".split(",")        
+        gelmix = NamedList(mixcols)
+        def _minmax(arr):
+            """ return a 3 element tuple, each element contains mixcols data
+            first   -> min
+            second  -> max
+            third   -> last
+            """
+            fill =lambda ar: [float(ar.otcost),float(ar.cn),ar.invdate,ar.jono]
+            li, lx = 9999, -9999
+            mi, mx = None, None
+            for ar in arr:
+                lb = float(ar.otcost)
+                if lb > lx:
+                    mx = fill(ar)
+                    lx = lb
+                if lb < li:
+                    mi = fill(ar)
+                    li = lb
+            df = lx - li
+            if df < 0.1 or df / li < 0.01:
+                df = (lx + li) / 2.0
+                mi[0],mx[0] = df, df
+            return mi,mx,fill(arr[-1])
+
+        def getonly(cns,arr):
+            if isinstance(cns,str):
+                cns = cns.split(",")
+            lst = []
+            for ar in arr:
+                gelmix.setdata(ar)
+                lst.extend([gelmix[cn] for cn in cns])
+            return lst
+        pfxit = lambda arr,pfx: [pfx + x for x in arr]
+        almosteq = lambda x,y: abs(x - y) / x < 0.01
+        gelq = NamedList("pcode,jono,styno,invdate,cn,otcost")
+        with ResourceCtx(self._localsm) as cur:
+            q0 = Query([PajItem.pcode,PajInvSt.jono,PajInvSt.styno,PajInvSt.invdate,PajInvSt.cn,PajInvSt.otcost]).join(PajInvSt).order_by(PajItem.pcode).order_by(PajInvSt.invdate).filter(PajInvSt.styno == "E23023")
+            lst = q0.with_session(cur).all()
+            mp = {}
+            noaff, mixture, noeng, drp, pum = [], [], [], [],[]
+            [mp.setdefault(it.pcode,[]).append(it) for it in lst]
+            for it in mp.items():                
+                lst = it[1]
+                gelq.setdata(lst[0])
+                for idx in range(len(lst)):
+                    if lst[idx].invdate >= cutdate: break
+                if idx == 0 or idx == len(lst) - 1:
+                    noaff.append((gelq.pcode,gelq.styno,_minmax(lst)))
+                else:
+                    mix0,mix1 = _minmax(lst[:idx]), _minmax(lst[idx:])
+                    iot = gelmix.getcol("oc")
+                    val = (gelq.pcode,gelq.styno,mix0,mix1)                    
+                    if mix0[0][iot] * 2.0 / 3.0 + 0.05 >= mix1[1][iot]:
+                        #old's 2/3 min over new's max
+                        drp.append(val)
+                    elif mix0[0][iot] >= mix1[1][iot]:
+                        #old's min over new's max
+                        noeng.append(val)
+                    elif mix0[1][iot] < mix1[0][iot]:
+                        #old's max under new's min
+                        pum.append(val)
+                    else:
+                        mixture.append(val)
+            mp = {"NotAffected":noaff,"Mixture":mixture,"NoEnough":noeng, "PriceDrop1of3":drp,"PriceUp":pum}
+            kxls, app = xwu.app(True)
+            cts = "oc,cn,invdate,jono".split(",")
+            ctsnf = "cn,invdate".split(",")
+            grps
+            shts = []
+            wb = app.books.add()
+            for x in mp.items():
+                if not x[1]: continue
+                shts.append(wb.sheets.add())
+                shts[-1].name = x[0]
+                tosh = ctsnf if x[0] == "NotAffected" else cts
+                vvs, ttl0,ttl1, ttl =[], ["",""],["",""],"pcode,styno".split(",")
+                for z in "Before,After".split(","):
+                    ttl0.append(z)
+                    for ii in range(len(tosh)*3 - 1):#3 is min.max.last
+                        ttl0.append(" ")
+                    for xx in "Min.,Max.,Last".split(","):
+                        ttl1.append(xx)
+                        for ii in range(len(tosh)-1):
+                            ttl1.extend(" ")
+                    for y in "Min.,Max.,Last".split(","):
+                        ttl.extend(tosh)
+                vvs.append(ttl0)
+                vvs.append(ttl1)
+                vvs.append(ttl)
+                for it in x[1]:
+                    ttl = [it[0],it[1]]
+                    [ttl.extend(getonly(tosh,kk)) for kk in it[2:]]         
+                    vvs.append(ttl)
+                shts[-1].range(1,1).value = vvs
+                shts[-1].autofit("c")
+            for sht in wb.sheets:
+                if sht not in shts:
+                    sht.delete()

@@ -61,8 +61,7 @@ def list2dict(lst, trmap=None, dupdiv="", bname=None):
     if not lst:
         return None, None
 
-    def _tnl(x): return x.lower().strip() if x and isinstance(x, str) else ""
-    lstl = [_tnl(x) for x in lst]
+    lstl = [triml(x) for x in lst]
     mp = {}
     for ii in range(len(lstl)):
         x = lstl[ii]
@@ -83,11 +82,11 @@ def list2dict(lst, trmap=None, dupdiv="", bname=None):
                 if not y:
                     continue
                 y = y.lower()
-                cnds = [x0 for x0 in range(len(lstl)) if lstl[x0].find(y) >= 0]
+                cnds = [x0 for x0 in range(len(lstl)) if lstl[x0] and lstl[x0].find(y) >= 0]
                 if(len(cnds) > 0):
                     s0 = str(random())
                     lstl[cnds[0]] = s0
-                    trmap[s0] = _tnl(trmap[x])
+                    trmap[s0] = triml(trmap[x])
                     break
     return OrderedDict(zip([trmap[x] if(x in trmap) else x for x in lstl], range(len(lstl))))
 
@@ -207,6 +206,10 @@ class NamedList(object):
     """ the wrapper of the list/tuple that make it operatable by .name or [name] or [i] """
 
     def __init__(self, nmap, lst=None):
+        if isinstance(nmap,tuple) or isinstance(nmap,list):
+            nmap = list2dict(nmap)
+        elif isinstance(nmap,str):
+            nmap = list2dict(nmap.split(","))
         self._nmap = nmap
         if lst:
             self.setdata(lst)
@@ -220,13 +223,15 @@ class NamedList(object):
             raise AttributeError("no attribute(%s) found" % name)
 
     def __getattr__(self, name):
+        name = triml(name)
         self._checkarg(name)
         return self._lst[self._nmap[name]]
 
     def __setattr__(self, name, val):
-        if name in("_nmap", "_lst"):
+        if name.startswith("_"):
             object.__setattr__(self, name, val)
         else:
+            name = triml(name)
             self._checkarg(name)
             self._lst[self._nmap[name]] = val
 
@@ -240,6 +245,30 @@ class NamedList(object):
             self._lst[key] = val
         else:
             self.__setattr__(key, val)
+
+    def _mkidmap(self):
+        if not hasattr(self,"_idmap"):
+            self._idmap = dict([x[1],x[0]] for x in self._nmap.items())
+
+    def getcol(self, nameorid):
+        """
+        return colname ->  colid or colid -> colname
+        """
+        if isinstance(nameorid,str):
+            rc = self._nmap.get(triml(nameorid),None)
+        else:
+            self._mkidmap()
+            rc = self._idmap.get(nameorid,None)
+        return rc
+
+    @property
+    def _colnames(self):
+        return tuple(self._nmap.keys())
+
+    @property
+    def _colids(self):
+        self._mkidmap()
+        return tuple(self._idmap.keys())
 
     @property
     def data(self):

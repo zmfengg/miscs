@@ -236,6 +236,7 @@ class PajCalc():
         @param refup: the reference unit price
         @param refmps: the reference mps of the @refup
         @param tarmps: the target MPS the need to be calculated. PAJ's china MPS is S = 30; G = 1500
+        return: a PajChina Object
         """
         if not all((prdwgt, refup, refmps)): return None
         if not tarmps: tarmps = PAJCHINAMPS
