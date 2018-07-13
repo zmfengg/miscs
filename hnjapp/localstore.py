@@ -58,6 +58,15 @@ class PajWgt(Base):
     remark = VARCHAR(100)
     tag = Column(Integer)
 
+class PajCnRev(Base):
+    __tablename__ = "pajcnrev"
+    id = Column(Integer,primary_key = True,autoincrement = True)
+    pid = Column(ForeignKey("pajitem.id"))
+    uprice = Column(DECIMAL(6,2))
+    revdate = Column(DATETIME)
+    createdate = Column(DATETIME)
+    tag = Column(Integer)
+
 """
 statement for sqlite table creation
 

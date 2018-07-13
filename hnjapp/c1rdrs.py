@@ -218,6 +218,7 @@ class C1JCReader(object):
                     break
         if not refid:
             x = self._cnsvc.getjcrefid(runn)
+            logger.debug("fetch refid %s from db trigger by running %d" % (x,runn))
             if x:
                 mpss.append((x[1], x[0]))
                 refid = x[0]
@@ -227,6 +228,7 @@ class C1JCReader(object):
     def _getmps(self, refid, mpsmp):
         if refid not in mpsmp:
             mp = self._cnsvc.getjcmps(refid)
+            logger.debug("using MPS(%s) based on refid(%d)" % (mp,refid))
             mpsmp[refid] = mp
         if refid in mpsmp:
             return mpsmp[refid]
@@ -303,7 +305,7 @@ class C1JCReader(object):
                 x.split(",") for x in "goldwgt,goldcost;extgoldwgt,extgoldcost".split(";")]
             ttls = ("mmid,lastmmdate,jobno,cstname,styno,running,mstone,description,joqty"
                     ",karat,goldwgt,goldcost,extgoldcost,stonecost,laborcost,extlaborcost,extcost,"
-                    "totalcost,unitcost,extgoldwgt,cflag").split(",")
+                    "totalcost,unitcost,extgoldwgt,cflag,rmb2hk").split(",")
             cnmap= xwu.list2dict(ttls)
             nl = NamedList(cnmap)            
             q = Query([JO.name.label("jono"), Customer.name.label("cstname"),
@@ -324,7 +326,7 @@ class C1JCReader(object):
                     if jn not in vvs:
                         ll = [x.id, "'" + x.refdate.strftime(_date_short), "'" + x.jono.value, x.cstname.strip(),
                               x.styno.value, x.running, "_ST", "_EDESC", 0, karatsvc.getfamily(x.jokarat).karat, [],
-                              0, 0, 0, 0, 0, 0, 0, 0, 0, "NA"]
+                              0, 0, 0, 0, 0, 0, 0, 0, 0, "NA",rmbtohk]
                         mt = ptncx.search(x.docno)
                         if mt:
                             ll[cnmap["cflag"]] = "'" + mt.group(1)
@@ -362,7 +364,7 @@ class C1JCReader(object):
                 runn = nl.jobno[1:]
                 if runn in invs:
                     inv = invs[runn]
-                    nl.laborcost = round((inv.setting + inv.labor) * rmbtohk,2)
+                    nl.laborcost = round((inv.setting + inv.labor) * rmbtohk * nl.joqty,2)
                 else:
                     logger.debug("%s:No invoice data for JO(%s)" %
                                 (actname,runn))
