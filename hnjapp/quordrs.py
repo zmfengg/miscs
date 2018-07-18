@@ -20,6 +20,7 @@ from hnjapp.pajcc import MPS,PrdWgt,WgtInfo
 from hnjcore import JOElement, xwu, appathsep, utils as hnju
 from hnjcore.utils.consts import NA
 from hnjcore.utils import getfiles
+from hnjapp.c1rdrs import InvRdr
 
 from hnjcore.models.hk import PajAck
 from . import pajcc
@@ -243,8 +244,12 @@ class PajDataByRunn(object):
     _ptnrunn = re.compile(r"\d{6}")
     _duprunn = False
 
-    def __init__(self, hksvc):
+    def __init__(self, hksvc,cnsvc = None, usdtormb = 6.5,usdtohkd = 7.8,pkratio = 0.8):
         self._hksvc = hksvc
+        self._cnsvc = cnsvc
+        self._usdtormb = usdtormb
+        self._usdtohkd = usdtohkd
+        self._pkratio = pkratio
     
     def _readMPS(self, rows):
         """try to parse out the MPS from the first 5 rows of an excel
@@ -356,6 +361,29 @@ class PajDataByRunn(object):
                 if k in mp: del mp[k]
         return mp
     
+    def _calcc1(self,c1s,mps,c1invs):
+        """ return a tuple, [0] as success, [1] for failed """
+        #c1's metal is simple, 1.06 loss
+        #c1's stone sometimes inside the labor, but when it's in labor, stones disappear
+        #so won't be duplicated
+        rt0 = []
+        stcosts = self._cnsvc.getjostcosts(c1s)
+        jos = self._cnsvc.getjos(c1s)[0]
+        if jos:
+            jos = dict([(x.name.value,x) for x in jos])
+        for jn in c1s:
+            ci = c1invs[jn]
+            lb = ci.labor + ci.setting
+            wgts = self._hksvc.getjowgts(jn)
+            mtlcost = pajcc.PajCalc.calcmtlcost(wgts,mps,vendor = None)
+            sts0 = ci.stones
+            stc = stcosts.get(jn,0)
+            if not stc and sts0:
+                stc = -1000
+            jo = jos[jn]
+            mp = {"runn":jo.running,"jono":jn,"jono1":jn,"skuno":jo.po.skuno,"styno":jo.style.name.value,"customer":jo.customer.name.strip(),"wgts":wgts,"labor":lb / self._usdtormb,"mtlcost":mtlcost,"stcost":stc*self._usdtohkd * self._pkratio}
+            rt0.append(mp)
+    
     def run(self, fldr, defaultmps=None, okfn="OKs.dat", errfn="Errs.dat",
             runokfn="runOKs.dat", runerrfn="runErrs.dat"):
         """do folder \\172.16.8.46\pb\dptfile\quotation\date\Date2018\0502\(2) quote to customer\ PAJ cost calculation
@@ -374,8 +402,16 @@ class PajDataByRunn(object):
         def _putmap(wnc, runn, orgjn, tarmps, themap):
             key = "%s,%6.1f" % (wnc["PajShp"].pcode, wnc["china"].china)
             if key not in themap:
-                wnc["china"] = pajcc.PajCalc.calctarget(wnc["china"], tarmps)
-                themap[key] = {"runn":runn, "jono":orgjn, "wnc":wnc}        
+                mp = {"runn":runn, "jono":orgjn, "china":
+                pajcc.PajCalc.calctarget(wnc["china"], tarmps)}
+                jo = wnc["JO"]
+                mp["skuno"] = jo.po.skuno
+                mp["jono1"] = jo.name.value
+                mp["styno"] = jo.style.name.value
+                mp["customer"] = jo.customer.name.strip()
+                mp["pcode"] = wnc["PajShp"].pcode
+                mp["wgts"] = wnc["wgts"]
+                themap[key] = mp
                 return True
         
         def _writeOks(wtroks, foks, fn , ttroks, oks, hisoks):
@@ -384,13 +420,14 @@ class PajDataByRunn(object):
                 wtroks = csv.DictWriter(foks, ttroks)
                 if not hisoks: wtroks.writeheader()
             
-            for x in sorted(oks.values()):
-                wnc = x["wnc"];jo = wnc["JO"];cost = wnc["china"]
-                jn0 = x["jono"];jn1 = jo.name.value
+            for x in sorted(oks.values(),key = lambda x: x["jono"]):
+                cost = x["china"]
+                jn0 = x["jono"];jn1 = x["jono1"] 
                 rmk = "Actual" if jn0 == jn1 else "Candiate"
-                skuno = jo.po.skuno
-                rmk = dict(zip(ttroks, (x["runn"], jn0, jo.style.name.value, jo.customer.name.strip()\
-                    ,jn1,"N/A" if skuno else skuno, wnc["PajShp"].pcode, cost.china, \
+                skuno = x["skuno"]
+                skuno = "N/A" if skuno else skuno
+                rmk = dict(zip(ttroks, (x["runn"], jn0, x["styno"], x["customer"]\
+                    ,jn1,skuno, x["pcode"], cost.china, \
                     cost.metalcost if cost.metalcost else 0, cost.mps.value, rmk, cost.discount * 1.25)))
                 wtroks.writerow(rmk)
             foks.flush()                                            
@@ -401,9 +438,9 @@ class PajDataByRunn(object):
                 if not ferrs: ferrs = open(fnerrs, "a+" if hiserrs else "w")
                 wtrerrs = csv.DictWriter(ferrs, ttrerrs)
                 if not hiserrs: wtrerrs.writeheader()               
-            for x in sorted(errs):
+            for x in sorted(errs, key=lambda j: j["jono"]):
                 ar = [x["runn"], x["jono"]]
-                prd = x["wnc"]["wgts"]
+                prd = x["wgts"]
                 if not prd: prd = PrdWgt(WgtInfo(0,0))
                 for y in [(str(y.karat) + "=" + str(y.wgt) if y else "0") for y in prd]:
                     ar.append(y)
@@ -417,7 +454,7 @@ class PajDataByRunn(object):
         ttrerrs = "Runn,OrgJO#,mainWgt,auxWgt,partWgt,mps".split(",")
         errs = [];hiserrs = None;wtrerrs = None;ferrs = None
         hisoks = None;wtroks = None;foks = None
-        commitcnt = 10        
+        commitcnt = 5
         xlsx = _getexcels(fldr)
         
         fnoks = fldr + (okfn if okfn else "OKs.dat")
@@ -437,29 +474,35 @@ class PajDataByRunn(object):
         
         mp = self.read(fldr, defaultmps, hisoks, hiserrs, runokfn, runerrfn)
         if not mp: return             
-        oks = {};dao = self._hksvc;stp = 0;cnt = len(mp)
+        oks, dao, stp, cnt, c1s = {}, self._hksvc, 0, len(mp), []
+        c1invs = InvRdr().read(None)
+        if c1invs:
+            c1invs = dict([(x.jono,x) for x in c1invs])
+        else:
+            c1invs = {}
         try:
-            with dao.sessionctx():
+            with dao.sessionctx() as cur:
                 for x in mp.values():
-                    # if x["runn"] != "625254": continue
-                    # logger.debug("doing running(%s)" % x["runn"])
                     if "jono" not in x:
                         logger.critical("No JO field in map of running(%s)" % x["runn"])
                         continue
                     found = False
-                    if x["jono"] != "580191":
-                        pass
-                    print("doing " + x["jono"])
-                    wnc = dao.calchina(x["jono"])
+                    #if x["jono"] != "B103431": continue
+                    jn = x["jono"]
+                    if jn in c1invs:
+                        c1s.append(jn)
+                        logger.debug("JO#%s is by C1" % jn)
+                    print("doing " + jn)
+                    wnc = dao.calchina(jn)
                     if x["mps"].isvalid:
                         if wnc and all(wnc.values()):
                             found = True 
-                            if not _putmap(wnc, x["runn"], x["jono"], x["mps"], oks):
+                            if not _putmap(wnc, x["runn"], jn, x["mps"], oks):
                                 logger.debug("JO(%s) is duplicated for same pcode/cost" % wnc["JO"].name.value)
                         else:                    
                             jo = wnc["JO"]
                             if not jo:
-                                jo = dao.getjos([x["jono"]])
+                                jo = dao.getjos([jn])
                                 jo = jo[0][0] if jo and jo[0] else None
                             if jo:                                
                                 jos = dao.findsimilarjo(jo, 1)
@@ -468,14 +511,14 @@ class PajDataByRunn(object):
                                         wnc1 = dao.calchina(x1.name)
                                         if(all(wnc1.values())):
                                             found = True
-                                            if not _putmap(wnc1, x["runn"], x["jono"], x["mps"], oks):
+                                            if not _putmap(wnc1, x["runn"], jn, x["mps"], oks):
                                                 logger.debug("JO(%s) is duplicated for same pcode/cost" % str(wnc1["JO"].name.value))
                     else:
                         found = False
                         jo = None
                     if not found:
                         if jo and not wnc["wgts"]: wnc["wgts"] = dao.getjowgts(jo)
-                        errs.append({"runn":x["runn"], "jono":x["jono"], "wnc":wnc, "mps":x["mps"]})
+                        errs.append({"runn":x["runn"], "jono":jn, "wgts":wnc["wgts"], "mps":x["mps"]})
                         if len(errs) > commitcnt:
                             wtrerrs, ferrs = _writeErrs(wtrerrs, ferrs, fnerrs, ttrerrs, errs, hiserrs)
                             errs = []
@@ -483,13 +526,18 @@ class PajDataByRunn(object):
                         wtroks, foks = _writeOks(wtroks, foks, fnoks, ttroks, oks, hisoks)
                         oks = {}         
                     stp += 1
-                    if not (stp % 20): logger.debug("%d of %d done" % (stp, cnt))       
-                if len(oks) > 0:
-                    wtroks, foks = _writeOks(wtroks, foks, fnoks, ttroks, oks, hisoks)
-                if errs:
-                    wtrerrs, ferrs = _writeErrs(wtrerrs, ferrs, fnerrs, ttrerrs, errs, hiserrs)
-        except:
-            pass
+                    if not (stp % 20): logger.debug("%d of %d done" % (stp, cnt))                       
+                if c1s:
+                    xx = self._calcc1(c1s,c1invs,cur)
+                    if xx[0]:
+                        for x in xx[1]:
+                            #TODO::put to map by myself
+                            pass
+                    if xx[1]: errs.extend(xx[1])
+            if len(oks) > 0:
+                wtroks, foks = _writeOks(wtroks, foks, fnoks, ttroks, oks, hisoks)
+            if errs:
+                wtrerrs, ferrs = _writeErrs(wtrerrs, ferrs, fnerrs, ttrerrs, errs, hiserrs)
         finally:
             if foks: foks.close()
             if ferrs: ferrs.close()
@@ -506,13 +554,14 @@ class PajDataByRunn(object):
         fldr = appathsep(fldr)
         kxl, app = xwu.app(False)
         ptnRunn = re.compile("running\s?:\s?(\d*)", re.IGNORECASE)
-        ptnCost = re.compile("cost\s?(\w*)\s?:", re.IGNORECASE)
+        #ptnCost = re.compile("cost\s?(\w*)\s?:", re.IGNORECASE)
+        ptnCost = re.compile("^(cost\s?(\w*)\s?:)|(N\.cost\s?(\w*)\s?:)", re.IGNORECASE)
         lst = []
         try:
             for fn in _getexcels(fldr):
                 wb = app.books.open(fn)
                 for sh in wb.sheets:
-                    phase = 0;runns = {};costs = {};rowrunn = 0;lastii = 0
+                    phase = 0;runns = [];costs = [];rowrunn = 0
                     vvs = xwu.usedrange(sh).value
                     for hh in range(len(vvs)):
                         tr = vvs[hh]
@@ -525,32 +574,26 @@ class PajDataByRunn(object):
                                     if phase != 1: 
                                         phase = 1
                                         rowrunn = hh
-                                    runns[ii] = mt.group(1)
-                                    lastii = ii
+                                    runns.append(mt.group(1))
                                     continue
                             if phase >= 1:
                                 mt = ptnCost.search(x)
                                 if mt:
-                                    cost = 0
                                     for jj in range(ii + 1, len(tr)):
                                         if isinstance(tr[jj], numbers.Number):
-                                            cost = tr[jj]
+                                            costs.append((mt.groups()[-1], tr[jj], fn))
                                             break
                                     if phase != 2 and hh != rowrunn: phase = 2
-                                    kk = ii if hh != rowrunn else lastii                                       
-                                    if kk in runns:
-                                        costs[kk] = (mt.group(1) , cost, fn)
-                                    else:
-                                        print("error, no running found for cost %s" % cost)
-                                        print("file(%s)" % fn)
-                                        print("row(%d), data = %s " % (hh + 1, tr))                                        
                         if phase == 2:
-                            for ii in runns.keys():
-                                if ii in costs:
+                            if len(costs) == len(runns):
+                                for ii in range(len(runns)):
                                     cost = costs[ii]
                                     lst.append((runns[ii], cost[0], cost[1], cost[2]))
+                            else:
+                                logger.debug("count of runnings(%s) and costs(%s) not match in file(%s)" \
+                                %(runns,costs,fn))
                             phase = 0
-                            runns = {};costs = {}
+                            runns, costs = [], []
                 wb.close()
         except Exception as e:
             print(e)

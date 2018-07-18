@@ -14,13 +14,13 @@ from collections import Iterable
 from contextlib import contextmanager
 from operator import attrgetter
 
-from sqlalchemy import and_, desc, or_, true
+from sqlalchemy import and_, desc, or_, true, func
 from sqlalchemy.orm import Query, Session
 
 from hnjcore import JOElement, KaratSvc, StyElement
 from hnjcore.models.cn import JO as JOcn,StoneIn,StonePk
 from hnjcore.models.cn import Customer as Customercn
-from hnjcore.models.cn import Style as Stylecn
+from hnjcore.models.cn import Style as Stylecn, StoneOut, StoneOutMaster
 from hnjcore.models.cn import MM, MMMa, Codetable
 from hnjcore.models.hk import Invoice as IV
 from hnjcore.models.hk import InvoiceItem as IVI
@@ -446,6 +446,46 @@ class CNSvc(SvcBase):
     
     def getjos(self, jns):
         return _getjos(self,JOcn, Query(JOcn),jns)
+    
+    def getjostcosts(self,runns):
+        """
+        return the stone costs by map, running or je as key and cost as value
+        """
+        if not runns: return None
+        
+        isjn, jnlv = isinstance(runns[0],str) or isinstance(runns[0],JOElement), 0
+        if isjn and isinstance(runns[0],str):
+            runnsx = tuple(runns)
+            runns = [JOElement(x) for x in runns]
+            jnlv = 1
+        else:
+            runnsx = runns
+        lst, cdmap  = [], None
+        sign = lambda x: 0 if x == 0 else 1 if x > 0 else -1
+        cols = [JOcn.name,StoneOutMaster.isout,StonePk.pricen,StonePk.unit,func.sum(StoneOut.qty).label("qty"),func.sum(StoneOut.wgt).label("wgt")]
+        gcols = [JOcn.name,StoneOutMaster.isout,StonePk.pricen,StonePk.unit]
+        if not isjn:
+            cols[0], gcols[0] = JOcn.running, JOcn.running
+        q0 = Query(cols).join(StoneOutMaster).join(StoneOut).join(StoneIn).join(StonePk).group_by(*gcols)
+        with self.sessionctx() as cur:
+            for arr in splitarray(runns,self._querysize):
+                try:
+                    if isjn:
+                        q0 = q0.filter(jesin(arr,JOcn))
+                    else:
+                        q0 = q0.filter(JOcn.running.in_(arr))
+                    lst1 = q0.with_session(cur).all()
+                    if lst1: lst.extend(lst1)
+                except:
+                    pass
+            if lst:
+                lst1 = Query([Codetable.coden0,Codetable.tag]).filter(and_(Codetable.tblname == "stone_pkma",Codetable.colname == "unit")).with_session(cur).all()
+                cdmap = dict([(int(x.coden0),x.tag) for x in lst1])
+        if lst and cdmap:
+            costs = dict(zip(runnsx,[0] * len(runns)))
+            for x in lst:
+                costs[int(x.running) if not isjn else x.name.value if jnlv == 1 else x.name] += round(sign(float(x.isout)) * float(x.pricen) * (float(x.qty) if cdmap[x.unit] == 0 else float(x.wgt)),2)
+            return costs
 
 class BCSvc(object):
     """a handy Hnjhk dao for data access in this tests

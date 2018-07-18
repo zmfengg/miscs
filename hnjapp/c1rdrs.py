@@ -83,15 +83,17 @@ class InvRdr():
         self._cnstqnw = "stqty,stwgt".split(",")
         self._cnsnl = "setting,labor".split(",")
 
-    def read(self, fldr):
+    def read(self, fldr = None):
         """
         perform the read action 
         @param fldr: the folder contains the invoice files
         @return: a list of C1InvItem
         """
 
+        if not fldr or not os.path.exists(fldr):
+            fldr = r"\\172.16.8.46\pb\dptfile\quotation\2017外发工单工费明细\CostForPatrick\AIO_F.xlsx"
         if not os.path.exists(fldr):
-            return
+            return None
         if os.path.isfile(fldr):
             fns = [fldr]
         else:
@@ -237,24 +239,7 @@ class C1JCReader(object):
         """
         return the stone costs by map, running as key and cost as value
         """
-        lst, cdmap  = [], None
-        sign = lambda x: 0 if x == 0 else 1 if x > 0 else -1
-        q0 = Query([JO.running,StoneOutMaster.isout,StonePk.pricen,StonePk.unit,func.sum(StoneOut.qty).label("qty"),func.sum(StoneOut.wgt).label("wgt")]).join(StoneOutMaster).join(StoneOut).join(StoneIn).join(StonePk).group_by(JO.running,StoneOutMaster.isout,StonePk.pricen,StonePk.unit)
-        with self._cnsvc.sessionctx() as cur:
-            for arr in splitarray(runns,50):
-                try:
-                    lst1 = q0.filter(JO.running.in_(arr)).with_session(cur).all()
-                    if lst1: lst.extend(lst1)
-                except:
-                    pass
-            if lst:
-                lst1 = Query([Codetable.coden0,Codetable.tag]).filter(and_(Codetable.tblname == "stone_pkma",Codetable.colname == "unit")).with_session(cur).all()
-                cdmap = dict([(int(x.coden0),x.tag) for x in lst1])
-        if lst and cdmap:
-            costs = dict(zip(runns,[0 for x in range(len(runns))]))
-            for x in lst:
-                costs[int(x.running)] += round(sign(float(x.isout)) * float(x.pricen) * (float(x.qty) if cdmap[x.unit] == 0 else float(x.wgt)),2)
-        return costs
+        return self._cnsvc.getjostcosts(runns)
  
     def _getjostone(self,runns):
         ttl = "jobn,styno,running,package_id,quantity,weight,pricen,unit,is_out,bill_id,fill_date,check_date".split(",")

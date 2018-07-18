@@ -48,7 +48,7 @@ def _accdstr(dt):
 def _removenonascii(s0):
     """remove thos non ascii characters from given string"""
     if isinstance(s0, str):
-        return "".join([x for x in s0 if ord(x) > 31 and ord(x) < 127])
+        return "".join([x for x in s0 if ord(x) > 31 and ord(x) < 127 and x != "?"])
     return s0
 
 
@@ -83,7 +83,7 @@ def readbom(fldr):
     _ptnsil = re.compile(r"(925)")
     _ptngol = re.compile(r"^(\d*)K")    
     _ptdst = re.compile(r"[\(（](\d*)[\)）]")
-    _ptfrcchain = re.compile(r"扣")
+    _ptfrcchain = re.compile(r"(弹簧扣)|(龙虾扣)|(狗仔头扣)")
     #the parts must have karat, if not, follow the parent
     _mtlpts = u"金,银,耳勾,线圈,耳针,Chain".lower().split(",")
 
@@ -198,6 +198,8 @@ def readbom(fldr):
                             it[cn] = vvs[ii][wcn[cn]]                        
             wb.close()
         for x in pmap.items():
+            if x[0] == "33XJ9S97ZZ0C04V00":
+                print("x")
             lst = x[1]["wgts"]
             sltid, wis = -1, [None,None,None]            
             for y in lst:
@@ -1226,10 +1228,11 @@ class PriceTracker(object):
                     else:
                         mixture.append(val)
             mp = {"NotAffected":noaff,"NoChanges":nochg,"Mixture":mixture,"NoEnough":noeng, "PriceDrop1of3":drp,"PriceUp":pum}
-            app = xwu.app(True)[1]
-            grps = (("",),"Before,After".split(","))
+            app = xwu.app(True)[1]            
+            grp0 = (("",),"Before,After".split(","))
             grp1 = "Min.,Max.,Last".split(",")
-            ctss = ("cn,invdate".split(","),"oc,cn".split(","))
+            grp2 = "pcode,styno,revdate,cn,karat".split(",")
+            ctss = ("cn,invdate".split(","),"oc,cn,jono,invdate".split(","))
             shts,pd = [], P17Decoder()
             wb = app.books.add()
             for x in mp.items():
@@ -1239,7 +1242,7 @@ class PriceTracker(object):
                 sht.name, vvs = x[0], []
                 gidx = 0 if x[0] == "NotAffected" else 1
                 ttl0,ttl1 = ["","","","",""],["","","","",""]
-                for z in grps[gidx]:
+                for z in grp0[gidx]:
                     ttl0.append(z)
                     for ii in range(len(ctss[gidx]) * len(grp1) - 1):
                         ttl0.append(" ")
@@ -1247,13 +1250,13 @@ class PriceTracker(object):
                         ttl1.append(xx)
                         for ii in range(len(ctss[gidx])-1):
                             ttl1.extend(" ")
-                if len(grps[gidx]) > 1:vvs.append(ttl0)
+                if len(grp0[gidx]) > 1:vvs.append(ttl0)
                 vvs.append(ttl1)
 
-                ttl = "pcode,styno,revdate,cn,karat".split(",")
+                ttl = grp2.copy()
                 ttlen = len(ttl) - 1
                 cnt = 0
-                while cnt < len(grp1)*len(grps[gidx]):
+                while cnt < len(grp1)*len(grp0[gidx]):
                     ttl.extend(ctss[gidx])
                     cnt += 1
                 vvs.append(ttl)                
@@ -1264,7 +1267,9 @@ class PriceTracker(object):
                     vvs.append(ttl)
                 sht.range(1,1).value = vvs
                 sht.autofit("c")
-                xwu.freeze(sht.range(3 + (1 if len(grps[gidx]) > 1 else 0),ttlen+2))
+                #let the karat column smaller
+                sht[1,grp2.index("karat")].column_width = 10
+                xwu.freeze(sht.range(3 + (1 if len(grp0[gidx]) > 1 else 0),ttlen+2))
 
             for sht in wb.sheets:
                 if sht not in shts:
