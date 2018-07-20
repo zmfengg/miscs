@@ -77,6 +77,7 @@ def list2dict(lst, trmap=None, dupdiv="", bname=None):
     if not trmap:
         trmap = {}
     else:
+        trmap = dict([(triml(x[0]),x[1]) for x in trmap.items()])
         for x in [x for x in trmap.keys() if(x.find(",") >= 0)]:
             for y in x.split(","):
                 if not y:
