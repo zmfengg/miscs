@@ -14,31 +14,58 @@ from sqlalchemy.sql.sqltypes import (DECIMAL, VARCHAR, Float,
 from sqlalchemy.dialects.sqlite import DATETIME,TIMESTAMP
 Base = declarative_base()
 
+class PajItem(Base):
+    __tablename__ = "pajitem"
+    id = Column(Integer,primary_key = True,autoincrement = True)
+    __table_args__ = (
+        Index('idx_pajinv_pcode', 'pcode', unique = True),
+   )
+    pcode = Column(VARCHAR(20))
+    createdate = Column(TIMESTAMP)
+    tag = tag = Column(SmallInteger)
+
+
 class PajInv(Base):
     __tablename__ = "pajinv"
     __table_args__ = (
-        Index('idx_pajinv_name', 'name'),
+        Index('idx_pajinv_pid', 'pid'),
         Index('idx_pajinv_jono', 'jono'),
-        Index('idx_pajinv_name_jono', 'name','jono', unique = True)
+        Index('idx_pajinv_pid_jono', 'pid','jono', unique = True)
     )
     id = Column(Integer,primary_key = True,autoincrement = True)
-    name = Column(VARCHAR(30))
+    pid = Column(ForeignKey("pajitem.id"))
     jono = Column(VARCHAR(10))
+    styno = Column(VARCHAR(10))
     mps = Column(VARCHAR(50))
-    uprice = Column(DECIMAL)
+    uprice = Column(DECIMAL(8,3))
+    cn = Column(DECIMAL(8,2))
+    mtlcost = Column(DECIMAL(8,2))  #CN's metal cost
+    otcost = Column(DECIMAL(8,2))   #CN's other cost(Labour and stone(if))
+    jodate = Column(DATETIME)
     invdate = Column(DATETIME)
     createdate = Column(TIMESTAMP)
     lastmodified = Column(TIMESTAMP)
 
-class PrdWgt(Base):
-    __tablename__ = "prodwgt"
+class PajWgt(Base):
+    __tablename__ = "pajwgt"
     id = Column(Integer,primary_key = True,autoincrement = True)
-    pid = Column(ForeignKey("pajinv.id"))
-    wtype = Column(SmallInteger) #wgt type, 0 -> main, 1 for sub, 100 for parts
+    pid = Column(ForeignKey("pajitem.id"))
+    wtype = Column(SmallInteger) #wgt type, 0 -> main, 10 for sub, 100 for parts
     karat = Column(SmallInteger)
-    wgt = Column(DECIMAL)
+    wgt = Column(DECIMAL(6,2))
     createdate = Column(DATETIME)
     lastmodified = Column(DATETIME)
+    remark = VARCHAR(100)
+    tag = Column(Integer)
+
+class PajCnRev(Base):
+    __tablename__ = "pajcnrev"
+    id = Column(Integer,primary_key = True,autoincrement = True)
+    pid = Column(ForeignKey("pajitem.id"))
+    uprice = Column(DECIMAL(6,2))
+    revdate = Column(DATETIME)
+    createdate = Column(DATETIME)
+    tag = Column(Integer)
 
 """
 statement for sqlite table creation

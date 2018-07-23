@@ -14,6 +14,10 @@ from collections import namedtuple
 from decimal import Decimal
 from hnjcore import karatsvc,Karat
 from .common import _logger as logger
+from os import path
+import csv
+from csv import DictReader, Dialect
+from utilz import trimu
 
 
 # the fineness map for this calculation
@@ -43,6 +47,7 @@ class MPS():
         self._parse(mps)
 
     def _parse(self, mps):
+        if not mps: return
         mps = mps.strip().upper()
         tarmps = None
         for mp in mps.split(";"):
@@ -181,6 +186,8 @@ class PajCalc():
         lr0 = lossrate if lossrate else self.calclossrate(prdwgt) ; r0 = 0
         for idx in hix:
             x = kws[idx]
+            #Natalie confirmed on 2018/07/20:bonded gold no metal cost
+            if x.karat == 9925: continue
             mp = mps.silver if x.karat == 925 else 0 if x.karat == 200 else mps.gold
             if not mp and x.karat != 200:
                 r0 = MPSINVALID
@@ -236,6 +243,7 @@ class PajCalc():
         @param refup: the reference unit price
         @param refmps: the reference mps of the @refup
         @param tarmps: the target MPS the need to be calculated. PAJ's china MPS is S = 30; G = 1500
+        return: a PajChina Object
         """
         if not all((prdwgt, refup, refmps)): return None
         if not tarmps: tarmps = PAJCHINAMPS
@@ -287,16 +295,15 @@ class P17Decoder():
     def __init__(self):
         self._cats_ = self._getp17cats()
 
-    @classmethod
     def _getp17cats(self):
         """return the categories of all the P17s(from database)
         @return: a map of items containing "catid/cat/digits. This module should not have db code, so hardcode here
         """
+        
+        with open(path.join(path.dirname(__file__),"res","pcat.csv"),"r") as fh:
+            rdr = DictReader(fh, dialect='excel-tab')
+            return dict([(trimu(x["name"]),(x["cat"],x["digits"])) for x in rdr])
         cats = {}
-        for x in ((1, "KARAT", "1,11"), (2, "PRODTYPE", "2"), (3, "VERSION", "3-6"), (4, "STONE", "7-8"), \
-            (5, "SIZEORPART", "2,9-10"), (6, "SPROCESS", "12-13"), (7, "QCNCHOP", "14-15"), (8, "STLEVEL", "7-8,16-17")):
-            cats[x[1]] = x
-        return cats
 
     def _getdigits(self, p17, digits):
         """ parse the p17's given code out
@@ -314,6 +321,13 @@ class P17Decoder():
         """fetch the cat + code from database"""
         # todo:: no database now, try from csv or other or sqlitedb
         # "select description from uv_p17dc where category = '%(cat)s' and codec = '%(code)s'"
+        if not hasattr(self,"_ppart"):
+            with open(path.join(path.dirname(__file__),"res","ppart.csv"),"r") as fh:
+                rdr = DictReader(fh)
+                self._ppart = dict([(x["catid"]+x["codec"],x["description"].strip()) for x in rdr])
+        code = self._ppart.get(self._cats_[cat][0] + code,code)
+        if not isinstance(code,str):
+            code = code["description"]
         return code
 
     def decode(self, p17, parts=None):
@@ -322,8 +336,8 @@ class P17Decoder():
         @param parts: the combination of the parts name delimited with ",". None to fetch all
         @return the actual value if only one parts, else return a dict with part as key
         """
-        ns = parts.split(",") if parts else self._cats_.keys();ss = []
-        [ss.append((x, self._getpart(x, self._getdigits(p17, self._cats_[x][2])))) for x in ns]
+        ns, ss = [trimu(x) for x in parts.split(",")] if parts else self._cats_.keys(), []
+        [ss.append((x, self._getpart(x, self._getdigits(p17, self._cats_[x][1])))) for x in ns]
         if len(ns) <= 1:
             return ss[0][1]
         else:

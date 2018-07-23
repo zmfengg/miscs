@@ -29,6 +29,48 @@ from hnjapp.dbsvcs import jesin
 from .common import _date_short
 from .common import _logger as logger
 
+_ptnbtno = re.compile(r"(\d+)([A-Z]{3})(\d+)")
+def _fmtbtno(btno):
+    if isinstance(btno,numbers.Number):
+        btno = "%08d" % int(btno)
+    else:
+        mt = _ptnbtno.search(btno)
+        if mt:
+            btno = btno[mt.start(1):mt.end(2)] + ("%03d" % int(mt.group(3)))
+    return btno
+
+def _fmtpkno(pkno):
+    if not pkno: return
+    #contain invalid character, not a PK#
+    pkno = trimu(pkno)
+    if sum([1 for x in pkno if ord(x) <= 31 or ord(x) >= 127]) > 0:
+        return
+    pkno0 = pkno
+    if pkno.find("-") >= 0: pkno = pkno.replace("-","")
+    pfx, pkno, sfx = pkno[:3], pkno[3:], ""
+    for idx in range(len(pkno) - 1,-1,-1):
+        ch = pkno[idx]
+        if ch >= "A" and ch <= "Z":
+            sfx = ch + sfx
+        else:
+            if len(sfx) > 0:
+                idx += 1
+                break
+            sfx = ch + sfx
+    pkno = pkno[:idx]
+    if isnumeric(pkno):
+        pkno = ("%0" + str(8 - len(pfx) - len(sfx)) + "d") % (int(float(pkno)))
+        special = False 
+    else:
+        special =True
+        rpm = {"O":"0","*":"X","S":"5"}
+        for x in rpm.items():
+            if pkno.find(x[0]) >= 0:
+                logger.debug("PK#(%s)'s %s -> %s in it's numeric part" % (pkno0,x[0],x[1]))
+                pkno = pkno.replace(x[0],x[1])
+                special = True
+    pkno = pfx + pkno + sfx
+    return pkno,special
 
 class InvRdr():
     """
@@ -41,15 +83,17 @@ class InvRdr():
         self._cnstqnw = "stqty,stwgt".split(",")
         self._cnsnl = "setting,labor".split(",")
 
-    def read(self, fldr):
+    def read(self, fldr = None):
         """
         perform the read action 
         @param fldr: the folder contains the invoice files
         @return: a list of C1InvItem
         """
 
+        if not fldr or not os.path.exists(fldr):
+            fldr = r"\\172.16.8.46\pb\dptfile\quotation\2017外发工单工费明细\CostForPatrick\AIO_F.xlsx"
         if not os.path.exists(fldr):
-            return
+            return None
         if os.path.isfile(fldr):
             fns = [fldr]
         else:
@@ -176,6 +220,7 @@ class C1JCReader(object):
                     break
         if not refid:
             x = self._cnsvc.getjcrefid(runn)
+            logger.debug("fetch refid %s from db trigger by running %d" % (x,runn))
             if x:
                 mpss.append((x[1], x[0]))
                 refid = x[0]
@@ -185,6 +230,7 @@ class C1JCReader(object):
     def _getmps(self, refid, mpsmp):
         if refid not in mpsmp:
             mp = self._cnsvc.getjcmps(refid)
+            logger.debug("using MPS(%s) based on refid(%d)" % (mp,refid))
             mpsmp[refid] = mp
         if refid in mpsmp:
             return mpsmp[refid]
@@ -193,24 +239,7 @@ class C1JCReader(object):
         """
         return the stone costs by map, running as key and cost as value
         """
-        lst, cdmap  = [], None
-        sign = lambda x: 0 if x == 0 else 1 if x > 0 else -1
-        q0 = Query([JO.running,StoneOutMaster.isout,StonePk.pricen,StonePk.unit,func.sum(StoneOut.qty).label("qty"),func.sum(StoneOut.wgt).label("wgt")]).join(StoneOutMaster).join(StoneOut).join(StoneIn).join(StonePk).group_by(JO.running,StoneOutMaster.isout,StonePk.pricen,StonePk.unit)
-        with self._cnsvc.sessionctx() as cur:
-            for arr in splitarray(runns,50):
-                try:
-                    lst1 = q0.filter(JO.running.in_(arr)).with_session(cur).all()
-                    if lst1: lst.extend(lst1)
-                except:
-                    pass
-            if lst:
-                lst1 = Query([Codetable.coden0,Codetable.tag]).filter(and_(Codetable.tblname == "stone_pkma",Codetable.colname == "unit")).with_session(cur).all()
-                cdmap = dict([(int(x.coden0),x.tag) for x in lst1])
-        if lst and cdmap:
-            costs = dict(zip(runns,[0 for x in range(len(runns))]))
-            for x in lst:
-                costs[int(x.running)] += round(sign(float(x.isout)) * float(x.pricen) * (float(x.qty) if cdmap[x.unit] == 0 else float(x.wgt)),2)
-        return costs
+        return self._cnsvc.getjostcosts(runns)
  
     def _getjostone(self,runns):
         ttl = "jobn,styno,running,package_id,quantity,weight,pricen,unit,is_out,bill_id,fill_date,check_date".split(",")
@@ -261,7 +290,7 @@ class C1JCReader(object):
                 x.split(",") for x in "goldwgt,goldcost;extgoldwgt,extgoldcost".split(";")]
             ttls = ("mmid,lastmmdate,jobno,cstname,styno,running,mstone,description,joqty"
                     ",karat,goldwgt,goldcost,extgoldcost,stonecost,laborcost,extlaborcost,extcost,"
-                    "totalcost,unitcost,extgoldwgt,cflag").split(",")
+                    "totalcost,unitcost,extgoldwgt,cflag,rmb2hk").split(",")
             cnmap= xwu.list2dict(ttls)
             nl = NamedList(cnmap)            
             q = Query([JO.name.label("jono"), Customer.name.label("cstname"),
@@ -282,7 +311,7 @@ class C1JCReader(object):
                     if jn not in vvs:
                         ll = [x.id, "'" + x.refdate.strftime(_date_short), "'" + x.jono.value, x.cstname.strip(),
                               x.styno.value, x.running, "_ST", "_EDESC", 0, karatsvc.getfamily(x.jokarat).karat, [],
-                              0, 0, 0, 0, 0, 0, 0, 0, 0, "NA"]
+                              0, 0, 0, 0, 0, 0, 0, 0, 0, "NA",rmbtohk]
                         mt = ptncx.search(x.docno)
                         if mt:
                             ll[cnmap["cflag"]] = "'" + mt.group(1)
@@ -320,7 +349,7 @@ class C1JCReader(object):
                 runn = nl.jobno[1:]
                 if runn in invs:
                     inv = invs[runn]
-                    nl.laborcost = round((inv.setting + inv.labor) * rmbtohk,2)
+                    nl.laborcost = round((inv.setting + inv.labor) * rmbtohk * nl.joqty,2)
                 else:
                     logger.debug("%s:No invoice data for JO(%s)" %
                                 (actname,runn))
@@ -431,50 +460,7 @@ class C1STIOReader(object):
         if not path.exists(fn): return
         fns = [fn]
         kxl, app = xwu.app(False)
-        ptnbtno = re.compile(r"(\d+)([A-Z]{3})(\d+)")
-
-        def _fmtbtno(btno):
-            if isinstance(btno,numbers.Number):
-                btno = "%08d" % int(btno)
-            else:
-                mt = ptnbtno.search(btno)
-                if mt:
-                    btno = btno[mt.start(1):mt.end(2)] + ("%03d" % int(mt.group(3)))
-            return btno
-
-        def _fmtpkno(pkno):
-            if not pkno: return
-            #contain invalid character, not a PK#
-            pkno = trimu(pkno)
-            if sum([1 for x in pkno if ord(x) <= 31 or ord(x) >= 127]) > 0:
-                return
-            pkno0 = pkno
-            if pkno.find("-") >= 0: pkno = pkno.replace("-","")
-            pfx, pkno, sfx = pkno[:3], pkno[3:], ""
-            for idx in range(len(pkno) - 1,-1,-1):
-                ch = pkno[idx]
-                if ch >= "A" and ch <= "Z":
-                    sfx = ch + sfx
-                else:
-                    if len(sfx) > 0:
-                        idx += 1
-                        break
-                    sfx = ch + sfx
-            pkno = pkno[:idx]
-            if isnumeric(pkno):
-                pkno = ("%0" + str(8 - len(pfx) - len(sfx)) + "d") % (int(float(pkno)))
-                special = False 
-            else:
-                special =True
-                rpm = {"O":"0","*":"X","S":"5"}
-                for x in rpm.items():
-                    if pkno.find(x[0]) >= 0:
-                        logger.debug("PK#(%s)'s %s -> %s in it's numeric part" % (pkno0,x[0],x[1]))
-                        pkno = pkno.replace(x[0],x[1])
-                        special = True
-            pkno = pfx + pkno + sfx
-            return pkno,special
-
+        
         btmap, pkfmted , usgs = {},[], []
         pkmap  =  {}
         try:

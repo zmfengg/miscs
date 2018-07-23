@@ -18,19 +18,25 @@ from datetime import date, datetime
 from decimal import Decimal
 
 import xlwings.constants as const
+from sqlalchemy import and_, func
+from sqlalchemy.engine import create_engine
+from sqlalchemy.orm import Query
 from xlwings.constants import LookAt
 
 from hnjcore import JOElement, appathsep, deepget, karatsvc, p17u, xwu
-from hnjcore.models.hk import PajInv, PajShp, Orderma,Style as Styhk, JO as JOhk
-from hnjcore.utils import getfiles, daterange, p17u, isnumeric
+from hnjcore.models.hk import JO as JOhk
+from hnjcore.models.hk import Orderma, PajInv, PajShp, PajCnRev
+from hnjcore.models.hk import Style as Styhk
+from hnjcore.utils import daterange, getfiles, isnumeric, p17u
 from hnjcore.utils.consts import NA
+from utilz import NamedList, ResourceCtx, SessionMgr, list2dict, splitarray, triml
 
 from .common import _logger as logger
-from .dbsvcs import CNSvc, HKSvc, BCSvc
-from .pajcc import P17Decoder, PrdWgt, WgtInfo
-from sqlalchemy.orm import Query
-from sqlalchemy.engine import create_engine
-from utilz import SessionMgr
+from .dbsvcs import BCSvc, CNSvc, HKSvc
+from .localstore import PajInv as PajInvSt
+from .localstore import PajItem, PajCnRev as PajCnRevSt
+from .localstore import PajWgt as PrdWgtSt
+from .pajcc import PAJCHINAMPS, P17Decoder, PajCalc, PrdWgt, WgtInfo
 
 _accdfmt = "%Y-%m-%d %H:%M:%S"
 
@@ -42,7 +48,7 @@ def _accdstr(dt):
 def _removenonascii(s0):
     """remove thos non ascii characters from given string"""
     if isinstance(s0, str):
-        return "".join([x for x in s0 if ord(x) > 31 and ord(x) < 127])
+        return "".join([x for x in s0 if ord(x) > 31 and ord(x) < 127 and x != "?"])
     return s0
 
 
@@ -77,6 +83,7 @@ def readbom(fldr):
     _ptnsil = re.compile(r"(925)")
     _ptngol = re.compile(r"^(\d*)K")    
     _ptdst = re.compile(r"[\(（](\d*)[\)）]")
+    _ptfrcchain = re.compile(r"(弹簧扣)|(龙虾扣)|(狗仔头扣)")
     #the parts must have karat, if not, follow the parent
     _mtlpts = u"金,银,耳勾,线圈,耳针,Chain".lower().split(",")
 
@@ -128,7 +135,7 @@ def readbom(fldr):
         return kt
 
     def _ispendant(pcode):       
-        return _pcdec.decode(pcode,"PRODTYPE") == '3'
+        return _pcdec.decode(pcode,"PRODTYPE").find("吊") >= 0
     
     def _mergewgt(wgts,wgt,maxidx,tryins = False):
         sltid = -1
@@ -191,6 +198,8 @@ def readbom(fldr):
                             it[cn] = vvs[ii][wcn[cn]]                        
             wb.close()
         for x in pmap.items():
+            if x[0] == "33XJ9S97ZZ0C04V00":
+                print("x")
             lst = x[1]["wgts"]
             sltid, wis = -1, [None,None,None]            
             for y in lst:
@@ -203,21 +212,34 @@ def readbom(fldr):
                 if wis[1]:
                     if wis[0].wgt < wis[1].wgt:
                         wis[0],wis[1] = wis[1], wis[0]
+                ispendant,haschain,haskou = _ispendant(x[0]), False,False
+                if ispendant:
+                    for y in x[1]["parts"]:
+                        nm = y["name"]
+                        if triml(nm).find("chain") >= 0:
+                            haschain = True
+                        if _ptfrcchain.search(nm):
+                            haskou = True
                 for y in x[1]["parts"]:
-                    kt = _parsekarat(y["name"],wis,False)
-                    y["karat"] = kt
+                    nm = y["name"]
+                    kt = _parsekarat(nm,wis,False)
                     if not kt: continue                
+                    y["karat"] = kt
                     done = False
-                    if _ispendant(x[0]) and y["name"].lower().find("chain") >= 0:
-                        wgt0 = wis[2]
-                        if not wgt0 or y["karat"] == wgt0.karat:
-                            wgt = y["wgt"] + (wgt0.wgt if wgt0 else 0)
-                            wis[2] = WgtInfo(y["karat"],wgt)
-                            if wgt0:
-                                logger.debug("Multi chain found for pcode(%s)" % x[0])
-                            done = True
-                        else:
-                            logger.debug("No wgt pos for chain(%s) in pcode(%s),merged to main" % (y["name"],x[0]))                        
+                    if ispendant:
+                        if haschain:
+                            done = triml(nm).find("chain") >= 0 or (haskou and (_ptfrcchain.search(nm) or nm.find("圈") >= 0))
+                            if done:
+                                wgt0 = wis[2]
+                                if not wgt0 or y["karat"] == wgt0.karat:
+                                    wgt = y["wgt"] + (wgt0.wgt if wgt0 else 0)
+                                    wis[2] = WgtInfo(y["karat"],wgt)
+                                    if wgt0:
+                                        logger.debug("Multi chain found for pcode(%s)" % x[0])
+                                else:
+                                    done = False
+                            else:
+                                logger.debug("No wgt pos for chain(%s) in pcode(%s),merged to main" % (y["name"],x[0]))
                     if not done:
                         _mergewgt(wis,WgtInfo(y["karat"],y["wgt"]),1)
             x[1]["wgts"] = PrdWgt(wis[0],wis[1],wis[2])        
@@ -982,22 +1004,273 @@ class PriceTracker(object):
     from tmp t join pajshp s on t.remark = s.pcode join pajinv inv on s.joid = inv.joid and s.invno = inv.invno
     join jo on s.joid = jo.joid join orderma od on jo.orderid = od.orderid
 
+    view to get data
+    select iv.pcode,iv.jono,iv.mps,iv.uprice,iv.cn,iv.invdate,w.tag,w.karat,w.wgt from pajinv iv join pajwgt w on iv.id = w.pid order by iv.id,w.tag
+
     """
 
-    def __init__(self, hkdb, srcfn):
-        self._hkdb = hkdb
+    def __init__(self, hksvc,localeng, srcfn):
+        self._hksvc = hksvc
         self._srcfn = srcfn
+        self._localsm = SessionMgr(localeng)
+        if False:
+            sess = ResourceCtx(self._localsm)
+            with sess as cur:
+                try:
+                    ext = cur.query(PajInvSt).limit(1).first()
+                except:
+                    ext = None
+                if not ext:
+                    PajInvSt.metadata.create_all(localeng)
+        else:
+            PajInvSt.metadata.create_all(localeng)
 
     def readpcodes(self):
         with open(self._srcfn,"r+t") as fh:
             return set([x[:-1] for x in fh.readlines() if x[0] != "#"])
 
-   
-    def getccfactor(self,pcode):
-        #get local
-        #if not, get from hk and insert into local
-        pass
+    def createcache(self,pcodes):
+        cc = PajCalc()
+        td = datetime.today()
+        for pcode in pcodes:
+            wgts = None
+            with ResourceCtx((self._localsm,self._hksvc.sessmgr())) as curs:
+                try:
+                    ivca = Query(PajItem).filter(PajItem.pcode == pcode).with_session(curs[0]).first()
+                    if ivca:
+                        logger.debug("pcode(%s) already localized" % pcode)
+                        continue
+                    q0 =Query([PajShp.pcode,JOhk.name.label("jono"),Styhk.name.label("styno"),JOhk.createdate,PajShp.invdate,PajInv.uprice,PajInv.mps]).join(JOhk).join(Orderma).join(Styhk).join(PajInv,and_(PajShp.joid == PajInv.joid, PajShp.invno == PajInv.invno)).filter(PajShp.pcode == pcode)
+                    lst = q0.with_session(curs[1]).all()
+                    if not lst: continue
 
-    def run(self):
-        pass
+                    pi = PajItem()
+                    pi.pcode, pi.createdate, pi.tag = pcode, td, 0
+                    curs[0].add(pi)
+                    curs[0].flush()
+                    jeset = set()
+                    for jnv in lst:
+                        je = jnv.jono
+                        if je in jeset: continue
+                        jeset.add(je)
+                        if not wgts:
+                            wgts = self._hksvc.getjowgts(je)
+                            if not wgts: continue
+                            wgtarr = wgts.wgts
+                            for idx in range(len(wgtarr)):                        
+                                if not wgtarr[idx]: continue
+                                pw = PrdWgtSt()
+                                pw.pid, pw.karat, pw.wgt, pw.remark,pw.tag = pi.id, wgtarr[idx].karat, wgtarr[idx].wgt, je.value, 0
+                                pw.createdate, pw.lastmodified = td, td
+                                pw.wtype = 0 if idx == 0 else 100 if idx == 2 else 10
+                                curs[0].add(pw)
+                        up,mps = jnv.uprice, jnv.mps
+                        cn = cc.calchina(wgts,up,mps,PAJCHINAMPS)
+                        if cn:
+                            ic = PajInvSt()
+                            ic.pid, ic.uprice,ic.mps = pi.id, up, mps
+                            ic.cn = cn.china
+                            ic.jono, ic.styno = je.value,jnv.styno.value
+                            ic.jodate, ic.createdate, ic.invdate, ic.lastmodified = jnv.createdate, td, jnv.invdate, td
+                            ic.mtlcost, ic.otcost = cn.metalcost, cn.china - cn.metalcost
+                            curs[0].add(ic)                  
+                    curs[0].commit()
+                    logger.debug("pcode(%s) localized" % pcode)
+                except Exception as e:
+                    logger.debug("Error occur while persisting localize result %s" % e)
+                    curs[0].rollback()
+
+    def localize(self):
+        self.localizerev()
+        pcodes = list(self.readpcodes())
+        if not pcodes: return
+        logger.debug("totally %d pcodes send for localize" % len(pcodes))
+        cnt = 0
+        for arr in splitarray(pcodes,50):
+            self.createcache(arr)
+            cnt += 1
+    
+    def localizerev(self):
+        """ localize the rev history
+        """
+        affdate = datetime(2018,4,4)
+        q0 = Query((func.max(PajCnRevSt.createdate),))
+        with ResourceCtx(self._localsm) as cur:            
+            lastcrdate = q0.with_session(cur).first()[0]
+        if not lastcrdate: lastcrdate = affdate
+        q0 = Query(PajCnRev).filter(and_(PajCnRev.filldate > lastcrdate,and_(PajCnRev.tag == 0, PajCnRev.revdate >= affdate)))
+        with ResourceCtx((self._localsm,self._hksvc.sessmgr())) as curs:
+            srcs = q0.with_session(curs[1]).all()
+            pcodes = set([x.pcode for x in srcs])
+            pcs = {}
+            for arr in splitarray(list(pcodes)):
+                q0 = Query(PajItem).filter(PajItem.pcode.in_(arr))
+                try:
+                    pcs.update(dict([(x.pcode,x) for x in q0.with_session(curs[0]).all()]))
+                except:
+                    pass
+            if pcs:
+                prs = []
+                for arr in splitarray([x.id for x in pcs.values()]):
+                    try:
+                        prs.extend(curs[0].query(PajCnRevSt).filter(PajCnRevSt.id.in_(arr)).all())
+                    except:
+                        pass
+            if prs:
+                tag = curs[0].query((func.max(PajCnRevSt.tag),)).first()[0]
+                if not tag: tag = 0
+                tag = int(tag) + 1
+                for x in prs:
+                    x.tag = tag
+                    curs[0].add(x)
+            td = datetime.today()
+            npis = []
+            for x in [y for y in srcs if y.pcode not in pcs]:                
+                pi = PajItem()
+                pi.pcode, pi.createdate, pi.tag = x.pcode, td, 0
+                curs[0].add(pi)
+                npis.append(pi)
+            if npis:
+                curs[0].flush()
+                pcs.update(dict([(x.pcode,x) for x in npis]))
+            for x in srcs: 
+                pi = pcs[x.pcode]
+                rev = PajCnRevSt()
+                rev.pid, rev.uprice = pi.id, x.uprice
+                rev.revdate, rev.createdate, rev.tag = x.revdate, td, 0
+                curs[0].add(rev)
+            curs[0].commit()
+    
+    def analyse(self,cutdate = None):
+        if not cutdate: cutdate = datetime(2018,5,1)
         
+        mixcols = "oc,cn,invdate,jono".split(",")        
+        gelmix = NamedList(mixcols)
+        def _minmax(arr):
+            """ return a 3 element tuple, each element contains mixcols data
+            first   -> min
+            second  -> max
+            third   -> last
+            """
+            fill =lambda ar: [float(ar.otcost),float(ar.cn),ar.invdate,ar.jono]
+            li, lx = 9999, -9999
+            mi, mx = None, None
+            for ar in arr:
+                lb = float(ar.otcost)
+                if lb > lx:
+                    mx = fill(ar)
+                    lx = lb
+                if lb < li:
+                    mi = fill(ar)
+                    li = lb
+            df = lx - li
+            if df < 0.1 or df / li < 0.01:
+                df = (lx + li) / 2.0
+                mi[0],mx[0] = df, df
+            return mi,mx,fill(arr[-1])
+
+        def getonly(cns,arr):
+            if isinstance(cns,str):
+                cns = cns.split(",")
+            lst = []
+            for ar in arr:
+                gelmix.setdata(ar)
+                lst.extend([gelmix[cn] for cn in cns])
+            return lst
+        almosteq = lambda x,y: abs(x - y) <= 0.1 or abs(x - y) / x < 0.01
+        gelq = NamedList("pcode,jono,styno,invdate,cn,otcost")
+        with ResourceCtx(self._localsm) as cur:
+            q0 = Query([PajItem.pcode,PajInvSt.jono,PajInvSt.styno,PajInvSt.invdate,PajInvSt.cn,PajInvSt.otcost]).join(PajInvSt).order_by(PajItem.pcode).order_by(PajInvSt.invdate)
+            #q0 = q0.limit(50)
+            lst = q0.with_session(cur).all()            
+            mp = {}
+            [mp.setdefault(it.pcode,[]).append(it) for it in lst]
+            q0 = Query([PajItem.pcode,PajCnRevSt.revdate,PajCnRevSt.uprice]).join(PajCnRevSt)
+            revdates = {}
+            for arr in splitarray(list(mp.keys())):
+                try:
+                    revdates.update(dict([(y.pcode,(y.revdate,float(y.uprice))) for y in \
+                    [x for x in q0.filter(PajItem.pcode.in_(arr)).with_session(cur).all
+                ()]]))
+                except Exception as e:
+                    print(e)
+                    pass
+
+            noaff, mixture, noeng, drp, pum, nochg = [], [], [], [],[], []
+            for it in mp.items():
+                lst = it[1]
+                gelq.setdata(lst[0])
+                flag = len(lst) > 1
+                acutdate = revdates.get(it[0],cutdate)
+                revcn = 0
+                if isinstance(acutdate,tuple):
+                    revcn = acutdate[1]
+                    acutdate = acutdate[0]
+                if flag:
+                    for idx in range(len(lst)):
+                        flag = lst[idx].invdate >= acutdate
+                        if flag: break
+                if not flag:
+                    noaff.append((gelq.pcode,gelq.styno,acutdate,revcn,_minmax(lst)))
+                else:
+                    mix0,mix1 = _minmax(lst[:idx]), _minmax(lst[idx:])
+                    iot = gelmix.getcol("oc")
+                    val = (gelq.pcode,gelq.styno,acutdate,revcn,mix0,mix1)                    
+                    if mix0[0][iot] * 2.0 / 3.0 + 0.05 >= mix1[1][iot]:
+                        drp.append(val)
+                    elif almosteq(mix0[0][iot],mix1[1][iot]):
+                        nochg.append(val)
+                    elif mix0[0][iot] > mix1[1][iot]:
+                        noeng.append(val)
+                    elif mix0[0][iot] < mix1[1][iot]:
+                        #old's max under new's min
+                        pum.append(val)
+                    else:
+                        mixture.append(val)
+            mp = {"NotAffected":noaff,"NoChanges":nochg,"Mixture":mixture,"NoEnough":noeng, "PriceDrop1of3":drp,"PriceUp":pum}
+            app = xwu.app(True)[1]            
+            grp0 = (("",),"Before,After".split(","))
+            grp1 = "Min.,Max.,Last".split(",")
+            grp2 = "pcode,styno,revdate,cn,karat".split(",")
+            ctss = ("cn,invdate".split(","),"oc,cn,jono,invdate".split(","))
+            shts,pd = [], P17Decoder()
+            wb = app.books.add()
+            for x in mp.items():
+                if not x[1]: continue
+                shts.append(wb.sheets.add())
+                sht = shts[-1]
+                sht.name, vvs = x[0], []
+                gidx = 0 if x[0] == "NotAffected" else 1
+                ttl0,ttl1 = ["","","","",""],["","","","",""]
+                for z in grp0[gidx]:
+                    ttl0.append(z)
+                    for ii in range(len(ctss[gidx]) * len(grp1) - 1):
+                        ttl0.append(" ")
+                    for xx in grp1:
+                        ttl1.append(xx)
+                        for ii in range(len(ctss[gidx])-1):
+                            ttl1.extend(" ")
+                if len(grp0[gidx]) > 1:vvs.append(ttl0)
+                vvs.append(ttl1)
+
+                ttl = grp2.copy()
+                ttlen = len(ttl) - 1
+                cnt = 0
+                while cnt < len(grp1)*len(grp0[gidx]):
+                    ttl.extend(ctss[gidx])
+                    cnt += 1
+                vvs.append(ttl)                
+                for it in x[1]:
+                    ttl = list(it[:ttlen])
+                    ttl.append(pd.decode(ttl[0],"karat"))
+                    [ttl.extend(getonly(ctss[gidx],kk)) for kk in it[ttlen:]]
+                    vvs.append(ttl)
+                sht.range(1,1).value = vvs
+                sht.autofit("c")
+                #let the karat column smaller
+                sht[1,grp2.index("karat")].column_width = 10
+                xwu.freeze(sht.range(3 + (1 if len(grp0[gidx]) > 1 else 0),ttlen+2))
+
+            for sht in wb.sheets:
+                if sht not in shts:
+                    sht.delete()
