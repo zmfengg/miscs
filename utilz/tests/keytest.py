@@ -20,6 +20,8 @@ from . import logger, thispath
 from utilz import karatsvc
 import datetime
 from utilz._jewelry import RingSizeSvc
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy import Column,Integer,VARCHAR
 
 
 class KeyTests(TestCase):
@@ -161,10 +163,10 @@ class KeyTests(TestCase):
             name,id,age = "Hello",0,0
         al = Alias({"name":"nick"})
         it = A()
-        al.settarget(it) 
+        al.setdata(it) 
         #the getter
         self.assertEqual(it.name, al.nick,"One object, 2 name or more")
-        self.assertEqual(it, al.gettarget(),"return the object")
+        self.assertEqual(it, al.getdata(),"return the object")
         #the setter
         al.nick = "WXXX"
         self.assertEqual("WXXX",it.name)
@@ -197,3 +199,18 @@ class KeyTests(TestCase):
         self.assertEqual("4 1/4",rgsvc.convert("EU","47","US"),"EU#47 = US#4 1/4")
         self.assertTrue(rgsvc.convert("EU","A","US") is None,"EU#A does not exist")
         self.assertAlmostEqual(47.0,rgsvc.getcirc("US","4 1/4"),"the circumference of US#4 1/4 is 47.0mm")
+
+BaseClass = declarative_base()
+
+class T(BaseClass):
+    __tablename__ = "xx"
+    id = Column(Integer,primary_key = True)
+    name = Column(VARCHAR(20))
+
+class SessMgrTest(unittest.TestCase):
+    """ check if a sessionmgr will automatically rollback a transaction """
+    def sessmgr(self):
+        pass
+    
+    def testRollback(self):
+        pass

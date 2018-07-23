@@ -301,9 +301,9 @@ class NamedLists(Iterator):
 class Alias(object):
     def __init__(self, nmap,obj = None):
         self._nmap = dict((x[1],x[0]) for x in nmap.items())
-        if obj: self.setobj(obj)
+        if obj: self.setdata(obj)
 
-    def settarget(self,obj):
+    def setdata(self,obj):
         self._obj = obj 
         return self
         
@@ -316,12 +316,12 @@ class Alias(object):
             object.__setattr__(self._obj, name, obj)
 
     def __getattr__(self, name):
-        if name in ("_obj","gettarget","_nmap","__dict__"):
+        if name in ("_obj","getdata","_nmap","__dict__"):
             return self.__dict__[name] 
         if name in self._nmap:
             name = self._nmap[name]
         return getattr(self._obj, name)
 
-    def gettarget(self):
+    def getdata(self):
         return self._obj
 
