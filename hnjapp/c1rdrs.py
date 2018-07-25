@@ -6,31 +6,38 @@ need to be able to read the 2 kinds of files: C1's original and calculator file
 @author: zmFeng
 '''
 
+import datetime
+import time
 import numbers
 import os
 import re
 import sys
 import tempfile
-from collections import namedtuple, OrderedDict
+from collections import OrderedDict, namedtuple
 from os import path
-import datetime
 
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Query
 from xlwings import constants
 
-from hnjcore import JOElement, karatsvc
-from hnjcore.models.cn import JO, MM, Customer, MMgd, MMMa, Style,StoneOutMaster,StoneOut,Codetable,StoneIn,StoneBck,StonePk
-from hnjcore.utils import appathsep, daterange, getfiles, isnumeric, xwu, splitarray
-from hnjcore.utils.consts import NA
-from utilz import NamedList, NamedLists, list2dict, trimu
 from hnjapp.dbsvcs import jesin
+from hnjcore import JOElement, karatsvc
+from hnjcore.models.cn import (JO, MM, Codetable, Customer, MMgd, MMMa,
+                               StoneBck, StoneIn, StoneOut, StoneOutMaster,
+                               StonePk, Style)
+from hnjcore.utils import (appathsep, daterange, getfiles, isnumeric,
+                           splitarray, xwu)
+from hnjcore.utils.consts import NA
+from utilz import NamedList, NamedLists, getfiles, list2dict, trimu
 
 from .common import _date_short
 from .common import _logger as logger
 
 _ptnbtno = re.compile(r"(\d+)([A-Z]{3})(\d+)")
 def _fmtbtno(btno):
+    """ in C1's STIO excel file, the batch# is quite malformed
+    this method format it to standard ones
+    """
     if isinstance(btno,numbers.Number):
         btno = "%08d" % int(btno)
     else:
@@ -40,6 +47,9 @@ def _fmtbtno(btno):
     return btno
 
 def _fmtpkno(pkno):
+    """ in C1's STIO excel file, the package# is quite malformed
+    this method format it to standard ones
+    """
     if not pkno: return
     #contain invalid character, not a PK#
     pkno = trimu(pkno)
@@ -72,9 +82,9 @@ def _fmtpkno(pkno):
     pkno = pfx + pkno + sfx
     return pkno,special
 
-class InvRdr():
+class C1InvRdr():
     """
-        read the monthly invoices from both C1 version and CC version
+        read the monthly invoice files from both C1 & CC version
     """
 
     def __init__(self, c1log=None, cclog=None):
@@ -197,8 +207,10 @@ class InvRdr():
                         (x.last_cell().row, x.last_cell().column))
         vvs = rng.value
 
-
-class C1JCReader(object):
+class C1JCMkr(object):
+    """
+    C1 JOCost maker, First, Invoke C1STHdlr to create Stone Usage , then generate the jocost report to given folder(default is p:\aa\)
+    """
     def __init__(self, cnsvc, bcsvc, invfldr):
         """
         @param cnsvc: the CNSvc instance
@@ -302,7 +314,7 @@ class C1JCReader(object):
                 filter(and_(and_(MMMa.refdate >= df, MMMa.refdate < dt),
                             MM.name.like("%C[0-9]")))
             lst = q.with_session(cur).all()
-            vvs["_TITLE_"] = ttls
+            #vvs["_TITLE_"] = ttls
             for x in lst:
                 jn = x.jono.value
                 # if jn != "580356": continue
@@ -326,17 +338,14 @@ class C1JCReader(object):
             stcosts = self._getstcosts(runns)
             if not stcosts or len(stcosts) < len(runns) / 2:
                 logger.debug("%s:No stone or less than 1/2 has stone, make sure you've prepared stone data with C1STIOData" % actname)
-            invs = InvRdr().read(self._invfldr)
+            invs = C1InvRdr().read(self._invfldr)
             x = set([x.jono for x in invs if x.jono in vvs]) if invs else set()
             if not invs or len(x) < len(runns):
                 logger.debug(
                     "%s:No or not enough C1 invoice data from file(%s)" % (actname,self._invfldr))
             invs = dict([(x.jono, x) for x in invs]) if invs else {}
             cstlst = "goldcost,extgoldcost,stonecost,laborcost".split(",")
-            for x in vvs.values():
-                # the title
-                if x[0] == ttls[0]:
-                    continue
+            for x in vvs.values():                
                 nl.setdata(x)
                 runn = nl.running
                 if runn in stcosts:
@@ -397,32 +406,38 @@ class C1JCReader(object):
                     nl["totalcost"] += nl[cx]
                 nl.unitcost = round(nl["totalcost"] / nl["joqty"],2)
         if vvs:
-            return [x[1:] for x in vvs.values()],self._getjostone(runns),self._getbroken(df,dt)
+            ll = list([x[1:] for x in vvs.values()])
+            refid = nl.getcol("running") - 1
+            ll = sorted(ll,key = lambda x: x[refid])
+            ll.insert(0,ttls[1:])
+            return ll,self._getjostone(runns),self._getbroken(df,dt)
 
-class C1STIOReader(object):
+class C1STHdlr(object):
     """
-    class to read C1Stone's IO from files like \\172.16.8.46\pb\dptfile\quotation\2017外发工单工费明细
-    \CostForPatrick\StReadLog\C1IO20180619.xlsx
-    and save directly to db
+    Read C1Stone's IO from newest file in folder(default \\172.16.8.46\pb\dptfile\quotation\2017外发工单工费明细
+    \CostForPatrick\StReadLog\) and save directly to heng_ngai db
     """
     def __init__(self,cnsvc):
         self._cnsvc = cnsvc
 
     def _rviptusg(self,usgs,ionmap):
+        """ remove the imported usage records """
         def _ckript(cur,q0,u,ionmap):
+            """ check if the given usage record(stone_out) has been imported """
             ipt = False
             try:
                 if u.type in ionmap:                
-                    lst = q0.filter(and_(JO.name == u.jono,StoneOutMaster.isout == ionmap[u.type][0][0])).with_session(cur).all()                    
+                    lst = q0.filter(and_(JO.name == u.jono,StoneOutMaster.isout == ionmap[u.type][0][0])).with_session(cur).all()
                 else:
-                    lst = Query([StoneBck.qty,StoneBck.wgt]).join(StoneIn).filter(StoneIn.name == u.btchno).all()
+                    lst = Query([StoneBck.qty,StoneBck.wgt]).join(StoneIn).filter(StoneIn.name == u.btchno).with_session(cur).all()
                 for x in lst:
                     ipt = x.qty == u.qty and abs(x.wgt - u.wgt) < 0.001
                     if ipt: break
             except:
                 pass
             return ipt
-        lb, ub, idx ,ipt = 0,len(usgs) - 1, -1, False
+        pflen, pfts, pfcnt = len(usgs), time.time(), 0
+        lb, ub, idx ,ipt = 0,pflen - 1, -1, False
         ptr = (lb+ub) // 2
         q0 = Query([StoneOut.qty,StoneOut.wgt]).join(StoneOutMaster).join(JO)
         with self._cnsvc.sessionctx() as cur:
@@ -442,6 +457,8 @@ class C1STIOReader(object):
                 else:
                     ub = ptr - 1                
                 ptr = (lb+ub)//2
+                pfcnt += 1
+        logger.debug("use %d seconds and %d loops to find the new usage in %d items" % (int(time.time() - pfts), pfcnt, pflen))
         if idx >= 0:
             return usgs[idx:]
 
@@ -506,7 +523,11 @@ class C1STIOReader(object):
                     btchno = _fmtbtno(btchno)                    
                     if btchno not in btmap:
                         continue
-                    nl.btchno, nl.jono = btchno, JOElement(nl.jono)
+                    je = JOElement(nl.jono)
+                    if not je.isvalid():
+                        #logger.debug("invalid JO#(%s) found in usage seqid(%d),batch(%s)" % (nl.jono,int(nl.id),nl.btchno))
+                        continue
+                    nl.btchno, nl.jono = btchno, je
                     usgs.append(nl) 
                 wb.close()
         finally:
@@ -566,7 +587,7 @@ class C1STIOReader(object):
                 for x in sorted([(btmap[x].id,x,btmap[x].pkno) for x in btnos[1]]):
                     print("%d,%s,%s" % x,file = fh)
             if jonos and jonos[1]:
-                print("Below JOs does not exists",file = fh)
+                print("Below JO(s) does not exist",file = fh)
                 for x in jonos[1]:
                     print(x.name,file  = fh)
                 crterr = True                    
@@ -582,7 +603,7 @@ class C1STIOReader(object):
         logger.info("log were saved to %s" % fn)            
         if crterr:
             logger.critical("There are Package or JO does not exist, Pls. correct them first")
-            return None
+            return
         lnm = lambda cl: dict([(x.name,x) for x in cl])
 
         btbyns = lnm(btnos[0])
@@ -622,9 +643,6 @@ class C1STIOReader(object):
                     nb.docno = "AG" + td.strftime("%y%m%d")[1:]
                 else:
                     for iof in ionmap[s0]:
-                        if not x.jono.isvalid():
-                            logger.debug("invalid JO# found in usage seqid(%d),batch(%s)" % (int(x.id),x.btchno))
-                            continue
                         key = x.jono.value + "," + str(iof[0])
                         somso = sos.setdefault(key,{})                        
                         if len(somso) == 0:
@@ -635,7 +653,7 @@ class C1STIOReader(object):
                             iof[1] += 1                            
                             som.id, som.isout, som.name = msomid, iof[0], iof[1]
                             som.packed, som.qty, som.subcnt, som.workerid = 0,0,0,1393
-                            som.filldate, som.lastupdate, som.lastuserid = joshd[x.jono], td,1
+                            som.filldate, som.lastupdate, som.lastuserid = joshd.get(x.jono,td), td,1
                         else:
                             som = somso["som"]
                         lst1 = somso.setdefault("sos",[])
@@ -651,6 +669,7 @@ class C1STIOReader(object):
         return nbtmap,sos,nbck,ncbt,btbyns
 
     def _persist(self,nbt,sos,nbck,ncbt,btbyns):
+        err = True
         with self._cnsvc.sessionctx() as cur:
             for x in nbt.items():
                 x[1].qty = int(x[1].qty) if x[1].qty else 0
@@ -704,16 +723,31 @@ class C1STIOReader(object):
                 cur.add(btno)
             cur.flush()
             cur.commit()
-        #return btmap,usgs
+            err = False
+        return not err
 
     def readst(self, fn):
         """
         read and create the stone usage record from C1, input files only
         """
-               #check if one usage item has been inputted. the rule is:
+        #check if one usage item has been inputted. the rule is:
         # if jo+iotype+qty+closeWgt found, treated as dup. Once one item is found
         # not imported , all item behind it was think of not imported
+        if path.isdir(fn):
+            #only read the most-recent file
+            maxd = datetime.datetime(1980,1,1)
+            fns, fx = getfiles(fn,"xls"), None
+            for x in fns:
+                d0 = datetime.datetime.fromtimestamp(path.getmtime(x))
+                if maxd < d0:
+                    fx = x 
+                    maxd = d0
+            logger.debug("%d files in folder(%s), most-updated file(%s) is selected" % (len(fns),fn,path.basename(fx)))
+            fn = fx
         pkmap,btmap,usgs,pkfmted = self._readfrmfile(fn)
-        nbt,sos,nbck,ncbt,btbyns = self._buildrst(pkmap,btmap,usgs,pkfmted)
+        rst = self._buildrst(pkmap,btmap,usgs,pkfmted)
+        if not rst:
+            #some invalid items found by _buildrst, throw exception
+            return
+        nbt,sos,nbck,ncbt,btbyns = rst[0], rst[1], rst[2], rst[3], rst[4]
         return self._persist(nbt,sos,nbck,ncbt,btbyns)
-        

@@ -16,13 +16,14 @@ from os import path
 from .common import _logger as logger
 
 import datetime
+import time
 from hnjapp.pajcc import MPS,PrdWgt,WgtInfo, PajChina, PajCalc
 from hnjcore import JOElement, xwu, appathsep, utils as hnju
 from hnjcore.utils.consts import NA
 from hnjcore.utils import getfiles
 from hnjcore.models.hk import PO,POItem,JO
 from hnjapp.dbsvcs import jesin
-from hnjapp.c1rdrs import InvRdr
+from hnjapp.c1rdrs import C1InvRdr
 
 from hnjcore.models.hk import PajAck
 from . import pajcc
@@ -32,7 +33,7 @@ from utilz import splitarray, NamedLists, Alias
 
 
 def _checkfile(fn, fns):
-    """ check file exists and file expiration
+    """ check file exists and fn's date is newer than fns
     @param fn: the log file
     @param fns: the files that need to generate log from
     return True if file expired
@@ -44,7 +45,9 @@ def _checkfile(fn, fns):
             flag = ld > max([path.getmtime(x) for x in fns])
     return flag
 
-def _getexcels(fldr):    
+def _getexcels(fldr):
+    """ return the excel(xls*) files from fldr, but exclude the shared lock files
+    """
     if fldr:
         fns = getfiles(fldr,"xls",True)
         p = appathsep(fldr)
@@ -124,7 +127,6 @@ def readsignetcn(fldr):
         fn = wb.fullname
     return fn
 
-
 def readagq(fn):
     """
     read AGQ reference prices
@@ -186,7 +188,7 @@ def readagq(fn):
                             je = JOElement(x.strip())
                             if len(je.alpha) == 1 and je.digit > 0: stynos.append(str(je))
             if not stynos:
-                logger.getLogger(__name__).debug("failed to get sty# for pt %s" % (pt,))                
+                logger.debug("failed to get sty# for pt %s" % pt)
             else:
                 # 4 rows down, must have
                 rxs = [x + pt.x for x in range(1, 5)]
@@ -227,22 +229,25 @@ def readagq(fn):
         else:
             if wb1: app.visible = True
 
-class PajDataByRunn(object):
+class QuoDatMkr(object):
     r"""
-    class to read such file as \\172.16.8.46\pb\dptfile\quotation\date
-    Date2018\0502\(2) quote to customer\*.xls which has:
+    provided a folder(\\172.16.8.46\pb\dptfile\quotation\date
+    Date2018\0502\(2) quote to customer), read the quoted prices out into costs.dat. 
+    
+    Source files in that folder should contains:
       .A field contains \d{6}, which will be treated as a running
       .Sth. like Silver@20.00/oz in the first 10 rows as MPS, if no, use the 
          caller's MPS as default MPS
-         
-    excel files will be read into a csv file with "runn,mps,jono" fields if there is no "runOKs.dat" in the folder, then "runOKs.dat" will be handled and a csv file with below fields will be generated:
-        Runn,OrgJO#,Sty#,Cstname,JO#,SKU#,PCode,ttcost,mtlcost,mps,rmks,discount
-    if Some running is not available, a "err.dat" file will be generated, inside which is "Runn,OrgJO#,mainWgt,auxWgt,partWgt,mps" fields
+    
+    costs.dat is a csv file contains "runn,mps,jono". Not sure all the runnings in costs.dat is valid, so a runOKs.dat csv file will be created, which holds only the valid runnings, runOKs.dat contains "jono,mps,runn" fields. The invalid runnings in costs.dat will be saved in runErrs.dat
 
+    After that, OKs.dat csv file will be created, which holds the calculated cost info. OKs.dat contains fields "Runn,OrgJO#,Sty#,Cstname,JO#,SKU#,PCode,ttcost,mtlcost,mps,rmks,discount". Those failed to calculated will be saved to err.dat csv file, which contains "Runn,OrgJO#,mainWgt,auxWgt,partWgt,mps" fields
+
+    one helper method was appended to calculate a TODO::
     Data will be fetch from both PAJ and C1's invoice history. When the extractly one is not found, getfamiliar() function will be called to find a suitable one. In the case of C1 data handling, usbtormb/usdtohkd/pkratio is needed, provide you own if the default value is not suitable
     
     An example to read data from folder "d:\temp"
-        PajDataByRunn(hksvc,cnsvc).run(r"d:\temp", defaultmps=pajcc.MPS("S=20;G=1350"))
+        QuoDatMkr(hksvc,cnsvc).run(r"d:\temp", defaultmps=pajcc.MPS("S=20;G=1350"))
     """
     _ptnrunn = re.compile(r"\d{6}")
     _duprunn = False
@@ -305,8 +310,15 @@ class PajDataByRunn(object):
             rc, allrc = [ttl], [ttl]
         mp = dict([(x["runn"],x) for x in mp.values()])
         if exists:
+            ompcnt, rvcnt = len(mp), 0
             for x in oks:
-                if x[1] in mp: del mp[x[1]]
+                if x[2] in mp:
+                    del mp[x[2]]
+                    rvcnt += 1
+            logger.debug("%d original mps returned, %d existing item removed" % (ompcnt,rvcnt))
+        if not mp:
+            logger.debug("No item need to be processed")
+            return allrc
         ops, lst, mp = {}, [], list(mp.values())
         q = Query([JO.name,POItem.uprice,PO.mps,PO.name.label("pono")]).join(POItem).join(PO)
         fmt = ("%s," * len(ttl))[:-1]
@@ -322,17 +334,26 @@ class PajDataByRunn(object):
                         logger.debug("no po returned for JO#(%s)" % jn)
                         continue
                     wgts = self._hksvc.getjowgts(jn)
-                    mps0 = op[1]
-                    mc0 = PajCalc.calcmtlcost(wgts,mps0,vendor = "HNJ")
-                    mc1 = PajCalc.calcmtlcost(wgts,x["mps"],vendor = "HNJ")
-                    if mc0 > 0:
-                        np = round(mc1-mc0+op[0],2)
-                    elif mps0 and mps0.isvalid:
-                        #natalie confirmed to use the last price
-                        logger.debug("bonded gold, use the last po price")
-                        np = op[0]
-                    else:
-                        np = pajcc.MPSINVALID 
+                    mps0, np = op[1], op[0]
+                    hasbg = sum([1 for x in wgts.wgts if x and x.karat == 9925])
+                    #Natalie confirmed on 2018/07/20:bonded gold no metal cost, the target up the final PO#'s up
+                    if hasbg:
+                        ww = sum([1 if x and x.karat != 9925 else 0 for x in wgts.wgts])
+                        #except bg, has other metal
+                        if ww > 0:
+                            wgts = PrdWgt(*[x if x and x.karat != 9925 else None for x in wgts.wgts])
+                            logger.debug("JO(%s) is bonded gold + other, use the last po price (%s,%6.2f) and gold incr" % (jn,op[2],np))
+                        else:
+                            logger.debug("JO(%s) is bonded gold only, use the last po price (%s,%6.2f)" % (jn,op[2],np))
+                            wgts = None
+                    if wgts:
+                        #get the loss rate
+                        mc0 = PajCalc.calcmtlcost(wgts,mps0,vendor = "HNJ")
+                        mc1 = PajCalc.calcmtlcost(wgts,x["mps"],vendor = "HNJ")
+                        if mc0 > 0:
+                            np = round(mc1-mc0+op[0],2)
+                        else:
+                            np = pajcc.MPSINVALID 
                     rc.append((op[2],jn,x["runn"],op[1].value,op[0],x["mps"].value,np))
                 allrc.extend(rc)
                 with open(fnpo,"at") as fh:
@@ -588,7 +609,7 @@ class PajDataByRunn(object):
                 logger.debug("everything is up to date")
             return
         oks, dao, stp, cnt, c1s = {}, self._hksvc, 0, len(mp), []
-        c1invs = InvRdr().read(None)
+        c1invs = C1InvRdr().read(None)
         if c1invs:
             c1invs = dict([(x.jono,x) for x in c1invs])
             #labor of c1 invoice is sometimes lower than actual(C1 calculation error)
@@ -902,7 +923,9 @@ class AckPriceCheck(object):
             os.path.getmtime(tarfn) >= os.path.getmtime(self.fndts):
             rc, msg = tarfn, "data up to date, don't need further process"
         else:
+            logger.debug("begin to process acknowledgement analyst on folder(%s)" % self._fldr)
             data,app = self._readsrcdata(fns,utd)
+            logger.debug("%d records returned by files in target folder" % len(data))
             rsts = self._processall(data) if data else None
             if rsts:
                 tarfn = self._fldr + xlfn
@@ -910,7 +933,7 @@ class AckPriceCheck(object):
             else:
                 rc = None
                 if isinstance(app,str):
-                    err = (err + "," if err else "") + app[1:]                    
+                    err = (err + "," if err else "") + app[1:]
                     app = None
                 elif not err:
                     err = "_no data returned"
@@ -1141,10 +1164,16 @@ class AckPriceCheck(object):
                 jos = data.values()
                 jes = [JOElement(x["jono"]) for x in jos]
             else:
-                jos = [x for x in data.values() if x["jono"] == "B106739"]
-                jes = [JOElement(x["jono"]) for x in jos if x["jono"] == "B106739"]
+                #this PO.description of this jo has big5 encoding error
+                #462323 -> BG, 462324 -> BG + 9K
+                jn = set(("462323,462324".split(",")))
+                jos = [x for x in data.values() if x["jono"] in jn]
+                jes = [JOElement(x["jono"]) for x in jos if x["jono"] in jn]
+            logger.debug("begin to fetch jo data for analyse, JO count to fetch  is %d" % len(jes))
+            ts = time.time()
             jes = hksvc.getjos(jes)[0]
             jes = self._fetchjos(jes)
+            logger.debug("data fetch is done, using %d seconds" % int(time.time() - ts))
             idx = 0
             for jo in jos:
                 try:

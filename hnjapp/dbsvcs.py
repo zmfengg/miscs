@@ -9,6 +9,7 @@
 
 import datetime
 import re
+from collections.abc import Sequence
 import threading
 from collections import Iterable
 from contextlib import contextmanager
@@ -47,7 +48,7 @@ def fmtsku(skuno):
 
 def jesin(jes,objclz):
     """ simulate a in operation for jo.name """
-    if not (isinstance(jes,tuple) or isinstance(jes,list)):
+    if not isinstance(jes,Sequence):
         jes = list(jes)
     q = objclz.name == jes[0]
     for y in jes[1:]:
@@ -95,7 +96,7 @@ class SvcBase(object):
         get object by providing a list of vars, return tuple with valid object tuple and not found set
         """
         if not objs: return
-        if not(isinstance(objs,tuple) or isinstance(objs,list)):
+        if not isinstance(objs,Sequence):
             objs = tuple(objs)
         objss = splitarray(objs,self._querysize)
         al = []
@@ -211,35 +212,35 @@ class HKSvc(SvcBase):
         rc = None
         level = 0 if level < 0 else level
         je = jo.name
-        jns = None
+        jns, jn = None, None
         with self.sessionctx() as cur:        
             #don't lookup too much, only return data since 2015
             q = Query([JO,POItem.skuno]).join(Orderma).join(POItem,POItem.id == JO.poid)\
-                .filter(Orderma.styid == jo.orderma.style.id)
+            .filter(Orderma.styid == jo.orderma.style.id)
             if mindate:
                 q = q.filter(JO.createdate >= mindate)
             try:
                 rows = q.with_session(cur).all()
+                if(rows):
+                    jns = {}
+                    for x in rows:
+                        jn = x.JO.name
+                        if jn == je:
+                            continue
+                        key = fmtsku(x.JO.po.skuno)
+                        jns.setdefault(key, []).append(x.JO)
+                if jns:
+                    skuno = fmtsku(jo.po.skuno)
+                    sks = jns[skuno] if skuno and skuno in jns else None
+                    if not sks and level > 0:
+                        sks = [x.JO for x in rows if je !=
+                            x.JO.name and self._samekarat(jo, x.JO)]
+                        if not sks and level > 1:
+                            sks = [x.JO for x in rows]
+                    rc = sks
             except Exception as e:
                 if isinstance(e,UnicodeDecodeError):
-                    logger.debug("some jos of sty#(%s) contains invalid Big5 character " % jo.orderma.style.name.value)
-                rows = None
-            if(rows):
-                jns = {}
-                for x in rows:
-                    if x.JO.name == je:
-                        continue
-                    key = fmtsku(x.JO.po.skuno)
-                    jns.setdefault(key, []).append(x.JO)
-            if jns:
-                skuno = fmtsku(jo.po.skuno)
-                sks = jns[skuno] if skuno and skuno in jns else None
-                if not sks and level > 0:
-                    sks = [x.JO for x in rows if je !=
-                           x.JO.name and self._samekarat(jo, x.JO)]
-                    if not sks and level > 1:
-                        sks = [x.JO for x in rows]
-                rc = sks
+                    logger.debug("description/edescription/po.description of JO#(%s) contains invalid Big5 character " % jn.value)
         if rc and len(rc) > 1:
             rc = sorted(rc,key = attrgetter("createdate"), reverse = True)
         return rc
@@ -304,7 +305,7 @@ class HKSvc(SvcBase):
         return rmap
 
     def getmmioforjc(self, df, dt, runns):
-        """return the mmstock's I/O# for PAJCReader"""
+        """return the mmstock's I/O# for PajJCMkr"""
         lst = list()
         if not isinstance(runns[0], str):
             runns = [str(x) for x in runns]
@@ -327,7 +328,7 @@ class HKSvc(SvcBase):
         if not jes:
             return
         lst = []
-        if not(isinstance(jes, list) or isinstance(jes, tuple)):
+        if not isinstance(jes, Sequence):
             if isinstance(jes, Iterable):
                 jes = tuple(jes)
             elif isinstance(jes, JOElement):
@@ -382,7 +383,7 @@ class HKSvc(SvcBase):
 class CNSvc(SvcBase):
 
     def getshpforjc(self, df, dt):
-        """return py shipment data for PAJCReader
+        """return py shipment data for PajJCMkr
         @param df: start date(include) a date ot datetime object
         @param dt: end date(exclude) a date or datetime object 
         """
@@ -425,7 +426,7 @@ class CNSvc(SvcBase):
         btchno or id is determined by the fist item in btchnos
         @param btnos: should be a collection of btchno(str) or btchid(int)
         """
-        if not(isinstance(btnos,tuple) or isinstance(btnos,list)):
+        if not isinstance(btnos,Sequence):
             btnos = tuple(btnos)
         isstr = isinstance(btnos[0],str)
         if isstr:
@@ -435,7 +436,7 @@ class CNSvc(SvcBase):
         return self._getbyids(Query(StoneIn),btnos,qmkr,StoneIn,smkr)
 
     def getstpks(self,pknos):
-        if not(isinstance(pknos,tuple) or isinstance(pknos,list)):
+        if not isinstance(pknos,Sequence):
             pknos = tuple(pknos)
         isstr = isinstance(pknos[0],str)
         if isstr:
@@ -452,7 +453,7 @@ class CNSvc(SvcBase):
         return the stone costs by map, running or je as key and cost as value
         """
         if not runns: return None
-        
+        if not isinstance(runns,Sequence): runns = tuple(runns)
         isjn, jnlv = isinstance(runns[0],str) or isinstance(runns[0],JOElement), 0
         if isjn and isinstance(runns[0],str):
             runnsx = tuple(runns)

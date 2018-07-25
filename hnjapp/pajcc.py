@@ -186,8 +186,6 @@ class PajCalc():
         lr0 = lossrate if lossrate else self.calclossrate(prdwgt) ; r0 = 0
         for idx in hix:
             x = kws[idx]
-            #Natalie confirmed on 2018/07/20:bonded gold no metal cost
-            if x.karat == 9925: continue
             mp = mps.silver if x.karat == 925 else 0 if x.karat == 200 else mps.gold
             if not mp and x.karat != 200:
                 r0 = MPSINVALID

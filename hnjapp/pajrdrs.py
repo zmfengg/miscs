@@ -51,291 +51,272 @@ def _removenonascii(s0):
         return "".join([x for x in s0 if ord(x) > 31 and ord(x) < 127 and x != "?"])
     return s0
 
+class PajBomHhdlr(object):
+    """ methods to read BOMs from PAJ """
 
-def _getjoids(jonos, hnjhkdb):
-    """get the joIds by the provided jonos
-    @param jonos: a list of JOElement  
-    """
+    @classmethod
+    def readbom(self,fldr):
+        """ read BOM from given folder
+        @param fldr: the folder contains the BOM file(s)
+        return a dict with "pcode" as key and dict as items
+            the item dict has keys("pcode","wgts")
+        """
+        _ptnoz = re.compile(r"\(\$\d*/OZ\)")
+        _ptnsil = re.compile(r"(925)")
+        _ptngol = re.compile(r"^(\d*)K")    
+        _ptdst = re.compile(r"[\(（](\d*)[\)）]")
+        _ptfrcchain = re.compile(r"(弹簧扣)|(龙虾扣)|(狗仔头扣)")
+        #the parts must have karat, if not, follow the parent
+        _mtlpts = u"金,银,耳勾,线圈,耳针,Chain".lower().split(",")
 
-    rc = None
-    s0 = "or".join([" (alpha = '%s' and digit = %d) " %
-                    (x.alpha, x.digit) for x in jonos])
-    s0 = "select alpha,digit,joid from jo where (%s)" % s0
-    cur = hnjhkdb.cursor()
-    try:
-        cur.execute(s0)
-        rows = cur.fetchall()
-        if rows:
-            rc = dict((JOElement(x.alpha, x.digit).value, x.joid)
-                      for x in rows)
-    finally:
-        if cur:
-            cur.close()
-    return rc
-
-def readbom(fldr):
-    """ read BOM from given folder
-    @param fldr: the folder contains the BOM file(s)
-    return a dict with "pcode" as key and dict as items
-        the item dict has keys("pcode","wgts")
-    """
-    _ptnoz = re.compile(r"\(\$\d*/OZ\)")
-    _ptnsil = re.compile(r"(925)")
-    _ptngol = re.compile(r"^(\d*)K")    
-    _ptdst = re.compile(r"[\(（](\d*)[\)）]")
-    _ptfrcchain = re.compile(r"(弹簧扣)|(龙虾扣)|(狗仔头扣)")
-    #the parts must have karat, if not, follow the parent
-    _mtlpts = u"金,银,耳勾,线圈,耳针,Chain".lower().split(",")
-
-    _pcdec = P17Decoder()
-    
-    def _parsekarat(mat,wis = None ,ispol =True):
-        """ return karat from material string """
-        kt = None
-        if ispol:
-            mt = _ptnoz.search(mat)
-            if not mt: return        
-        if _ptnsil.search(mat):
-            kt = 925
-        else:
-            mt = _ptngol.search(mat)
-            if mt:
-                kt = int(mt.group(1))
+        _pcdec = P17Decoder()
+        
+        def _parsekarat(mat,wis = None ,ispol =True):
+            """ return karat from material string """
+            kt = None
+            if ispol:
+                mt = _ptnoz.search(mat)
+                if not mt: return        
+            if _ptnsil.search(mat):
+                kt = 925
             else:
-                mt = _ptdst.search(mat)
+                mt = _ptngol.search(mat)
                 if mt:
                     kt = int(mt.group(1))
-                    if not karatsvc.getkarat(kt):
-                        karat = karatsvc.getbyfineness(kt)
-                        if karat: kt = karat.karat
-        if not kt:
-            #not found, has must have keyword? if yes, follow master
-            if wis and any(wis):
-                s0 = mat.lower()
-                for x in _mtlpts:
-                    if s0.find(x) >= 0:
-                        if s0.find(u"银") >= 0:
-                            kt = 925
-                        elif s0.find(u"金") >= 0:
-                            for wi in wis:
-                                if not wi: continue
-                                karat = karatsvc.getkarat(wi.karat)
-                                if karat and karat.category == karatsvc.CATEGORY_GOLD:
-                                    kt = wi.karat
-                                    break
-                        #finally no one is found, follow master
-                        if not kt: kt = wis[0].karat
-                    if kt: break                
-            else:
-                logger.error("No karat found for (%s) and no default provided" % mat)
-                kt = -1
-        if kt and kt > 0:
-            karat = karatsvc.getkarat(kt)
-            if not karat: kt = -1
-        return kt
+                else:
+                    mt = _ptdst.search(mat)
+                    if mt:
+                        kt = int(mt.group(1))
+                        if not karatsvc.getkarat(kt):
+                            karat = karatsvc.getbyfineness(kt)
+                            if karat: kt = karat.karat
+            if not kt:
+                #not found, has must have keyword? if yes, follow master
+                if wis and any(wis):
+                    s0 = mat.lower()
+                    for x in _mtlpts:
+                        if s0.find(x) >= 0:
+                            if s0.find(u"银") >= 0:
+                                kt = 925
+                            elif s0.find(u"金") >= 0:
+                                for wi in wis:
+                                    if not wi: continue
+                                    karat = karatsvc.getkarat(wi.karat)
+                                    if karat and karat.category == karatsvc.CATEGORY_GOLD:
+                                        kt = wi.karat
+                                        break
+                            #finally no one is found, follow master
+                            if not kt: kt = wis[0].karat
+                        if kt: break                
+                else:
+                    logger.error("No karat found for (%s) and no default provided" % mat)
+                    kt = -1
+            if kt and kt > 0:
+                karat = karatsvc.getkarat(kt)
+                if not karat: kt = -1
+            return kt
 
-    def _ispendant(pcode):       
-        return _pcdec.decode(pcode,"PRODTYPE").find("吊") >= 0
-    
-    def _mergewgt(wgts,wgt,maxidx,tryins = False):
-        sltid = -1
-        for ii in range(maxidx + 1):
-            if wgts[ii]:
-                if wgts[ii].karat == wgt.karat:
-                    wis[ii] = WgtInfo(wgt.karat, wgt.wgt + wgts[ii].wgt)
-                    return ii
-            else:
-                if tryins and sltid < 0:
-                    sltid = ii
-                    break
-        if sltid >= 0:
-            wgts[sltid] = wgt            
-        return sltid
+        def _ispendant(pcode):       
+            return _pcdec.decode(pcode,"PRODTYPE").find("吊") >= 0
+        
+        def _mergewgt(wgts,wgt,maxidx,tryins = False):
+            sltid = -1
+            for ii in range(maxidx + 1):
+                if wgts[ii]:
+                    if wgts[ii].karat == wgt.karat:
+                        wis[ii] = WgtInfo(wgt.karat, wgt.wgt + wgts[ii].wgt)
+                        return ii
+                else:
+                    if tryins and sltid < 0:
+                        sltid = ii
+                        break
+            if sltid >= 0:
+                wgts[sltid] = wgt            
+            return sltid
 
-    if os.path.isdir(fldr):
-        fns = getfiles(fldr,"xls")
-    else:
-        fns = [fldr]
-    if not fns: return
+        if os.path.isdir(fldr):
+            fns = getfiles(fldr,"xls")
+        else:
+            fns = [fldr]
+        if not fns: return
 
-    kxl,app = xwu.app(False)
-    try:
-        pmap = {}
-        for fn in fns:
-            wb = app.books.open(fn)
-            shts = [0,0]
-            for sht in wb.sheets:
-                rng = xwu.find(sht, u"十七位")
-                if not rng: continue
-                if xwu.find(sht, u"抛光后"):
-                    shts[0] = (sht,rng)
-                elif xwu.find(sht, u"物料"):
-                    shts[1] = (sht,rng)
-            if not all(shts): break
-            for jj in range(len(shts)):
-                vvs = shts[jj][1].end("left").expand("table").value
-                if jj == 0:                    
-                    wcn = xwu.list2dict(vvs[0],{u"十七位,":"pcode",u"材质,":"mat",u"抛光,":"mtlwgt"})
-                    for ii in range(1,len(vvs)):
-                        pcode = vvs[ii][wcn["pcode"]]
-                        if not p17u.isvalidp17(pcode): break
-                        kt = _parsekarat(vvs[ii][wcn["mat"]])
-                        if not kt: continue
-                        it = pmap.setdefault(pcode,{"pcode":pcode})
-                        it.setdefault("wgts",[]).append((kt,vvs[ii][wcn["mtlwgt"]]))
-                elif jj == 1:
-                    nmap = {u"十七位,":"pcode",u"物料名称":"name", \
-                        u"物料特征":"spec",u"数量":"qty",u"重量":"wgt",u"单位":"unit"}
-                    wcn = xwu.list2dict(vvs[0],nmap)
-                    nmap = [x for x in nmap.values() if x.find("pcode") < 0]
-                    for ii in range(1,len(vvs)):
-                        pcode = vvs[ii][wcn["pcode"]]
-                        if not p17u.isvalidp17(pcode): break
-                        it = pmap.setdefault(pcode,{"pcode":pcode})
-                        mats, it = it.setdefault("parts",[]), {}
-                        mats.append(it)
-                        for cn in nmap:
-                            it[cn] = vvs[ii][wcn[cn]]                        
-            wb.close()
-        for x in pmap.items():
-            if x[0] == "33XJ9S97ZZ0C04V00":
-                print("x")
-            lst = x[1]["wgts"]
-            sltid, wis = -1, [None,None,None]            
-            for y in lst:
-                sltid = _mergewgt(wis,WgtInfo(y[0],y[1]),1,True)
-                if sltid < 0:
-                    logger.error("failed to get slot to store prodwgt for pcode %s" % x[0])
-                    x[1]["wgts"] = None
-                    continue
-            if "parts" in x[1]:                
-                if wis[1]:
-                    if wis[0].wgt < wis[1].wgt:
-                        wis[0],wis[1] = wis[1], wis[0]
-                ispendant,haschain,haskou = _ispendant(x[0]), False,False
-                if ispendant:
+        kxl,app = xwu.app(False)
+        try:
+            pmap = {}
+            for fn in fns:
+                wb = app.books.open(fn)
+                shts = [0,0]
+                for sht in wb.sheets:
+                    rng = xwu.find(sht, u"十七位")
+                    if not rng: continue
+                    if xwu.find(sht, u"抛光后"):
+                        shts[0] = (sht,rng)
+                    elif xwu.find(sht, u"物料"):
+                        shts[1] = (sht,rng)
+                if not all(shts): break
+                for jj in range(len(shts)):
+                    vvs = shts[jj][1].end("left").expand("table").value
+                    if jj == 0:                    
+                        wcn = xwu.list2dict(vvs[0],{u"十七位,":"pcode",u"材质,":"mat",u"抛光,":"mtlwgt"})
+                        for ii in range(1,len(vvs)):
+                            pcode = vvs[ii][wcn["pcode"]]
+                            if not p17u.isvalidp17(pcode): break
+                            kt = _parsekarat(vvs[ii][wcn["mat"]])
+                            if not kt: continue
+                            it = pmap.setdefault(pcode,{"pcode":pcode})
+                            it.setdefault("wgts",[]).append((kt,vvs[ii][wcn["mtlwgt"]]))
+                    elif jj == 1:
+                        nmap = {u"十七位,":"pcode",u"物料名称":"name", \
+                            u"物料特征":"spec",u"数量":"qty",u"重量":"wgt",u"单位":"unit"}
+                        wcn = xwu.list2dict(vvs[0],nmap)
+                        nmap = [x for x in nmap.values() if x.find("pcode") < 0]
+                        for ii in range(1,len(vvs)):
+                            pcode = vvs[ii][wcn["pcode"]]
+                            if not p17u.isvalidp17(pcode): break
+                            it = pmap.setdefault(pcode,{"pcode":pcode})
+                            mats, it = it.setdefault("parts",[]), {}
+                            mats.append(it)
+                            for cn in nmap:
+                                it[cn] = vvs[ii][wcn[cn]]                        
+                wb.close()
+            for x in pmap.items():
+                lst = x[1]["wgts"]
+                sltid, wis = -1, [None,None,None]            
+                for y in lst:
+                    sltid = _mergewgt(wis,WgtInfo(y[0],y[1]),1,True)
+                    if sltid < 0:
+                        logger.error("failed to get slot to store prodwgt for pcode %s" % x[0])
+                        x[1]["wgts"] = None
+                        continue
+                if "parts" in x[1]:                
+                    if wis[1]:
+                        if wis[0].wgt < wis[1].wgt:
+                            wis[0],wis[1] = wis[1], wis[0]
+                    ispendant,haschain,haskou = _ispendant(x[0]), False,False
+                    if ispendant:
+                        for y in x[1]["parts"]:
+                            nm = y["name"]
+                            if triml(nm).find("chain") >= 0:
+                                haschain = True
+                            if _ptfrcchain.search(nm):
+                                haskou = True
                     for y in x[1]["parts"]:
                         nm = y["name"]
-                        if triml(nm).find("chain") >= 0:
-                            haschain = True
-                        if _ptfrcchain.search(nm):
-                            haskou = True
-                for y in x[1]["parts"]:
-                    nm = y["name"]
-                    kt = _parsekarat(nm,wis,False)
-                    if not kt: continue                
-                    y["karat"] = kt
-                    done = False
-                    if ispendant:
-                        if haschain:
-                            done = triml(nm).find("chain") >= 0 or (haskou and (_ptfrcchain.search(nm) or nm.find("圈") >= 0))
-                            if done:
-                                wgt0 = wis[2]
-                                if not wgt0 or y["karat"] == wgt0.karat:
-                                    wgt = y["wgt"] + (wgt0.wgt if wgt0 else 0)
-                                    wis[2] = WgtInfo(y["karat"],wgt)
-                                    if wgt0:
-                                        logger.debug("Multi chain found for pcode(%s)" % x[0])
+                        kt = _parsekarat(nm,wis,False)
+                        if not kt: continue                
+                        y["karat"] = kt
+                        done = False
+                        if ispendant:
+                            if haschain:
+                                done = triml(nm).find("chain") >= 0 or (haskou and (_ptfrcchain.search(nm) or nm.find("圈") >= 0))
+                                if done:
+                                    wgt0 = wis[2]
+                                    if not wgt0 or y["karat"] == wgt0.karat:
+                                        wgt = y["wgt"] + (wgt0.wgt if wgt0 else 0)
+                                        wis[2] = WgtInfo(y["karat"],wgt)
+                                        if wgt0:
+                                            logger.debug("Multi chain found for pcode(%s)" % x[0])
+                                    else:
+                                        done = False
                                 else:
-                                    done = False
-                            else:
-                                logger.debug("No wgt pos for chain(%s) in pcode(%s),merged to main" % (y["name"],x[0]))
-                    if not done:
-                        _mergewgt(wis,WgtInfo(y["karat"],y["wgt"]),1)
-            x[1]["wgts"] = PrdWgt(wis[0],wis[1],wis[2])        
-    finally:
-        if kxl and app: app.quit()
-    return pmap
+                                    logger.debug("No wgt pos for chain(%s) in pcode(%s),merged to main" % (y["name"],x[0]))
+                        if not done:
+                            _mergewgt(wis,WgtInfo(y["karat"],y["wgt"]),1)
+                x[1]["wgts"] = PrdWgt(wis[0],wis[1],wis[2])        
+        finally:
+            if kxl and app: app.quit()
+        return pmap
 
-def readbom2jos(fldr,hksvc,fn = None,mindt = None):
-    """ build a jo collection list based on the BOM file provided
-        @param fldr: the folder contains the BOM file(s)
-        @param hksvc: the HK db service
-        @param fn: save the file to
-        @param mindt: the minimum datetime the query fetch until
-          if None is provided, it will be 2017/01/01
-        return a workbook contains the result
-    """
-    def _fmtwgt(prdwgt):
-        wgt = (prdwgt.main,prdwgt.aux,prdwgt.part)
-        lst = []
-        [lst.extend((x.karat,x.wgt) if x else (0,0)) for x in wgt]
-        return lst
-    def _samewgt(wgt0,wgt1):
-        wis = []
-        for x in (wgt0,wgt1):
-            wis.append((x.main,x.aux,x.part))
-        for i in range(3):
-            wts = (wis[0][i],wis[1][i])
-            eq = all(wts) or not(any(wts))
-            if not eq: break
-            if not all(wts): continue
-            eq = wts[0].karat == wts[0].karat or \
-                karatsvc.getfamily(wts[0].karat) == karatsvc.getfamily(wts[1].karat)
-            if not eq: break
-            eq = abs(round(wis[0][i].wgt - wis[1][i].wgt,2)) <= 0.02
-        return eq
+    @classmethod
+    def readbom2jos(self,fldr,hksvc,fn = None,mindt = None):
+        """ build a jo collection list based on the BOM file provided
+            @param fldr: the folder contains the BOM file(s)
+            @param hksvc: the HK db service
+            @param fn: save the file to
+            @param mindt: the minimum datetime the query fetch until
+            if None is provided, it will be 2017/01/01
+            return a workbook contains the result
+        """
+        def _fmtwgt(prdwgt):
+            wgt = (prdwgt.main,prdwgt.aux,prdwgt.part)
+            lst = []
+            [lst.extend((x.karat,x.wgt) if x else (0,0)) for x in wgt]
+            return lst
+        def _samewgt(wgt0,wgt1):
+            wis = []
+            for x in (wgt0,wgt1):
+                wis.append((x.main,x.aux,x.part))
+            for i in range(3):
+                wts = (wis[0][i],wis[1][i])
+                eq = all(wts) or not(any(wts))
+                if not eq: break
+                if not all(wts): continue
+                eq = wts[0].karat == wts[0].karat or \
+                    karatsvc.getfamily(wts[0].karat) == karatsvc.getfamily(wts[1].karat)
+                if not eq: break
+                eq = abs(round(wis[0][i].wgt - wis[1][i].wgt,2)) <= 0.02
+            return eq
 
-    pmap = readbom(fldr)
-    ffn = None
-    if not pmap: return ffn
-    vvs = ["pcode,m.karat,m.wgt,p.karat,p.wgt,c.karat,c.wgt".split(",")]
-    jos = ["Ref.pcode,JO#,Sty#,Run#,m.karat,m.wgt,p.karat,p.wgt,c.karat,c.wgt,rm.wgt,rp.wgt,rc.wgt".split(",")]
-    if not mindt:
-        mindt = dtm.datetime(2017,1,1)
-    qp = Query(Styhk.id).join(Orderma, Orderma.styid == Styhk.id) \
-        .join(JOhk,Orderma.id == JOhk.orderid).join(PajShp,PajShp.joid == JOhk.id)
-    qj = Query([JOhk.name.label("jono"),Styhk.name.label("styno"),JOhk.running]) \
-        .join(Orderma, Orderma.id == JOhk.orderid).join(Styhk).filter(JOhk.createdate >= mindt) \
-        .order_by(JOhk.createdate)
-    with hksvc.sessionctx() as sess:
-        cnt = 0;ln = len(pmap)
-        for x in pmap.values():
-            lst, wgt = [x["pcode"]], x["wgts"]
-            if isinstance(wgt,PrdWgt):
-                lst.extend(_fmtwgt((wgt)))
-            else:
-                lst.extend((0,0,0,0,0,0))
-            vvs.append(lst)
+        pmap = self.readbom(fldr)
+        ffn = None
+        if not pmap: return ffn
+        vvs = ["pcode,m.karat,m.wgt,p.karat,p.wgt,c.karat,c.wgt".split(",")]
+        jos = ["Ref.pcode,JO#,Sty#,Run#,m.karat,m.wgt,p.karat,p.wgt,c.karat,c.wgt,rm.wgt,rp.wgt,rc.wgt".split(",")]
+        if not mindt:
+            mindt = dtm.datetime(2017,1,1)
+        qp = Query(Styhk.id).join(Orderma, Orderma.styid == Styhk.id) \
+            .join(JOhk,Orderma.id == JOhk.orderid).join(PajShp,PajShp.joid == JOhk.id)
+        qj = Query([JOhk.name.label("jono"),Styhk.name.label("styno"),JOhk.running]) \
+            .join(Orderma, Orderma.id == JOhk.orderid).join(Styhk).filter(JOhk.createdate >= mindt) \
+            .order_by(JOhk.createdate)
+        with hksvc.sessionctx() as sess:
+            cnt = 0;ln = len(pmap)
+            for x in pmap.values():
+                lst, wgt = [x["pcode"]], x["wgts"]
+                if isinstance(wgt,PrdWgt):
+                    lst.extend(_fmtwgt((wgt)))
+                else:
+                    lst.extend((0,0,0,0,0,0))
+                vvs.append(lst)
 
-            pcode = x["pcode"]
-            q = qp.filter(PajShp.pcode == pcode).limit(1).with_session(sess)
-            try:
-                sid = q.one().id
-                q = qj.filter(Orderma.styid == sid).with_session(sess)
-                lst1 = q.all()
-                for jn in lst1:
-                    jowgt = hksvc.getjowgts(jn.jono)
-                    if not _samewgt(jowgt,wgt):
-                        lst = [pcode,jn.jono.value,jn.styno.value,jn.running]
-                        lst.extend(_fmtwgt(jowgt))
-                        lst.extend(_fmtwgt(wgt)[1::2])
-                        jos.append(lst)
-                    else:
-                        logger.debug("JO(%s) has same weight as pcode(%s)"\
-                            % (jn.jono.value,pcode))
-            except:
-                pass
-            
-            cnt += 1
-            if cnt % 20 == 0:
-                print("%d of %d done" % (cnt,ln))
+                pcode = x["pcode"]
+                q = qp.filter(PajShp.pcode == pcode).limit(1).with_session(sess)
+                try:
+                    sid = q.one().id
+                    q = qj.filter(Orderma.styid == sid).with_session(sess)
+                    lst1 = q.all()
+                    for jn in lst1:
+                        jowgt = hksvc.getjowgts(jn.jono)
+                        if not _samewgt(jowgt,wgt):
+                            lst = [pcode,jn.jono.value,jn.styno.value,jn.running]
+                            lst.extend(_fmtwgt(jowgt))
+                            lst.extend(_fmtwgt(wgt)[1::2])
+                            jos.append(lst)
+                        else:
+                            logger.debug("JO(%s) has same weight as pcode(%s)"\
+                                % (jn.jono.value,pcode))
+                except:
+                    pass
+                
+                cnt += 1
+                if cnt % 20 == 0:
+                    print("%d of %d done" % (cnt,ln))
 
-        app = xwu.app(False)[1]
-        wb = app.books.add()
-        sns, data = "BOMData,JOs".split(","), (vvs,jos)
-        for idx in range(len(sns)):
-            sht = wb.sheets[idx]
-            sht.name = sns[idx]
-            sht.range(1,1).value = data[idx]
-            sht.autofit("c")
-        wb.save(fn)
-        ffn = wb.fullname
-        app.quit()
-    return ffn
+            app = xwu.app(False)[1]
+            wb = app.books.add()
+            sns, data = "BOMData,JOs".split(","), (vvs,jos)
+            for idx in range(len(sns)):
+                sht = wb.sheets[idx]
+                sht.name = sns[idx]
+                sht.range(1,1).value = data[idx]
+                sht.autofit("c")
+            wb.save(fn)
+            ffn = wb.fullname
+            app.quit()
+        return ffn
 
-class ShpReader:
-
+class PajShpRdr(object):
+    """ read Paj's shipment files from given folder(\\172.16.8.46\pb\dptfile\pajForms\Shipments PAJ\) and save to storage.mdb and hnjhk """
     def __init__(self, accdb, hksvc):
         self._accessdb = accdb
         self._hksvc = hksvc
@@ -625,10 +606,9 @@ class ShpReader:
                 app.quit()
         return -1 if len(errors) > 0 else 1, errors
 
-
-class InvReader(object):
+class PajInvRdr(object):
     """
-    read the invoices(17PMXXX or alike) from given folder, generate data for hk
+    read Paj's invoices from folder(\\172.16.8.46\pb\dptfile\pajForms\Invoices PAJ\), and save the result to hnjhk db
     """
 
     def __init__(self, accdb, hksvc):
@@ -847,16 +827,17 @@ class InvReader(object):
         #return x[0], items if x[0] == 1 else () if x[0] == 0 else errs
         return -1, errs if errs else 1, items if items else 0, None
 
+class PajJCMkr(object):
+    """
+    the JOCost maker of Paj for HK accountant, the twin brother of C1JCMkr
+    """
 
-class PAJCReader(object):
-    """class to create the PAJ JOCost file for HK accountant"""
-
-    def __init__(self, hksvc=None, cnsvc=None, bcdb=None):
+    def __init__(self, hksvc=None, cnsvc=None, bcsvc=None):
         self._hksvc = hksvc
         self._cnsvc = cnsvc
-        self._bcdb = bcdb
+        self._bcsvc = bcsvc
 
-    def run(self, year, month, day = 1, tplfn=None, tarfldr=None):
+    def run(self, year, month, day = 1, tplfn=None, tarfn=None):
         """ create report file of given year/month"""
 
         def _makemap(sht=None):
@@ -885,7 +866,7 @@ class PAJCReader(object):
         df, dt = daterange(year,month,day)
 
         runns, jes = set(), set()
-        bcsvc = BCSvc(self._bcdb)
+        bcsvc = self._bcsvc
 
         mms = self._cnsvc.getshpforjc(df, dt)
         for x in mms:
@@ -911,7 +892,7 @@ class PAJCReader(object):
         ios = dict([("%s,%s,%s" % (x.running, x.jmp, x.shpdate.strftime(dfmt)), x) for x
                     in self._hksvc.getmmioforjc(df, dt, runns)])
         killxls, app = xwu.app(False)
-        lst, fn = [], None
+        lst = []
         try:
             wb = xwu.fromtemplate(tplfn, app)
             sht = wb.sheets("Data")
@@ -983,29 +964,24 @@ class PAJCReader(object):
             sht.range("A2").value = lst
             for x in [x for x in wb.sheets if x != sht]:
                 x.delete()
-            if tarfldr:
-                fn = appathsep(tarfldr) + df.strftime("%Y%m")
-                wb.save(fn)
+            if tarfn:
+                wb.save(tarfn)
         finally:
             if killxls and not wb:
                 app.quit()
             else:
                 app.visible = True
-        return lst, fn
+        return lst, tarfn
 
-class PriceTracker(object):
-    """ class to keep track of Pcode price changes
+class PajUPTcr(object):
+    """ 
+    Paj unit-price tracer
     to use this method, put a dat file inside a folder which should contains sty#
     then I will read and show the price trends
+    
+    to speed up the process of fetching data from hk, the key data(wgt/poprices) were localized by a sqlitedb.
 
-    The sql to fetch jo for each pcode here
-
-    select top 100 s.pcode,jo.alpha,jo.digit,inv.uprice,inv.mps,od.karat,jo.wgt
-    from tmp t join pajshp s on t.remark = s.pcode join pajinv inv on s.joid = inv.joid and s.invno = inv.invno
-    join jo on s.joid = jo.joid join orderma od on jo.orderid = od.orderid
-
-    view to get data
-    select iv.pcode,iv.jono,iv.mps,iv.uprice,iv.cn,iv.invdate,w.tag,w.karat,w.wgt from pajinv iv join pajwgt w on iv.id = w.pid order by iv.id,w.tag
+    the original purpose is to track the stamping products, but in fact, can be use for any Paj items.
 
     """
 

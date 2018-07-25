@@ -94,10 +94,9 @@ def list2dict(lst, trmap=None, dupdiv="", bname=None):
 
 def deepget(obj, names):
     """ get deeply from the object """
-    rc = None
+    gtr, rc = object.__getattribute__ if version_info.major >= 3 else object.__getattr__, obj
     for k in names.split("."):
-        rc = rc.__getattr__(
-            k) if rc else obj.__getattr__(k)
+        rc = gtr(rc,k)
     return rc
 
 

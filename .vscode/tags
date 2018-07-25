@@ -105,7 +105,7 @@ PajCalc	../hnjapp\pajcc.py	/^class PajCalc():$/;"	kind:class	line:176
 PajChina	../hnjapp\pajcc.py	/^class PajChina(namedtuple("PajChina", "china,increment,mps,discount,metalcost")):$/;"	kind:class	line:120
 PajCnRev	../hnjapp\dbsvcs.py	/^from hnjcore.models.hk import POItem, PajShp, PajInv, PajCnRev$/;"	kind:namespace	line:21
 PajCnRev	../hnjcore\models\hk.py	/^class PajCnRev(HKBase):$/;"	kind:class	line:201
-PajDataByRunn	../hnjapp\quordrs.py	/^class PajDataByRunn(object):$/;"	kind:class	line:236
+QuoDatMkr	../hnjapp\quordrs.py	/^class QuoDatMkr(object):$/;"	kind:class	line:236
 PajInv	../hnjapp\dbsvcs.py	/^from hnjcore.models.hk import POItem, PajShp, PajInv, PajCnRev$/;"	kind:namespace	line:21
 PajInv	../hnjapp\pajrdrs.py	/^from hnjcore.models.hk import PajInv, PajShp$/;"	kind:namespace	line:26
 PajInv	../hnjcore\models\hk.py	/^class PajInv(HKBase):$/;"	kind:class	line:186
@@ -116,7 +116,7 @@ PrdWgt	../hnjapp\dbsvcs.py	/^from pajcc import MPS, WgtInfo, PrdWgt, fmtkarat$/;
 PrdWgt	../hnjapp\pajcc.py	/^class PrdWgt(namedtuple("PrdWgt", "main,aux,part")):$/;"	kind:class	line:135
 PrdWgt	../hnjapp\pajrdrs.py	/^from pajcc import PrdWgt,WgtInfo$/;"	kind:namespace	line:30
 PrdWgt	../hnjapp\quordrs.py	/^from hnjapp.pajcc import MPS,PrdWgt,WgtInfo$/;"	kind:namespace	line:20
-PriceTracker	../hnjapp\pajrdrs.py	/^class PriceTracker(object):$/;"	kind:class	line:823
+PajUPTcr	../hnjapp\pajrdrs.py	/^class PajUPTcr(object):$/;"	kind:class	line:823
 Query	../hnjapp\dbsvcs.py	/^from sqlalchemy.orm import Session, Query$/;"	kind:namespace	line:15
 ResourceMgr	../hnjcore\utils\_miscs.py	/^class ResourceMgr(object):$/;"	kind:class	line:62
 SO	../hnjapp\dbsvcs.py	/^from hnjcore.models.hk import StockObjectMa as SO, Invoice as IV, InvoiceItem as IVI$/;"	kind:namespace	line:23
