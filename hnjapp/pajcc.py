@@ -176,7 +176,7 @@ class PajCalc():
         return max(rts) if rts else 1.06
 
     @classmethod
-    def calcmtlcost(self, prdwgt, mps, lossrate=None, vendor="PAJ"):
+    def calcmtlcost(self, prdwgt, mps, lossrate=None, vendor="PAJ",oz2gm = 31.1035):
         """
         calculate the metal cost
 
@@ -190,8 +190,8 @@ class PajCalc():
             if not mp and x.karat != 200:
                 r0 = MPSINVALID
                 break
-            r0 += (x.wgt * self.getfineness(x.karat, vendor) * (lr0 if idx < 2 else 1.0) *
-                mp / 31.1035)
+            r0 += (x.wgt * self.getfineness(x.karat, vendor) * (lr0 if vendor != "PAJ" or idx < 2 else 1.0) *
+                mp / oz2gm)
         return round(r0, 2)
 
     @classmethod

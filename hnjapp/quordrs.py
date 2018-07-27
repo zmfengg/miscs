@@ -21,7 +21,7 @@ from hnjapp.pajcc import MPS,PrdWgt,WgtInfo, PajChina, PajCalc
 from hnjcore import JOElement, xwu, appathsep, utils as hnju
 from hnjcore.utils.consts import NA
 from hnjcore.utils import getfiles
-from hnjcore.models.hk import PO,POItem,JO
+from hnjcore.models.hk import PO,POItem,JO,Orderma,Style
 from hnjapp.dbsvcs import jesin
 from hnjapp.c1rdrs import C1InvRdr
 
@@ -29,7 +29,7 @@ from hnjcore.models.hk import PajAck
 from . import pajcc
 from xlwings import App
 from sqlalchemy.orm import Query
-from utilz import splitarray, NamedLists, Alias
+from utilz import splitarray, NamedLists, NamedList
 
 
 def _checkfile(fn, fns):
@@ -243,7 +243,8 @@ class QuoDatMkr(object):
 
     After that, OKs.dat csv file will be created, which holds the calculated cost info. OKs.dat contains fields "Runn,OrgJO#,Sty#,Cstname,JO#,SKU#,PCode,ttcost,mtlcost,mps,rmks,discount". Those failed to calculated will be saved to err.dat csv file, which contains "Runn,OrgJO#,mainWgt,auxWgt,partWgt,mps" fields
 
-    one helper method was appended to calculate a TODO::
+    one helper method createpodat() was appended to calculate a given runn's cost under given MPS using it's PO price
+
     Data will be fetch from both PAJ and C1's invoice history. When the extractly one is not found, getfamiliar() function will be called to find a suitable one. In the case of C1 data handling, usbtormb/usdtohkd/pkratio is needed, provide you own if the default value is not suitable
     
     An example to read data from folder "d:\temp"
@@ -292,9 +293,14 @@ class QuoDatMkr(object):
         if any(vvs[:2]):
             return MPS(";".join(["%s=%s" % (vvs[x + 2], str(vvs[x])) for x in range(2) if vvs[x]]))
     
-    def createpodat(self,fldr,fn = "po.dat"):
+    def createpodat(self,fldr,fn = "po.dat",stpfn = None):
         """ from the runOK.dat, read the JO/MPS, get the weights/poprice/pomps, translate them into the newpoprice/newmps
+        @param stpfn: the file contains sty# that is marked stamping
         """
+        if not stpfn:
+            stpfn = r"\\172.16.8.46\pb\dptfile\quotation\date\Date2018\0502\(6) PriceDrop\StpStynos.dat"
+        with open(stpfn,"r") as fh:
+            stpstys = set([x.replace("\n","") for x in fh])
         mp = self.readreqs(fldr,checkdone = False)[0]
         if not mp: return
         fnpo = path.join(fldr,fn)
@@ -306,7 +312,7 @@ class QuoDatMkr(object):
             ttl, oks, rc = lst[0], lst[1:], []
             allrc.extend(lst)
         else:
-            ttl = tuple("pono,jono,runn,pomps,poup,newmps,newup".split(","))     
+            ttl = tuple("pono,jono,runn,pomps,poup,newmps,newup,lossrate".split(","))     
             rc, allrc = [ttl], [ttl]
         mp = dict([(x["runn"],x) for x in mp.values()])
         if exists:
@@ -320,23 +326,26 @@ class QuoDatMkr(object):
             logger.debug("No item need to be processed")
             return allrc
         ops, lst, mp = {}, [], list(mp.values())
-        q = Query([JO.name,POItem.uprice,PO.mps,PO.name.label("pono")]).join(POItem).join(PO)
+        q = Query([JO.name.label("jono"),POItem.uprice,PO.mps,PO.name.label("pono"),Style.name.label("styno")]).join(POItem).join(PO).join(Orderma,JO.orderid == Orderma.id).join(Style)
         fmt = ("%s," * len(ttl))[:-1]
+        nl = NamedList("uprice,mps,pono,styno")
         with self._hksvc.sessionctx() as cur:
             for arr in splitarray(mp,savecnt):
                 jns = [JOElement(x["jono"]) for x in arr]            
                 lst = q.filter(jesin(jns,JO)).with_session(cur).all()
-                ops = dict([(x.name.value,(float(x.uprice),MPS(x.mps),x.pono.strip())) for x in lst])
+                ops = dict([(x.jono.value,(float(x.uprice),MPS(x.mps),x.pono.strip(),x.styno.value)) for x in lst])
                 for x in arr:
                     jn = x["jono"]
                     op = ops.get(jn)
                     if not op:
                         logger.debug("no po returned for JO#(%s)" % jn)
                         continue
+                    nl.setdata(op)
                     wgts = self._hksvc.getjowgts(jn)
-                    mps0, np = op[1], op[0]
+                    mps0, np = nl.mps, nl.uprice
                     hasbg = sum([1 for x in wgts.wgts if x and x.karat == 9925])
                     #Natalie confirmed on 2018/07/20:bonded gold no metal cost, the target up the final PO#'s up
+                    lr = 1.05 if nl.styno in stpstys else 1.10
                     if hasbg:
                         ww = sum([1 if x and x.karat != 9925 else 0 for x in wgts.wgts])
                         #except bg, has other metal
@@ -344,17 +353,17 @@ class QuoDatMkr(object):
                             wgts = PrdWgt(*[x if x and x.karat != 9925 else None for x in wgts.wgts])
                             logger.debug("JO(%s) is bonded gold + other, use the last po price (%s,%6.2f) and gold incr" % (jn,op[2],np))
                         else:
-                            logger.debug("JO(%s) is bonded gold only, use the last po price (%s,%6.2f)" % (jn,op[2],np))
+                            logger.debug("JO(%s) is bonded gold only, use the last po price (%s,%6.2f)" % (jn,nl.pono,np))
                             wgts = None
                     if wgts:
                         #get the loss rate
-                        mc0 = PajCalc.calcmtlcost(wgts,mps0,vendor = "HNJ")
-                        mc1 = PajCalc.calcmtlcost(wgts,x["mps"],vendor = "HNJ")
+                        mc0 = PajCalc.calcmtlcost(wgts,mps0,lossrate = lr,vendor = "HNJ",oz2gm = 31.1031)
+                        mc1 = PajCalc.calcmtlcost(wgts,x["mps"],lossrate = lr, vendor = "HNJ",oz2gm=31.1031)
                         if mc0 > 0:
-                            np = round(mc1-mc0+op[0],2)
+                            np = round(mc1 - mc0 + nl.uprice, 2)
                         else:
                             np = pajcc.MPSINVALID 
-                    rc.append((op[2],jn,x["runn"],op[1].value,op[0],x["mps"].value,np))
+                    rc.append((nl.pono,jn,x["runn"],nl.mps.value,nl.uprice,x["mps"].value,np,lr))
                 allrc.extend(rc)
                 with open(fnpo,"at") as fh:
                     for yy in rc:

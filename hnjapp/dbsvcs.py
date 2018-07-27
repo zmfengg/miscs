@@ -472,10 +472,10 @@ class CNSvc(SvcBase):
             for arr in splitarray(runns,self._querysize):
                 try:
                     if isjn:
-                        q0 = q0.filter(jesin(arr,JOcn))
+                        q = q0.filter(jesin(arr,JOcn))
                     else:
-                        q0 = q0.filter(JOcn.running.in_(arr))
-                    lst1 = q0.with_session(cur).all()
+                        q = q0.filter(JOcn.running.in_(arr))
+                    lst1 = q.with_session(cur).all()
                     if lst1: lst.extend(lst1)
                 except:
                     pass

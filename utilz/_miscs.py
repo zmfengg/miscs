@@ -250,6 +250,15 @@ class NamedList(object):
         if not hasattr(self,"_idmap"):
             self._idmap = dict([x[1],x[0]] for x in self._nmap.items())
 
+    def get(self,kon,default = None):
+        """ simulate the dict's get function, for easy life only """
+        rc = default
+        try:
+            rc = self[kon]
+        except:
+            pass
+        return rc
+
     def getcol(self, nameorid):
         """
         return colname ->  colid or colid -> colname
