@@ -312,7 +312,7 @@ class QuoDatMkr(object):
             ttl, oks, rc = lst[0], lst[1:], []
             allrc.extend(lst)
         else:
-            ttl = tuple("pono,jono,runn,pomps,poup,newmps,newup,lossrate".split(","))     
+            ttl = tuple("pono,jono,runn,pomps,poup,newmps,newup,lossrate,mainwgt,auxwgt,partswgt".split(","))     
             rc, allrc = [ttl], [ttl]
         mp = dict([(x["runn"],x) for x in mp.values()])
         if exists:
@@ -363,11 +363,18 @@ class QuoDatMkr(object):
                             np = round(mc1 - mc0 + nl.uprice, 2)
                         else:
                             np = pajcc.MPSINVALID 
-                    rc.append((nl.pono,jn,x["runn"],nl.mps.value,nl.uprice,x["mps"].value,np,lr))
+                    y = [nl.pono,jn,x["runn"],nl.mps.value,nl.uprice,x["mps"].value,np,lr]
+                    if wgts:
+                        for kx in wgts:
+                            y.append("%s=%s" % (kx.karat,kx.wgt) if kx else "0")
+                    else:
+                        y.extend("0,0,0".split(","))
+
+                    rc.append(y)
                 allrc.extend(rc)
                 with open(fnpo,"at") as fh:
                     for yy in rc:
-                        print(fmt % yy,file = fh)
+                        print(fmt % tuple(yy),file = fh)
                 rc = []
         return allrc
 
@@ -580,9 +587,11 @@ class QuoDatMkr(object):
                 rmk = "Actual" if jn0 == jn1 else "Candiate"
                 skuno = x["skuno"]
                 skuno = "N/A" if not skuno else skuno
-                rmk = dict(zip(ttroks, (x["runn"], jn0, x["styno"], x["customer"]\
-                    ,jn1,skuno, x["pcode"], cost.china, \
-                    cost.metalcost if cost.metalcost else 0, cost.mps.value, rmk, cost.discount * 1.25)))
+                vals = [x["runn"], jn0, x["styno"], x["customer"],jn1,skuno, x["pcode"], cost.china, \
+                    cost.metalcost if cost.metalcost else 0, cost.mps.value, rmk, cost.discount * 1.25]
+                wgts = cost.increment.prdwgt
+                [vals.append("0" if not x else "%s=%f" % (x.karat,x.wgt)) for x in wgts]
+                rmk = dict(zip(ttroks, vals))
                 wtroks.writerow(rmk)
             foks.flush()                                            
             return wtroks, foks
@@ -606,7 +615,7 @@ class QuoDatMkr(object):
         fldr = appathsep(fldr)
         fnoks = path.join(fldr, self._fnoks)
         fnerrs = path.join(fldr, self._fnerrs)
-        ttroks = "Runn,OrgJO#,Sty#,Cstname,JO#,SKU#,PCode,ttcost,mtlcost,mps,rmks,discount".split(",")
+        ttroks = "Runn,OrgJO#,Sty#,Cstname,JO#,SKU#,PCode,ttcost,mtlcost,mps,rmks,discount,MainWgt,Auxwgt,PartWgt".split(",")
         ttrerrs = "Runn,OrgJO#,mainWgt,auxWgt,partWgt,mps".split(",")
         errs = [];hiserrs = None;wtrerrs = None;ferrs = None
         wtroks = None;foks = None
@@ -789,7 +798,10 @@ class InvAnalysis(object):
             if wb: wb.close()
 
 class AckPriceCheck(object):
-    """ check given folder's acks """
+    """
+    check given folder(not the sub-folders)'s acks. I'll firstly check if
+    the folder has been analysed. if yes, no thing will be done
+    """
     _dfmt = "%Y%m%d"
 
     CAT_NOREF = "NOREF"
@@ -857,6 +869,7 @@ class AckPriceCheck(object):
         fns = self._getsrcxlsfns()
         data,app = self._readsrcdata(fns,self._uptodate(fns))
         if not data: return
+        logger.debug("begin persisting")
         fds = dict([(x, datetime.datetime.fromtimestamp(path.getmtime(path.join(self._fldr, x))).replace(second = 0,microsecond=0)) for x in os.listdir(self._fldr)])
         fns = set(x["file"] for x in data.values())
         def _newinst(td):
@@ -888,6 +901,7 @@ class AckPriceCheck(object):
                     jes.add(je)
                     ins.ackdate, ins.mps = datetime.datetime.strptime(x["date"],dfmt), x["mps"]
                     ins.uprice, ins.docno, ins.pcode, ins.joid = float(x["pajprice"]), fn, x["pcode"][0],je
+                    if ins.uprice < 0: ins.uprice = -1
                     ins.lastmodified = fds[fn]
                 if exps:
                     cur.query(PajAck).filter(PajAck.docno.in_(list(exps))).delete(synchronize_session=False)
@@ -903,13 +917,15 @@ class AckPriceCheck(object):
                                 x.joid = jes[x.joid].id
                                 cur.add(x)
                             cur.flush()
-                        except:
+                        except Exception as err:
                             flag = False
                         finally:
                             if flag:
                                 cur.commit()
+                                logger.debug("persisted")
                             else:
                                 cur.rollback()
+                                logger.debug("error occur while persisting: %s" % err)
             finally:
                 if app: app.quit()
         return lst
@@ -956,6 +972,8 @@ class AckPriceCheck(object):
                 logger.info("%s exception(%s) occured" % (s0,err[1:]))
             elif msg:
                 logger.info("%s %s" % (s0,msg))
+        if not err:
+            self.persist()
         return rc
 
     def _readsrcdata(self,fns,utd):

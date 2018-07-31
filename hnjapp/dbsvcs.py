@@ -130,7 +130,7 @@ class HKSvc(SvcBase):
     def __init__(self, sqleng):
         """ init me with a sqlalchemy's engine """
         super(HKSvc, self).__init__(sqleng)
-        self._ptnmit = re.compile("^M[A-Z]T")
+        self._ptnmit = re.compile("^M[iI]T")
 
     def _pjq(self):
         """ return a JO -> PajShp -> PajInv query, append your query

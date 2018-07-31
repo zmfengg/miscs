@@ -670,15 +670,15 @@ class PajShpHdlr(object):
                                 if its[0]: invs.update(its[0])
                                 if its[1]: invtorv.extend(its[1])
                     elif bool(shtshps) ^ bool(shtinvs):
-                        logger.info("There should not be case there is shipment or invoice only in file(%s)" % path.basename(fn))
+                        logger.info("Error::Not both shipment and invoice in file(%s), No data updated" % path.basename(fn))
                 finally:
                     if wb:
                         wb.close()
                 if sum((len(x) for x in (shptorv,shps,invtorv,invs))) == 0:
                     if rflag != 1:
-                        logger.debug("no valid shipment and invoice returned from file(%s)" % path.basename(fn))
+                        logger.debug("no valid data returned from file(%s)" % path.basename(fn))
                     else:
-                        logger.debug("both shipment and invoice in file(%s) were up-to-date" % path.basename(fn))
+                        logger.debug("data in file(%s) is up-to-date" % path.basename(fn))
                     continue
                 logger.debug("counts of file(%s) are: Shp2Rv=%d, Shps=%d, Inv2Rv=%d, Invs=%d" % (path.basename(fn), len(shptorv),len(shps),len(invtorv),len(invs)))
                 if True:
@@ -688,7 +688,7 @@ class PajShpHdlr(object):
                         logger.info("file(%s) contains errors" % path.basename(fn))
                         logger.info(x[1])
                     else:
-                        logger.debug("shipment and invoice data in file(%s) were updated" % (path.basename(fn)))
+                        logger.debug("data in file(%s) were updated" % (path.basename(fn)))
         finally:
             if killxls:
                 app.quit()
@@ -1117,3 +1117,13 @@ class PajUPTcr(object):
             for sht in wb.sheets:
                 if sht not in shts:
                     sht.delete()
+
+class ShpMkr(object):
+    """ class to make the daily shipment, include below functions
+    .build the report if there is not and maintain the runnings
+    .build the bc data
+    .make the import
+    .do invoice comparision
+    Technique that I don't know:: UI under python
+    """
+    pass
