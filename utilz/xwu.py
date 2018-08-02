@@ -11,7 +11,7 @@ import xlwings
 import os
 from ._miscs import list2dict
 
-__all__ = ["app","find","fromtemplate","list2dict","usedrange"]
+__all__ = ["app","find","fromtemplate","list2dict","usedrange", "safeopen"]
 
 def app(vis=True,dspalerts = False):    
     """ launch an excel or connect to existing one
@@ -21,7 +21,7 @@ def app(vis=True,dspalerts = False):
     
     flag = xlwings.apps.count == 0
     app = xlwings.apps.active if not flag else xlwings.App(visible=vis, add_book=False)
-    if app and dspalerts is not None: app.api.DisplayAlerts = bool(dspalerts)
+    if app and dspalerts is not None: app.display_alerts = bool(dspalerts)
     return flag, app
 
 
@@ -93,3 +93,12 @@ def freeze(rng,restrfocus = True):
             _selrng(orng)
     except:
         pass
+
+def safeopen(app, fn, updlnk = False, readonly = True):
+    if not app or not os.path.exists(fn) : return
+    flag = True
+    try:
+        app.api.workbooks.Open(fn, updlnk, readonly)
+    except:
+        flag = False
+    if flag: return app.books[-1]

@@ -12,12 +12,15 @@ import datetime as dtm
 from collections import OrderedDict
 import numbers
 import os
+import random
 from os import path
 import re
 import sys
 from collections import namedtuple
 from datetime import date, datetime
 from decimal import Decimal
+from tkinter import filedialog
+import tkinter as tk
 
 import xlwings.constants as const
 from sqlalchemy import and_, func
@@ -41,6 +44,7 @@ from .localstore import PajWgt as PrdWgtSt
 from .pajcc import PAJCHINAMPS, P17Decoder, PajCalc, PrdWgt, WgtInfo, MPS
 
 _accdfmt = "%Y-%m-%d %H:%M:%S"
+_dfkt = {"4":925,"5":925,"M":8,"B":9,"G":10,"Y":14,"P":18}
 
 def _accdstr(dt):
     """ make a date into an access date """
@@ -52,6 +56,9 @@ def _removenonascii(s0):
     if isinstance(s0, str):
         return "".join([x for x in s0 if ord(x) > 31 and ord(x) < 127 and x != "?"])
     return s0
+
+def _getdefkarat(jn):
+    return _dfkt.get(jn[0])
 
 class PajBomHhdlr(object):
     """ methods to read BOMs from PAJ """
@@ -336,14 +343,13 @@ class PajShpHdlr(object):
     """
     def __init__(self,hksvc):
         self._hksvc = hksvc
-        self._ptnfd = re.compile(r"\d+")
-        self._ptngwt = re.compile(r"(\d*\.\d*)\s*[gG]+")
-        self._ptnswt = re.compile(r"\d*\.\d*")
 
+    @classmethod
     def _getshpdate(self, fn, isfile=True):
         """extract the shipdate from file name"""
         import datetime as dt
-        parts = self._ptnfd.findall(path.basename(fn))
+        ptnfd = re.compile(r"\d+")
+        parts = ptnfd.findall(path.basename(fn))
         if not parts:
             return
 
@@ -373,6 +379,7 @@ class PajShpHdlr(object):
     def _getfmd(self,fn):
         return datetime.fromtimestamp(path.getmtime(fn)).replace(microsecond=0).replace(second=0)
     
+    @classmethod
     def _readquodata(self, sht, qmap):
         """extract gold/stone weight data from the QUOXX sheet
         @param sht:  the DL_QUOTATION sheet that need to read data from
@@ -383,6 +390,8 @@ class PajShpHdlr(object):
             return
         # because there is merged cells rng.expand('table').value
         # or sht.range(rng.end('right'),rng.end('down')).value failed
+        _ptngwt = re.compile(r"(\d*\.\d*)\s*[gG]+")
+        _ptnswt = re.compile(r"\d*\.\d*")
         vvs = sht.range(rng, rng.current_region.last_cell).value
         nls = NamedLists(vvs,{"Item,":"pcode","stone,":"stone","metal ,":"metal"},False)
         for tr in nls:
@@ -392,10 +401,14 @@ class PajShpHdlr(object):
             if p17u.isvalidp17(p17) and not p17 in qmap:
                 sw = 0 if not tr.stone else \
                     sum([float(x)
-                         for x in self._ptnswt.findall(tr.stone)])
+                         for x in _ptnswt.findall(tr.stone)])
                 mtls = tr.metal
-                mw = mtls if isinstance(mtls, numbers.Number) else sum(
-                    [float(x) for x in self._ptngwt.findall(mtls)])
+                if isinstance(mtls, numbers.Number):
+                    mw = (WgtInfo(0,mtls),)
+                else:
+                    #TODO:extend this function to return metalwgt as a list of WgtInfo
+                    s0 = tr.metal.replace("：",":")
+                    #[float(x) for x in _ptngwt.findall(mtls)])
                 qmap[p17] = (mw, sw)
 
     def _hasread(self,fmd, fn, invno = None):
@@ -421,27 +434,15 @@ class PajShpHdlr(object):
                     rc = 2 if inv[1] < fmd else 1
         return rc
 
-    def _readinv(self, fn, sht, fmd):
-        """
-        read files back, instead of using os.walk(root), use os.listdir()
-        @param invfldr: the folder contains the invoices
-        """
-
+    @classmethod
+    def _rawreadinv(self, sht, invno = None, fmd = None):
         PajInvItem = namedtuple(
             "PajInvItem", "invno,pcode,jono,qty,uprice,mps,stspec,lastmodified")
-        rng = xwu.find(sht, "Inv*No:")
-        if not rng: return
-        invno, dups = rng.offset(0, 1).value, []
-        idx = self._hasread(fmd, fn, invno)
-        if idx == 1:
-            return 
-        elif idx == 2:
-            dups.append(invno)
-            
         items = {}
         rng = xwu.find(sht, "Item*No", lookat=const.LookAt.xlWhole)
         if not rng:
             return
+        if not invno: invno = self._readinvno(sht)
         rng = rng.expand("table")
         nls = tuple(NamedLists(rng.value,{"item,":"pcode","gold,": "gold", "silver,": "silver", u"job#,工单": "jono","price,": "uprice", "unit,": "qty", "stone,": "stspec"}))
         if not nls: return
@@ -469,7 +470,7 @@ class PajShpHdlr(object):
                 #jns = self._getjonos(p17, invno)
                 pass
             if not jn:
-                logger.debug("No JO# found for p17(%s) in file %s" % (p17, fn))
+                logger.debug("No JO# found for p17(%s)" % p17)
                 continue
             key = invno + "," + jn
             if key in items.keys():
@@ -480,8 +481,30 @@ class PajShpHdlr(object):
                     if th.getcol("gold") and th.getcol("silver") else "S=0;G=0"
                 it = PajInvItem(invno, p17, jn, tr.qty, tr.uprice, mps, tr.stspec, fmd)
                 items[key] = it
+        return items
+
+    @classmethod
+    def _readinvno(self, sht):
+        rng = xwu.find(sht, "Inv*No:")
+        if not rng: return
+        return rng.offset(0, 1).value
+
+    def _readinv(self, fn, sht, fmd):
+        """
+        read files back, instead of using os.walk(root), use os.listdir()
+        @param invfldr: the folder contains the invoices
+        """
+
+        invno, dups = self._readinvno(sht) , []
+        idx = self._hasread(fmd, fn, invno)
+        if idx == 1:
+            return 
+        elif idx == 2:
+            dups.append(invno)            
+        items = self._rawreadinv(sht, invno, fmd)
         return items,dups
 
+    @classmethod
     def _readshp(self,fn,fshd,fmd,sht):
         """ 
         @param fshd: the shipdate extracted by the file name
@@ -499,10 +522,9 @@ class PajShpHdlr(object):
         x = [x for x in "invno,pcode,jono,qty,invdate".split(
             ",") if th.getcol(x) is None]
         if x:
-            #logger.debug("failed to find key columns(%s) in file(%s),sheet(%s)" % (x, path.basename(fn), sht.name))
             return
         bfn = path.basename(fn).replace("_", "")
-        shd = self._getshpdate(sht.name, False)
+        shd = PajShpHdlr._getshpdate(sht.name, False)
         if shd:
             df = shd - fshd
             shd = shd if abs(df.days) <= 7 else fshd 
@@ -533,16 +555,15 @@ class PajShpHdlr(object):
                     items[thekey] = si._replace(qty = si.qty + tr.qty)
                 else:
                     ivd = tr.invdate
-                    si = PajShpItem(bfn, odno, jono, tr.qty, tr.pcode, invno, ivd, mwgt, tr.stwgt, ivd, fmd, td0)
+                    si = PajShpItem(bfn, odno, jono, tr.qty, tr.pcode, invno, ivd, (WgtInfo(_getdefkarat(jono),mwgt)), tr.stwgt, ivd, fmd, td0)
                     items[thekey] = si
         else:
             # new sample case, extract weight data from the quo sheet
             if not qmap:
                 wb, qmap = sht.book, {}
                 for x in [xx for xx in wb.sheets if xx.api.Visible == -1 and xx.name.lower().find('dl_quotation') >= 0]:
-                    self._readquodata(x, qmap)
+                    PajShpHdlr._readquodata(x, qmap)
             if qmap:
-                import random
                 for tr in nls:
                     # no cost item means repairing
                     if not tr.get("cost"): continue
@@ -559,7 +580,6 @@ class PajShpHdlr(object):
                             tr.invno, ivd, snm[0], snm[1], ivd, fmd, td0)
                     # new sample won't have duplicated items
                     items[random.random()] = si
-                del random
             else:
                 qmap["_SIGN_"] = 0
         return items
@@ -592,6 +612,8 @@ class PajShpHdlr(object):
                             continue
                         dct["fn"] = _removenonascii(dct["fn"])
                         dct["joid"] = jns[je].id
+                        #"mtlwgt" is a list of WgtInfo Object
+                        dct["mtlwgt"] = sum([x.wgt for x in dct["mtlwgt"]])
                         shp = PajShp()
                         for x in dct.items():
                             k = x[0]
@@ -662,7 +684,7 @@ class PajShpHdlr(object):
                     if shtshps and shtinvs:
                         if rflag != 1:
                             for sht in shtshps:
-                                its = self._readshp(fn, shd0, fmd, sht)
+                                its = PajShpHdlr._readshp(fn, shd0, fmd, sht)
                                 if its: shps.update(its)
                         for sht in shtinvs:
                             its = self._readinv(fn, sht, fmd)
@@ -1118,12 +1140,118 @@ class PajUPTcr(object):
                 if sht not in shts:
                     sht.delete()
 
+def easydlg(dlg):
+    rt = tk.Tk()
+    rt.withdraw()
+    dlg.master = rt
+    rc = dlg.show()
+    rt.quit()
+    return rc
+
 class ShpMkr(object):
     """ class to make the daily shipment, include below functions
     .build the report if there is not and maintain the runnings
     .build the bc data
     .make the import
     .do invoice comparision
-    Technique that I don't know:: UI under python
+    Technique that I don't know:: UI under python, use tkinter, and it's simle messages
     """
-    pass
+    _mergeshpjo = False
+
+    def merge(self,fldr = None,tarfn = None):
+        """ merge the files in given folder into one file """
+        if not fldr:
+            fldr = easydlg(filedialog.Directory(title="Choose folder contains one-time-shipment files"))
+            if not path.exists(fldr): return
+        fns = getfiles(fldr,".xls")
+        dffn = [x for x in fns if x.find("_") >= 0]
+        if len(dffn) > 0:
+            logger.debug("target has already an result file(%s)" % os.path.basename(dffn[0]) )
+            return dffn[0]
+        ptn = re.compile(r"^HNJ \d+")
+        kxl, app = xwu.app(False)
+        wb = app.books.add()
+        nshts = [x for x in wb.sheets]
+        bfsht = wb.sheets[0]
+        for fn in fns:
+            if fn.find("_") >= 0: continue
+            if not dffn and ptn.search(os.path.basename(fn)):
+                sd = PajShpHdlr._getshpdate(fn)
+                if sd:
+                    dffn = "HNJ %s 出货明细_" % sd.strftime("%Y-%m-%d")
+            wbx = xwu.safeopen(app, fn)
+            try:
+                for sht in wbx.sheets:
+                    if sht.api.visible == -1:
+                        sht.api.Copy(Before = bfsht.api)
+            finally:
+                wbx.close()
+        for x in nshts:
+            x.delete()
+        if dffn:
+            dffn = os.path.join(fldr,dffn)
+            wb.save(dffn)
+            logger.debug("merged file saved to %s" % dffn)
+        elif kxl:
+            app.quit()
+        return dffn
+    
+    def readc1(self, sht, **kwgs):
+        pass
+    
+    def readc2(self, sht, **kwgs):
+        pass
+
+    def readpaj(self, sht, **kwgs):
+        shps = PajShpHdlr._readshp(kwgs["fn"],kwgs["shpdate"],kwgs["fmd"],sht)
+        if not shps: return (None, None)
+        mp,shn = {}, sht.name
+        for shp in shps:
+            jn = shp.jono
+            key = jn if self._mergeshpjo else jn + str(random.random())
+            it = mp.setdefault(key,{"jono":jn,"qty":0,"location":(shn,jn)})
+            qty, karat, wgt = shp.qty, _getdefkarat(jn), it.mtlwgt
+            idx = it.get("karat1")
+            if idx:
+                idx = 1 if idx == karat else 2
+                if self._mergeshpjo:
+                    wgt = (wgt * it.qty + it["qty"] * it["wgt%d" % idx]) / it["qty"]
+            else:
+                idx = 1
+            it["qty"] += qty
+            it["karat%d" % idx] = karat
+            it["wgt%d" % idx] = wgt
+
+    def _genrpt(self, fldr):
+        fn = self.merge(fldr)
+        if not fn: return
+        kxl, app = xwu.app()
+        wb = app.books.open(fn)
+        invs, its, errs, vt = [], [], None, []
+        pajopts = {"fn":fn,"shpdate":PajShpHdlr._getshpdate(fn),"fmd": datetime.datetime.today()}
+        rdrmap = {"长兴珠宝":("c2",self.readc2),"诚艺,胤雅":("c1",self.readc1) ,"十七,物料编号":("paj",self.readpaj)}
+        rsht =[x for x in wb.sheets if triml(x.name) == "rpt"]
+        if not rsht:
+            rdr = None
+            for sht in wb.sheets:
+                if not vt:
+                    for x in rdrmap.keys():
+                        for y in x.split(","):
+                            if xwu.find(sht, y) >= 0:
+                                vt = x
+                                break
+                        if vt: break
+                rdr = rdrmap.get(vt)
+                if rdr:
+                    lst = rdr[1](sht, pajopts)
+                    if lst:
+                        if lst[0]: its.extend(lst[0])
+                        if lst[1]: errs.extend(lst[1])
+                    elif rdr[0] == "paj":
+                        invno = PajShpHdlr._readinvno(sht)
+                        if not invno: continue
+                        lst = PajShpHdlr._rawreadinv(sht, invno)
+                        if not lst:
+                            invs.extend(lst)
+            #TODO::build the rpt sheet
+        return fn
