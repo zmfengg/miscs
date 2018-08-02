@@ -149,6 +149,27 @@ class KeyTests(TestCase):
         finally:
             if app: app.quit()
                 
+        #now namedlist treating normal object, There is an object Alias before
+        #but finally merged into NamedList
+        class A(object):
+            name,id,age = "Hello",0,0
+        al = NamedList({"nick":"name"})
+        it = A()
+        al.setdata(it) 
+        #the getter
+        self.assertEqual(it.name, al.nick,"One object, 2 name or more")
+        self.assertEqual(it, al.data,"return the object")
+        #the setter
+        al.nick = "WXXX"
+        self.assertEqual("WXXX",it.name)
+
+        d0 = {"name":"David","Age":20}
+        al = NamedList({"nick":"name"},d0)
+        self.assertEqual(al["name"],al["nick"])
+        self.assertTrue("nick" not in d0)
+        self.assertEqual(al.name, al.nick)
+
+                
     def testAppathSep(self):
         fldr = thispath
         self.assertTrue(fldr[-1] != path.sep, "a path's name should not ends with path.sep")
@@ -165,19 +186,6 @@ class KeyTests(TestCase):
         self.assertEqual(2,len(fns),"the count of files")
         fns = set([x for x in fns])
         self.assertTrue(u"厉害为国為幗.txt" in fns, "utf-8 based system can return mixing charset")
-
-    def testAlias(self):
-        class A(object):
-            name,id,age = "Hello",0,0
-        al = Alias({"name":"nick"})
-        it = A()
-        al.setdata(it) 
-        #the getter
-        self.assertEqual(it.name, al.nick,"One object, 2 name or more")
-        self.assertEqual(it, al.getdata(),"return the object")
-        #the setter
-        al.nick = "WXXX"
-        self.assertEqual("WXXX",it.name)
 
     def testKaratSvc(self):
         ks = karatsvc

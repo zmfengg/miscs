@@ -7,7 +7,7 @@
 '''
 
 from collections import OrderedDict
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from math import ceil
 from numbers import Integral
 from os import listdir, path
@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from .common import _logger as logger
 
-__all__ = ["Alias", "NamedList", "NamedLists", "appathsep", "daterange", "deepget", "getfiles", "isnumeric", "list2dict", "na", "splitarray", "stsizefmt", "triml", "trimu"]
+__all__ = ["NamedList", "NamedLists", "appathsep", "daterange", "deepget", "getfiles", "isnumeric", "list2dict", "na", "splitarray", "stsizefmt", "triml", "trimu"]
 
 na = "N/A"
 
@@ -94,7 +94,8 @@ def list2dict(lst, trmap=None, dupdiv="", bname=None):
 
 def deepget(obj, names):
     """ get deeply from the object """
-    gtr, rc = object.__getattribute__ if version_info.major >= 3 else object.__getattr__, obj
+    #gtr, rc = object.__getattribute__ if version_info.major >= 3 else object.__getattr__, obj
+    gtr, rc =  getattr, obj
     for k in names.split("."):
         rc = gtr(rc,k)
     return rc
@@ -203,51 +204,81 @@ def triml(s0):
 
 
 class NamedList(object):
-    """ the wrapper of the list/tuple that make it operatable by .name or [name] or [i] """
+    """
+    the wrapper of the list/tuple that make it operatable by .name or [name] or [i]
+    self._dtype:
+        0 -> not data set
+        1 -> data is list
+        2 -> data is dict
+        10 -> data is object
+        ... your turn to extend me
+    """
 
-    def __init__(self, nmap, lst=None):
+
+    def __init__(self, nmap, data=None):
         if isinstance(nmap,tuple) or isinstance(nmap,list):
             nmap = list2dict(nmap)
         elif isinstance(nmap,str):
             nmap = list2dict(nmap.split(","))
-        self._nmap = nmap
-        if lst:
-            self.setdata(lst)
+        elif isinstance(nmap,dict):
+            nmap = dict([(triml(x[0]),x[1]) for x in nmap.items()])
+        self._nmap, self._idmap = nmap, None
+        self._dtype = 0
+        if data:
+            self.setdata(data)
 
-    def setdata(self, lst):
-        if lst and (isinstance(lst, list) or isinstance(lst, tuple)) and len(self._nmap) == len(lst):
-            self._lst = lst
+    def setdata(self, data):
+        if data:
+            if isinstance(data, Sequence) and len(self._nmap) != len(data):
+                data = None
+        if not data:
+            self._dtype = 0
+        else:
+            self._dtype = 1 if isinstance(data, Sequence) else 2 if isinstance(data, dict) else 10
+        self._data = data
 
     def _checkarg(self, name):
-        if not (self._lst and name in self._nmap):
-            raise AttributeError("no attribute(%s) found" % name)
+        if not (self._dtype and (self._dtype != 1 or name in self._nmap)):
+            raise AttributeError("no attribute(%s) found or data not set" % name)
 
     def __getattr__(self, name):
         name = triml(name)
-        self._checkarg(name)
-        return self._lst[self._nmap[name]]
+        if self._dtype == 1:
+            return self._data[self._nmap[name]]
+        elif name in self._nmap:
+            name = self._nmap[name]
+        return self._data[name] if self._dtype == 2 else getattr(self._data, name)
 
     def __setattr__(self, name, val):
-        if name.startswith("_"):
+        #self._checkarg(name)
+        if name.startswith("_"):            
             object.__setattr__(self, name, val)
         else:
             name = triml(name)
             self._checkarg(name)
-            self._lst[self._nmap[name]] = val
+            if self._dtype == 1:
+                self._data[self._nmap[name]] = val
+            else:
+                if name in self._nmap:
+                    name = self._nmap[name]
+                if self._dtype == 2:
+                    self._data[name] = val
+                else:
+                    setattr(self._data, name, val)
 
     def __getitem__(self, key):
         if isinstance(key, slice) or isinstance(key, Integral):
-            return self._lst[key]
+            return self._data[key]
         return self.__getattr__(key)
 
     def __setitem__(self, key, val):
         if isinstance(key, Integral):
-            self._lst[key] = val
+            self._data[key] = val
         else:
             self.__setattr__(key, val)
 
     def _mkidmap(self):
-        if not hasattr(self,"_idmap"):
+        if not self._idmap:
             self._idmap = dict([x[1],x[0]] for x in self._nmap.items())
 
     def get(self,kon,default = None):
@@ -281,7 +312,7 @@ class NamedList(object):
 
     @property
     def data(self):
-        return self._lst
+        return self._data
 
 
 class NamedLists(Iterator):
@@ -336,30 +367,4 @@ class NamedLists(Iterator):
     def namemap(self):
         return self._nmap
 
-class Alias(object):
-    def __init__(self, nmap,obj = None):
-        self._nmap = dict((x[1],x[0]) for x in nmap.items())
-        if obj: self.setdata(obj)
-
-    def setdata(self,obj):
-        self._obj = obj 
-        return self
-        
-    def __setattr__(self, name, obj):
-        if name in ("_nmap", "_obj"):
-            object.__setattr__(self, name, obj)
-        else:
-            if name in self._nmap:
-                name = self._nmap[name]
-            object.__setattr__(self._obj, name, obj)
-
-    def __getattr__(self, name):
-        if name in ("_obj","getdata","_nmap","__dict__"):
-            return self.__dict__[name] 
-        if name in self._nmap:
-            name = self._nmap[name]
-        return getattr(self._obj, name)
-
-    def getdata(self):
-        return self._obj
-
+Alias = NamedList
