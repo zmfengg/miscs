@@ -34,17 +34,39 @@ from .common import _date_short
 from .common import _logger as logger
 
 _ptnbtno = re.compile(r"(\d+)([A-Z]{3})(\d+)")
+
+def _nf(part,cnt):
+    try:
+        i = int(part)
+        part = ("%%0%sd" % ("%d" % cnt)) % i
+    except:
+        pass
+    return part
+    
 def _fmtbtno(btno):
     """ in C1's STIO excel file, the batch# is quite malformed
     this method format it to standard ones
     """
+    if not btno: return
+    flag = False
     if isinstance(btno,numbers.Number):
         btno = "%08d" % int(btno)
-    else:
-        mt = _ptnbtno.search(btno)
-        if mt:
-            btno = btno[mt.start(1):mt.end(2)] + ("%03d" % int(mt.group(3)))
-    return btno
+    else:        
+        if isinstance(btno,datetime.datetime):
+            btno = btno.strftime("%d-%b-%y")
+            flag = True
+        btno = btno.replace("‘","")
+        if btno.find("-") > 0:            
+            cnts = (2,2,3,2,2,2)
+            ss, pts = btno.split("-"), []
+            for i in range(len(ss)):
+                pts.append(_nf(ss[i],cnts[i]))
+            btno = trimu("".join(pts))
+        else:
+            mt = _ptnbtno.search(btno)
+            if mt:
+                btno = btno[mt.start(1):mt.end(2)] + ("%03d" % int(mt.group(3)))
+    return ("-" if flag else "") + btno
 
 def _fmtpkno(pkno):
     """ in C1's STIO excel file, the package# is quite malformed

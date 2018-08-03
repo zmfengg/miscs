@@ -47,6 +47,7 @@ class JO(CNBase):
     running = Column(Integer,name ="running")
     description = Column(VARCHAR(50),name ="description", nullable = False)
     qty = Column(Float,name = 'quantity')
+    qtyleft = Column(Float,name = "qtyleft")
     karat = Column(Integer,name ="karat")
     deadline = Column(DateTime, nullable=False, name="dead_line")
     lastupdate = Column(DateTime, nullable=False, name = "modi_date")

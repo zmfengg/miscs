@@ -71,7 +71,10 @@ def list2dict(lst, trmap=None, dupdiv="", bname=None):
             mp[x] += 1
             if dupdiv == None:
                 dupdiv = ""
-            lstl[ii] += dupdiv + str(mp[x])
+            if lstl[ii]:
+                lstl[ii] += dupdiv + str(mp[x])
+            else:
+                lstl[ii] = dupdiv + str(mp[x])
         else:
             mp[x] = 0
     if not trmap:

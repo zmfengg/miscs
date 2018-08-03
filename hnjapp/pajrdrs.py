@@ -390,8 +390,7 @@ class PajShpHdlr(object):
             return
         # because there is merged cells rng.expand('table').value
         # or sht.range(rng.end('right'),rng.end('down')).value failed
-        _ptngwt = re.compile(r"(\d*\.\d*)\s*[gG]+")
-        _ptnswt = re.compile(r"\d*\.\d*")
+        _ptngwt = re.compile("[\d.]+")
         vvs = sht.range(rng, rng.current_region.last_cell).value
         nls = NamedLists(vvs,{"Item,":"pcode","stone,":"stone","metal ,":"metal"},False)
         for tr in nls:
@@ -401,14 +400,23 @@ class PajShpHdlr(object):
             if p17u.isvalidp17(p17) and not p17 in qmap:
                 sw = 0 if not tr.stone else \
                     sum([float(x)
-                         for x in _ptnswt.findall(tr.stone)])
+                         for x in _ptngwt.findall(tr.stone)])
                 mtls = tr.metal
                 if isinstance(mtls, numbers.Number):
                     mw = (WgtInfo(0,mtls),)
                 else:
-                    #TODO:extend this function to return metalwgt as a list of WgtInfo
-                    s0 = tr.metal.replace("：",":")
-                    #[float(x) for x in _ptngwt.findall(mtls)])
+                    s0, mw = tr.metal.replace("：",":"), []
+                    if s0.find(":") > 0:
+                        for x in s0.split("\n"):
+                            ss= x.split(":")
+                            mt = _ptngwt.search(ss[0])
+                            karat = 925 if not mt else int(mt.group())
+                            mt = _ptngwt.search(ss[1])
+                            wgt = float(mt.group()) if mt else 0
+                            mw.append(WgtInfo(karat,wgt))
+                    else:
+                        mt = _ptngwt.search(s0)
+                        mw.append(WgtInfo(0,float(mt.group()) if mt else 0))
                 qmap[p17] = (mw, sw)
 
     def _hasread(self,fmd, fn, invno = None):
@@ -552,10 +560,10 @@ class PajShpHdlr(object):
                 thekey = "%s,%s,%s" % (jono,tr.pcode,invno)
                 if thekey in items:
                     si = items[thekey]
-                    items[thekey] = si._replace(qty = si.qty + tr.qty)
+                    items[thekey] = si._replace(qty = si.qty + tr.qty, mtlwgt = si.mtlwgt + mwgt)
                 else:
                     ivd = tr.invdate
-                    si = PajShpItem(bfn, odno, jono, tr.qty, tr.pcode, invno, ivd, (WgtInfo(_getdefkarat(jono),mwgt)), tr.stwgt, ivd, fmd, td0)
+                    si = PajShpItem(bfn, odno, jono, tr.qty, tr.pcode, invno, ivd, (WgtInfo(_getdefkarat(jono),mwgt),), tr.stwgt, ivd, fmd, td0)
                     items[thekey] = si
         else:
             # new sample case, extract weight data from the quo sheet
@@ -619,7 +627,7 @@ class PajShpHdlr(object):
                             k = x[0]
                             lk = k.lower()
                             if hasattr(shp, lk):
-                                shp.__setattr__(lk, dct[k])
+                                setattr(shp,lk,dct[k])
                         sess.add(shp)
                 if invs[1]:
                     for dct in [x._asdict() for x in invs[1].values()]:
@@ -1141,12 +1149,38 @@ class PajUPTcr(object):
                     sht.delete()
 
 def easydlg(dlg):
+    """ open a tk dialog and return sth. easily """
     rt = tk.Tk()
     rt.withdraw()
     dlg.master = rt
     rc = dlg.show()
     rt.quit()
     return rc
+
+class PajNSOFRdr(object):
+    """
+    class to read a NewSampleOrderForm's data out
+    """
+    _tplfn = r"\\172.16.8.46\pb\dptfile\pajForms\PAJSKUSpecTemplate.xlt"
+
+    def readsettings(self, fn = None):
+        usetpl, mp = False, None
+        if not fn:
+            fn, usetpl = self._tplfn, True
+        kxl, app = xwu.app()
+        try:
+            wb = app.books.open(fn) if not usetpl else xwu.fromtemplate(fn,app)
+            shts = [x for x in wb.sheets if triml(x.name).find("setting") >= 0]
+            if shts:
+                rng = xwu.find(shts[0],"name")
+                nls = NamedLists(rng.expand("table").value)
+                mp = dict([(triml(nl.name),nl) for nl in nls])
+        except:
+            pass
+        finally:
+            if wb: wb.close()
+            if kxl: app.quit()
+        return mp if mp else None
 
 class ShpMkr(object):
     """ class to make the daily shipment, include below functions
@@ -1157,6 +1191,12 @@ class ShpMkr(object):
     Technique that I don't know:: UI under python, use tkinter, and it's simle messages
     """
     _mergeshpjo = False
+
+    def __init__(self, cnsvc):
+        self._cnsvc = cnsvc
+    
+    def _newerr(self,loc,etype,msg):
+        return {"location":loc,"type":etype,"msg":msg}
 
     def merge(self,fldr = None,tarfn = None):
         """ merge the files in given folder into one file """
@@ -1196,62 +1236,135 @@ class ShpMkr(object):
             app.quit()
         return dffn
     
-    def readc1(self, sht, **kwgs):
+    def readc1(self, sht, args):
         pass
     
-    def readc2(self, sht, **kwgs):
+    def readc2(self, sht, args):
         pass
 
-    def readpaj(self, sht, **kwgs):
-        shps = PajShpHdlr._readshp(kwgs["fn"],kwgs["shpdate"],kwgs["fmd"],sht)
+    def readpaj(self, sht, args):
+        """ return tuple(map,errlist)
+        where errlist contain err locations
+        """
+        shps = PajShpHdlr._readshp(args["fn"],args["shpdate"],args["fmd"],sht)
         if not shps: return (None, None)
-        mp,shn = {}, sht.name
-        for shp in shps:
+        mp, errs, shn = {}, [], sht.name
+        for shp in shps.values():
             jn = shp.jono
             key = jn if self._mergeshpjo else jn + str(random.random())
             it = mp.setdefault(key,{"jono":jn,"qty":0,"location":(shn,jn)})
-            qty, karat, wgt = shp.qty, _getdefkarat(jn), it.mtlwgt
-            idx = it.get("karat1")
-            if idx:
-                idx = 1 if idx == karat else 2
-                if self._mergeshpjo:
-                    wgt = (wgt * it.qty + it["qty"] * it["wgt%d" % idx]) / it["qty"]
-            else:
-                idx = 1
+            qty, dfkarat, wgts = shp.qty, _getdefkarat(jn), shp.mtlwgt
+            for wi in wgts:
+                karat, wgt = wi.karat if wi.karat else dfkarat, wi.wgt
+                if not wgt:
+                    errs.append(self._newerr(jn,"Error","failed to get metal wgt"))
+                else:
+                    idx = it.get("karat1")
+                    if idx:
+                        idx = 1 if idx == karat else 2
+                        if self._mergeshpjo:
+                            wgt = (wgt * shp.qty + it["wgt%d" % idx] * it["qty"]) / (shp.qty + it["qty"])
+                    else:
+                        idx = 1
+                it["karat%d" % idx] = karat
+                it["wgt%d" % idx] = wgt
             it["qty"] += qty
-            it["karat%d" % idx] = karat
-            it["wgt%d" % idx] = wgt
-
+        if mp:
+            mp["invdate"] = shp.invdate
+        return (mp, errs)
+            
     def _genrpt(self, fldr):
-        fn = self.merge(fldr)
+        if os.path.isdir(fldr):
+            fn = self.merge(fldr)
+        else:
+            fn = fldr
         if not fn: return
+        pajopts = {"fn":fn,"shpdate":PajShpHdlr._getshpdate(fn),"fmd": datetime.fromtimestamp(os.path.getmtime(fn))}
         kxl, app = xwu.app()
         wb = app.books.open(fn)
-        invs, its, errs, vt = [], [], None, []
-        pajopts = {"fn":fn,"shpdate":PajShpHdlr._getshpdate(fn),"fmd": datetime.datetime.today()}
+        invs, its, errs, vt, vn = [], [], [], None, None
         rdrmap = {"长兴珠宝":("c2",self.readc2),"诚艺,胤雅":("c1",self.readc1) ,"十七,物料编号":("paj",self.readpaj)}
         rsht =[x for x in wb.sheets if triml(x.name) == "rpt"]
-        if not rsht:
-            rdr = None
-            for sht in wb.sheets:
-                if not vt:
-                    for x in rdrmap.keys():
-                        for y in x.split(","):
-                            if xwu.find(sht, y) >= 0:
-                                vt = x
-                                break
-                        if vt: break
-                rdr = rdrmap.get(vt)
-                if rdr:
-                    lst = rdr[1](sht, pajopts)
-                    if lst:
-                        if lst[0]: its.extend(lst[0])
-                        if lst[1]: errs.extend(lst[1])
-                    elif rdr[0] == "paj":
+        if rsht:
+            wb.close()
+            return
+        
+        rdr = None
+        for sht in wb.sheets:
+            if not vt:
+                for x in rdrmap.keys():
+                    for y in x.split(","):
+                        if xwu.find(sht, y):
+                            vt, vn = x, rdrmap[x][0]
+                            break
+                    if vt: break
+            rdr = rdrmap.get(vt)
+            if rdr:
+                print("Processing sheet(%s)" % sht.name)
+                lst = rdr[1](sht, pajopts)
+                if lst and len([x for x in lst if x]):
+                    mp = lst[0]
+                    if mp: 
+                        if "invdate" in mp:
+                            ivd = mp["invdate"]
+                            if isinstance(ivd,str):
+                                ivd = datetime.strptime(ivd, "%Y-%m-%d")
+                            td = datetime.today() - ivd
+                            if td.days > 2 or td.days < 0:
+                                errs.append(self._newerr("_Date_","warning","Maybe invalid file or invoice date"))
+                            del mp["invdate"]
+                        its.extend(mp.values())
+                    if lst[1]: errs.extend(lst[1])
+                else:
+                    logger.debug("sheet does not contain standard shipment data")
+                    if rdr[0] == "paj":
                         invno = PajShpHdlr._readinvno(sht)
                         if not invno: continue
                         lst = PajShpHdlr._rawreadinv(sht, invno)
                         if not lst:
                             invs.extend(lst)
-            #TODO::build the rpt sheet
+            else:
+                logger.debug("no suitable reader for sheet(%s)" % sht.name)
+        if its:
+            jns = set([x["jono"] for x in its])
+            with self._cnsvc.sessionctx():
+                jos = self._cnsvc.getjos(jns)
+                jos = dict([(x.name.value,x) for x in jos[0]])
+                nmap = {"cstname":"customer.name","styno":"style.name.value","running":"running","description":"description","qtyleft":"qtyleft"}
+                for mp in its:
+                    jo = jos.get(mp["jono"])
+                    if not jo:
+                        errs.append(self._newerr(mp["location"],"Error","Invalid JO#(%s)" % mp["jono"]))
+                        continue
+                    for y in nmap.items():
+                        mp[y[0]] = deepget(jo,y[1])
+                    jo.qtyleft = jo.qtyleft - mp["qty"]
+                    if jo.qtyleft < 0:
+                        errs.append(self._newerr(mp["location"],"Error","Qty not enough"))
+            its = sorted(its,key = lambda d0: "%6d,%s" % (d0["running"],d0["jono"]))
+            self._write(wb,its,errs,ivd,vn)
         return fn
+
+    def _write(self,wb,its,errs,invdate,vdrname):
+        return
+        app = wb.app
+        sts = PajNSOFRdr().readsettings()
+        fn = sts.get(triml("Shipment.IO"))
+        wbio = app.books.open(fn)
+        sht = wbio.sheets["master"]
+        nls = [NamedLists(xwu.usedrange(sht).value)]
+        it, ridx = nls[-1], len(nls) + 1
+        je = JOElement(it["n#"])        
+        sht.range[ridx,it.getcol("n#")] = "%s%d" % (je.alpha,je.digit + 1)
+        sht.range[ridx,it.getcol("date")] = invdate        
+        pfx = invdate.strftime("%y%m%d")
+        if vdrname != "paj": pfx = pfx[1:]
+        pfx = 'J' + pfx
+        existing = [x for x in nls if x["jmp#"].find(pfx) == 0]
+        for idx in range(len(nls),0,-1):
+            jn = nls[idx]["jmp#"]
+            flag = (fn.find("C") >= 0) ^ vdrname == "paj"
+            if flag: break
+        maxr = nls[idx]["maxrun#"]
+        #TODO::
+        

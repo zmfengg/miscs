@@ -21,7 +21,7 @@ from hnjapp.pajcc import MPS,PrdWgt,WgtInfo, PajChina, PajCalc
 from hnjcore import JOElement, xwu, appathsep, utils as hnju
 from hnjcore.utils.consts import NA
 from hnjcore.utils import getfiles
-from hnjcore.models.hk import PO,POItem,JO,Orderma,Style
+from hnjcore.models.hk import PO,POItem,JO,Orderma,Style, Customer
 from hnjapp.dbsvcs import jesin
 from hnjapp.c1rdrs import C1InvRdr
 
@@ -293,15 +293,16 @@ class QuoDatMkr(object):
         if any(vvs[:2]):
             return MPS(";".join(["%s=%s" % (vvs[x + 2], str(vvs[x])) for x in range(2) if vvs[x]]))
     
-    def createpodat(self,fldr,fn = "po.dat",stpfn = None):
+    def createpodat(self,fldr,fn = "po.dat",stpfn = None,pfrmap = None):
         """ from the runOK.dat, read the JO/MPS, get the weights/poprice/pomps, translate them into the newpoprice/newmps
         @param stpfn: the file contains sty# that is marked stamping
+        @param pfrmap: each customer's profit ratio, if not provided, each use default's 1.15
         """
         if not stpfn:
             stpfn = r"\\172.16.8.46\pb\dptfile\quotation\date\Date2018\0502\(6) PriceDrop\StpStynos.dat"
         with open(stpfn,"r") as fh:
             stpstys = set([x.replace("\n","") for x in fh])
-        mp = self.readreqs(fldr,checkdone = False)[0]
+        mp = self.readreqs(fldr,checkdone = False)[0]        
         if not mp: return
         fnpo = path.join(fldr,fn)
         exists = path.exists(fnpo)
@@ -314,6 +315,8 @@ class QuoDatMkr(object):
         else:
             ttl = tuple("pono,jono,runn,pomps,poup,newmps,newup,lossrate,mainwgt,auxwgt,partswgt".split(","))     
             rc, allrc = [ttl], [ttl]
+        if pfrmap is None:
+            pfrmap = {}
         mp = dict([(x["runn"],x) for x in mp.values()])
         if exists:
             ompcnt, rvcnt = len(mp), 0
@@ -326,14 +329,14 @@ class QuoDatMkr(object):
             logger.debug("No item need to be processed")
             return allrc
         ops, lst, mp = {}, [], list(mp.values())
-        q = Query([JO.name.label("jono"),POItem.uprice,PO.mps,PO.name.label("pono"),Style.name.label("styno")]).join(POItem).join(PO).join(Orderma,JO.orderid == Orderma.id).join(Style)
+        q = Query([JO.name.label("jono"),POItem.uprice,PO.mps,PO.name.label("pono"),Style.name.label("styno"),Customer.name.label("cstname")]).join(POItem).join(PO).join(Orderma,JO.orderid == Orderma.id).join(Style).join(Customer,Orderma.cstid == Customer.id)
         fmt = ("%s," * len(ttl))[:-1]
-        nl = NamedList("uprice,mps,pono,styno")
+        nl = NamedList("uprice,mps,pono,styno,cstname")
         with self._hksvc.sessionctx() as cur:
             for arr in splitarray(mp,savecnt):
                 jns = [JOElement(x["jono"]) for x in arr]            
                 lst = q.filter(jesin(jns,JO)).with_session(cur).all()
-                ops = dict([(x.jono.value,(float(x.uprice),MPS(x.mps),x.pono.strip(),x.styno.value)) for x in lst])
+                ops = dict([(x.jono.value,(float(x.uprice),MPS(x.mps),x.pono.strip(),x.styno.value,x.cstname.strip())) for x in lst])
                 for x in arr:
                     jn = x["jono"]
                     op = ops.get(jn)
@@ -342,6 +345,12 @@ class QuoDatMkr(object):
                         continue
                     nl.setdata(op)
                     wgts = self._hksvc.getjowgts(jn)
+                    cn = nl.cstname
+                    pfr = pfrmap.get(cn,1.15)
+                    if pfr < 1:
+                        pfr += 1.0
+                    elif pfr > 3:
+                        pfr = 1.0 + pfr * 1.0 / 100.0
                     mps0, np = nl.mps, nl.uprice
                     hasbg = sum([1 for x in wgts.wgts if x and x.karat == 9925])
                     #Natalie confirmed on 2018/07/20:bonded gold no metal cost, the target up the final PO#'s up
@@ -360,7 +369,7 @@ class QuoDatMkr(object):
                         mc0 = PajCalc.calcmtlcost(wgts,mps0,lossrate = lr,vendor = "HNJ",oz2gm = 31.1031)
                         mc1 = PajCalc.calcmtlcost(wgts,x["mps"],lossrate = lr, vendor = "HNJ",oz2gm=31.1031)
                         if mc0 > 0:
-                            np = round(mc1 - mc0 + nl.uprice, 2)
+                            np = round((mc1 - mc0) * pfr + nl.uprice, 2)
                         else:
                             np = pajcc.MPSINVALID 
                     y = [nl.pono,jn,x["runn"],nl.mps.value,nl.uprice,x["mps"].value,np,lr]
