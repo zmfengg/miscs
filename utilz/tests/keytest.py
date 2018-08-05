@@ -12,7 +12,7 @@ from os import path
 from unittest import TestCase
 
 from utilz import xwu
-from utilz._miscs import (NamedList, NamedLists, appathsep, getfiles,Alias,list2dict, stsizefmt)
+from utilz._miscs import (NamedList, NamedLists, appathsep, getfiles,NamedList,list2dict, stsizefmt)
 from utilz.resourcemgr import ResourceCtx, ResourceMgr
 from functools import cmp_to_key
 
@@ -149,7 +149,7 @@ class KeyTests(TestCase):
         finally:
             if app: app.quit()
                 
-        #now namedlist treating normal object, There is an object Alias before
+        #now namedlist treating normal object, There is an object NamedList before
         #but finally merged into NamedList
         class A(object):
             name,id,age = "Hello",0,0

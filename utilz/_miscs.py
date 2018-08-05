@@ -12,13 +12,14 @@ from math import ceil
 from numbers import Integral
 from os import listdir, path
 from random import random
+import re
 from sys import getfilesystemencoding, version_info
 
 from sqlalchemy.orm import Session
 
 from .common import _logger as logger
 
-__all__ = ["NamedList", "NamedLists", "appathsep", "daterange", "deepget", "getfiles", "isnumeric", "list2dict", "na", "splitarray", "stsizefmt", "triml", "trimu"]
+__all__ = ["NamedList", "NamedLists", "appathsep", "daterange", "deepget", "getfiles", "isnumeric", "list2dict", "na", "splitarray", "stsizefmt", "triml", "trimu", "removews"]
 
 na = "N/A"
 
@@ -191,18 +192,25 @@ def stsizefmt(sz, shortform=False):
             parts.extend(x)
     return ("-" if rng else "X").join(sorted(parts, reverse=True))
 
+def removews(s0):
+    """ remove the invalid white space """
+    if not s0: return
+    return re.sub(r"\s{2,}", " ", s0.strip())
 
-def trimu(s0):
+
+def trimu(s0, removewsps = True):
     """ trim/strip and upper case """
     if s0 and isinstance(s0, str):
-        return s0.strip().upper()
+        s0 = s0.strip().upper()
+        if removewsps: s0 = removews(s0)
     return s0
 
 
-def triml(s0):
+def triml(s0, removewsps = True):
     """ trim and lower case """
     if s0 and isinstance(s0, str):
-        return s0.strip().lower()
+        s0 = s0.strip().lower()
+        if removewsps: s0 = removews(s0)
     return s0
 
 
@@ -230,6 +238,10 @@ class NamedList(object):
         if data:
             self.setdata(data)
 
+    def clone(self, data = None):
+        """ create a clone with the same definination as me, but not the same data set """
+        return NamedList(self._nmap, data)
+
     def setdata(self, data):
         if data:
             if isinstance(data, Sequence) and len(self._nmap) != len(data):
@@ -239,6 +251,7 @@ class NamedList(object):
         else:
             self._dtype = 1 if isinstance(data, Sequence) else 2 if isinstance(data, dict) else 10
         self._data = data
+        return self
 
     def _checkarg(self, name):
         if not (self._dtype and (self._dtype != 1 or name in self._nmap)):
@@ -369,5 +382,3 @@ class NamedLists(Iterator):
     @property
     def namemap(self):
         return self._nmap
-
-Alias = NamedList
