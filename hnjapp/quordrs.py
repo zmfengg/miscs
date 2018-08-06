@@ -490,7 +490,7 @@ class QuoDatMkr(object):
         fldrs = [path.join(root,x) for x in os.listdir(root) if path.isdir(path.join(root,x))]
         if not fldrs: return
         kxls, app = xwu.app(False)
-        trmap = {"C1差额":"diff","C1工费":"labor","工单":"jono"}
+        trmap = {"diff":"C1差额","labor": "C1工费","jono": "工单"}
         mp = {}
         for fldr in fldrs:
             if len([1 for x in path.basename(fldr) if ord(x) <= 31 or ord(x) >= 127]) > 0:
@@ -1041,8 +1041,7 @@ class AckPriceCheck(object):
                         rng = sht.range(sht.range(rng.row,1), \
                             sht.range(rng0.row + rng0.rows.count -1 ,rng0.column + rng0.columns.count - 1))
                         vvs = rng.value
-                        cmap = xwu.list2dict(vvs[0],{"Job,":"jono","item,item ":"pcode", \
-                            "Style,":"styno","Quant,Qty":"qty"})
+                        cmap = xwu.list2dict(vvs[0],{"jono":"Job,","pcode":"item,item ", "styno":"Style,","qty":"Quant,Qty"})
                         for idx in range(1,len(vvs)):
                             jono = vvs[idx][cmap["jono"]]
                             if not jono: break

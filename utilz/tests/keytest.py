@@ -143,7 +143,7 @@ class KeyTests(TestCase):
             lst = dict((x.id,x) for x in NamedLists(rng.value))
             self.assertEqual("Name 8",lst[8].name,"The Name")
             #now try an named-translation
-            nl = NamedLists(rng.value,{"enter,":"Edate"})
+            nl = NamedLists(rng.value,{"Edate":"enter,"})
             emp = nl.__next__()
             self.assertEqual(datetime.datetime(1998,1,3,0,0), emp["edate"],"get date use translated name")
         finally:

@@ -23,6 +23,7 @@ from tkinter import filedialog
 import tkinter as tk
 
 import xlwings.constants as const
+from xlwings.utils import col_name
 from sqlalchemy import and_, func
 from sqlalchemy.engine import create_engine
 from sqlalchemy.orm import Query
@@ -34,7 +35,7 @@ from hnjcore.models.hk import Orderma, PajInv, PajShp, PajCnRev
 from hnjcore.models.hk import Style as Styhk
 from hnjcore.utils import daterange, getfiles, isnumeric, p17u
 from hnjcore.utils.consts import NA
-from utilz import NamedList, NamedLists, ResourceCtx, SessionMgr, list2dict, splitarray, triml
+from utilz import NamedList, NamedLists, ResourceCtx, SessionMgr, list2dict, splitarray, triml, trimu
 
 from .common import _logger as logger
 from .dbsvcs import BCSvc, CNSvc, HKSvc
@@ -166,7 +167,7 @@ class PajBomHhdlr(object):
                 for jj in range(len(shts)):
                     vvs = shts[jj][1].end("left").expand("table").value
                     if jj == 0:                    
-                        wcn = xwu.list2dict(vvs[0],{u"十七位,":"pcode",u"材质,":"mat",u"抛光,":"mtlwgt"})
+                        wcn = xwu.list2dict(vvs[0],{u"pcode":"十七位,","mat":u"材质,","mtlwgt":u"抛光,"})
                         for ii in range(1,len(vvs)):
                             pcode = vvs[ii][wcn["pcode"]]
                             if not p17u.isvalidp17(pcode): break
@@ -175,8 +176,8 @@ class PajBomHhdlr(object):
                             it = pmap.setdefault(pcode,{"pcode":pcode})
                             it.setdefault("wgts",[]).append((kt,vvs[ii][wcn["mtlwgt"]]))
                     elif jj == 1:
-                        nmap = {u"十七位,":"pcode",u"物料名称":"name", \
-                            u"物料特征":"spec",u"数量":"qty",u"重量":"wgt",u"单位":"unit",u"长度":"length"}
+                        nmap = {"pcode":u"十七位,","name":u"物料名称", \
+                            "spec":u"物料特征","qty":u"数量","wgt":u"重量","unit":u"单位","length":u"长度"}
                         wcn = xwu.list2dict(vvs[0],nmap)
                         nmap = [x for x in nmap.values() if x.find("pcode") < 0]
                         for ii in range(1,len(vvs)):
@@ -392,7 +393,7 @@ class PajShpHdlr(object):
         # or sht.range(rng.end('right'),rng.end('down')).value failed
         _ptngwt = re.compile("[\d.]+")
         vvs = sht.range(rng, rng.current_region.last_cell).value
-        nls = NamedLists(vvs,{"Item,":"pcode","stone,":"stone","metal ,":"metal"},False)
+        nls = NamedLists(vvs,{"pcode":"Item,","stone":"stone,","metal":"metal ,"},False)
         for tr in nls:
             p17 = tr.pcode
             if not p17:
@@ -452,7 +453,7 @@ class PajShpHdlr(object):
             return
         if not invno: invno = self._readinvno(sht)
         rng = rng.expand("table")
-        nls = tuple(NamedLists(rng.value,{"item,":"pcode","gold,": "gold", "silver,": "silver", u"job#,工单": "jono","price,": "uprice", "unit,": "qty", "stone,": "stspec"}))
+        nls = tuple(NamedLists(rng.value,{"pcode":"item,","gold":"gold,", "silver":"silver,", "jono": u"job#,工单", "uprice": "price,", "qty": "unit,", "stspec": "stone,"}))
         if not nls: return
         th = nls[0]
         x = [x for x in "uprice,qty,stspec".split(",") if not th.getcol(x)]
@@ -525,7 +526,7 @@ class PajShpHdlr(object):
         PajShpItem = namedtuple("PajShpItem", "fn,orderno,jono,qty,pcode,invno,invdate" +
                                 ",mtlwgt,stwgt,shpdate,lastmodified,filldate")
         items, td0, qmap = {}, datetime.today(), None
-        nls = tuple(NamedLists(vvs,{u"订单号": "odx", u"发票日期": "invdate", u"订单序号": "odseq",u"平均单件石头,XXX": "stwgt", u"发票号": "invno", u"订单号序号": "orderno", u"十七位,十七,物料": "pcode",u"平均单件金,XX": "mtlwgt", u"工单,job": "jono", u"数量": "qty", u"cost": "cost"}))
+        nls = tuple(NamedLists(vvs,{"odx": u"订单号", "invdate": u"发票日期", "odseq": u"订单序号","stwgt": u"平均单件石头,XXX", "invno": u"发票号", "orderno": u"订单号序号", "pcode": u"十七位,十七,物料","mtlwgt": u"平均单件金,XX", "jono": u"工单,job", "qty": u"数量", "cost": u"cost"}))
         th = nls[0]
         x = [x for x in "invno,pcode,jono,qty,invdate".split(
             ",") if th.getcol(x) is None]
@@ -1194,6 +1195,7 @@ class ShpMkr(object):
 
     def __init__(self, cnsvc):
         self._cnsvc = cnsvc
+        self._snrpt = "Rpt"
     
     def _newerr(self,loc,etype,msg):
         return {"location":loc,"type":etype,"msg":msg}
@@ -1337,34 +1339,93 @@ class ShpMkr(object):
                         errs.append(self._newerr(mp["location"],"Error","Invalid JO#(%s)" % mp["jono"]))
                         continue
                     for y in nmap.items():
-                        mp[y[0]] = deepget(jo,y[1])
+                        sx = deepget(jo,y[1])
+                        if sx and isinstance(sx,str): sx = sx.strip()
+                        mp[y[0]] = sx
                     jo.qtyleft = jo.qtyleft - mp["qty"]
                     if jo.qtyleft < 0:
                         errs.append(self._newerr(mp["location"],"Error","Qty not enough"))
-            its = sorted(its,key = lambda d0: "%6d,%s" % (d0["running"],d0["jono"]))
+            its = sorted(its,key = lambda d0: "%s,%6.1f" % (d0["jono"],d0["qtyleft"]))
             self._write(wb,its,errs,ivd,vn)
         return fn
 
     def _write(self,wb,its,errs,invdate,vdrname):
-        return
         app = wb.app
         sts = PajNSOFRdr().readsettings()
-        fn = sts.get(triml("Shipment.IO"))
-        wbio = app.books.open(fn)
-        sht = wbio.sheets["master"]
-        nls = [NamedLists(xwu.usedrange(sht).value)]
-        it, ridx = nls[-1], len(nls) + 1
-        je = JOElement(it["n#"])        
-        sht.range[ridx,it.getcol("n#")] = "%s%d" % (je.alpha,je.digit + 1)
-        sht.range[ridx,it.getcol("date")] = invdate        
+        fn = sts.get(triml("Shipment.IO")).value
+        wbio, iorst = app.books.open(fn), {}
+        shtio = wbio.sheets["master"]
+        nls = [x for x in NamedLists(xwu.usedrange(shtio).value)]
+        itio, ridx = nls[-1], len(nls) + 2
+        je = JOElement(itio["n#"])
+        iorst["n#"], iorst["date"] = "%s%d" % (je.alpha,je.digit + 1), invdate        
         pfx = invdate.strftime("%y%m%d")
         if vdrname != "paj": pfx = pfx[1:]
         pfx = 'J' + pfx
-        existing = [x for x in nls if x["jmp#"].find(pfx) == 0]
-        for idx in range(len(nls),0,-1):
+        existing = [x["jmp#"] for x in nls[-20:] if x["jmp#"].find(pfx) == 0]
+        if existing:
+            if vdrname != "paj" :
+                logger.debug("%s should not have more than one shipment in one date" % vdrname)
+                return
+            sfx = "%01d" % (int(max(existing)[-1])+1)
+        else:
+            sfx = "01" if vdrname == "paj" else trimu(vdrname)
+        iorst["jmp#"] = pfx + sfx
+        for idx in range(len(nls) - 1,0,-1):
             jn = nls[idx]["jmp#"]
-            flag = (fn.find("C") >= 0) ^ vdrname == "paj"
+            flag = (jn.find("C") >= 0) ^ (vdrname == "paj")
             if flag: break
-        maxr = nls[idx]["maxrun#"]
-        #TODO::
+        iorst["maxrun#"] = int(nls[idx]["maxrun#"])
+
+        s0 = sts.get("shipment.rptmgns.%s" % vdrname)
+        if not s0: s0 = sts.get("shipment.rptmgns")
+        sht = wb.sheets.add(name = self._snrpt)
+        pfx = "sht.api.pagesetup"
+        shtcmds = [ pfx + ".%smargin=%s" % tuple(y.split("=")) for y in triml(s0.value).split(";")]
+        shtcmds.append(pfx + ".printtitlerows='$1:$1'")
+        shtcmds.append(pfx + ".leftheader='%s'" % ("%s年%s月%s日落货资料" % tuple(invdate.strftime("%Y-%m-%d").split("-"))))
+        shtcmds.append(pfx + ".centerheader='%s'" % iorst["jmp#"])
+        shtcmds.append(pfx + ".rightheader='%s'" % iorst["n#"])
+        shtcmds.append(pfx + ".rightfooter='&P of &N'")
+        shtcmds.append(pfx + ".fittopageswide=1")
+        for x in shtcmds:
+            exec(x)
         
+        s0 = sts.get("shipment.hdrs." + vdrname)
+        if not s0: s0 = sts.get("shipment.hdrs")
+        ttl, ns = [], {}
+        for x in s0.value.replace("\\n","\n").split(";"):
+            y = x.split("=")
+            y1 = y[1].split(",")
+            ttl.append(y[0])
+            if len(y1) > 1:
+                ns[y1[0]] = y[0]
+            sht.range(1,len(ttl)).column_width = float(y1[len(y1) - 1])
+        nl, maxr = NamedList(list2dict(ttl,ns)), iorst["maxrun#"]
+        lsts, ns, hls = [ttl], "jono,running,qty,cstname,styno,description,qtyleft,karat1,wgt1".split(","), []
+        for it in its:
+            if not it["running"]:
+                maxr += 1
+                it["running"], nl["running"] = maxr, maxr
+                hls.append(len(lsts))
+            ttl = ["" for x in range(len(ttl))]
+            nl.setdata(ttl)
+            for col in ns:
+                nl[col] = it[col]
+            nl.jono = "'" + nl.jono
+            lsts.append(ttl)
+            if "karat2" in it:
+                nl.setdata(["" for x in range(len(ttl))])
+                nl.karat, nl.wgt = it["karat2"], it["wgt2"]
+                lsts.append(ttl)
+        iorst["maxrun#"] = maxr
+        sht.range(1,1).value = lsts
+
+        #write sum formula at the bottom
+        s0 = int(nl.getcol("qty")) + 1
+        sht.range(len(lsts) + 1, s0).formula = "=sum(%s1:%s%d)" % (col_name(s0), col_name(s0), len(lsts))
+
+        #high-light the new runnings
+        #final step
+        for knv in iorst.items():
+            shtio.range(ridx,itio.getcol(knv[0])+1).value = knv[1]

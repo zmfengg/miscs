@@ -178,8 +178,7 @@ class C1InvRdr():
             "C1InvItem", "source,jono,qty,labor,setting,remarks,stones,parts")
         C1InvStone = namedtuple("C1InvStone", "stone,qty,wgt,remark")
 
-        km = {u"工单号": "jono", u"镶工": "setting", u"胚底,": "labor", u"备注,": "remark",
-              u"数量": "joqty", u"石名称": "stname", u"粒数": "stqty", u"石重,": "stwgt"}
+        km = {"jono":u"工单号", "setting":u"镶工", "labor":u"胚底,", "remark":u"备注,", "joqty": u"数量", "stname": u"石名称", "stqty": u"粒数", "stwgt": u"石重,"}
         nls = NamedLists(vvs,km,False)
         if len(nls.namemap) < len(km):
             logger.debug("key columns(%s) not found in sheet(%s)" %
@@ -510,7 +509,7 @@ class C1STHdlr(object):
                     shts[sht.name] = sht
                 sht = shts[u"进"]
                 vvs = sht.range("A1").expand("table").value
-                km = {u"序号":"id",u"水号":"btchno",u"包头":"pkno",u"日期,":"date",u"类别":"type",u"成色":"karat",u"数量,":"qty",u"重量,":"wgt",u"数量单位":"qtyunit",u"重量单位":"unit",u"备注":"remark"}
+                km = {"id":u"序号","btchno":u"水号","pkno":u"包头","date":u"日期,","type":u"类别","karat":u"成色","qty":u"数量,","wgt":u"重量,","qtyunit":u"数量单位","unit":u"重量单位","remark":u"备注"}
                 nls = NamedLists(vvs,km)
                 if len(nls.namemap) < len(km):
                     logger.debug("not enough key column provided")
@@ -528,7 +527,7 @@ class C1STHdlr(object):
                     pkmap[nl.pkno], btmap[nl.btchno]= nl,nl
                 sht = shts[u"用"]
                 vvs = sht.range("A1").expand("table").value
-                km = {u"序号":"id",u"水号":"btchno",u"工单":"jono",u"数量":"qty",u"重量":"wgt",u"记录,":"type",u"备注":"btchid"}
+                km = {"id":u"序号","btchno":u"水号","jono":u"工单","qty":u"数量","wgt":u"重量","type":u"记录,","btchid":u"备注"}
                 nls = NamedLists(vvs,km)
                 skipcnt = 0
                 for nl in nls:

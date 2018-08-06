@@ -53,7 +53,7 @@ def list2dict(lst, trmap=None, dupdiv="", bname=None):
     """ turn a list into zero-id based, name -> id lookup map 
     @param lst: the list or one-dim array containing the strings that need to do the name-> pos map
     @param trmap: An translation map, make the description -> name translation, if ommitted, description become name
-                  if the description is not sure, split them with candidates, for example, "Job,JS":"jono"
+                  if the description is not sure, split them with candidates, for example, "jono":"Job,JS"
     @param dupdiv: when duplicated item found, a count will be generated, dupdiv will be
         placed between the original and count
     @param bname: default name for the blank item
@@ -81,7 +81,7 @@ def list2dict(lst, trmap=None, dupdiv="", bname=None):
     if not trmap:
         trmap = {}
     else:
-        trmap = dict([(triml(x[0]),x[1]) for x in trmap.items()])
+        trmap = dict([(triml(x[1]),x[0]) for x in trmap.items()])
         for x in [x for x in trmap.keys() if(x.find(",") >= 0)]:
             for y in x.split(","):
                 if not y:
