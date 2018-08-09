@@ -127,4 +127,3 @@ def gettabledata(rng, skipfirstrow = False, nmap = None):
     lst = cr.value
     lst.insert(0,ttl)
     return NamedLists(lst,nmap)
-    

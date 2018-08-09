@@ -35,8 +35,8 @@ def _tofloat(val,precious = 4):
 # karat and weight
 class WgtInfo(namedtuple("WgtInfo", "karat,wgt")):
 
-    def __new__(_cls, karat, wgt):
-        return super(_cls, WgtInfo).__new__(_cls, karat, _tofloat(wgt,2))
+    def __new__(_cls, karat, wgt, precious = 2):
+        return super(_cls, WgtInfo).__new__(_cls, karat, _tofloat(wgt,precious))
 
 
 # mps string and the corresponding silver/gold value
