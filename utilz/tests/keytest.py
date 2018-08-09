@@ -215,6 +215,22 @@ class KeyTests(TestCase):
         self.assertEqual("4 1/4",rgsvc.convert("EU","47","US"),"EU#47 = US#4 1/4")
         self.assertTrue(rgsvc.convert("EU","A","US") is None,"EU#A does not exist")
         self.assertAlmostEqual(47.0,rgsvc.getcirc("US","4 1/4"),"the circumference of US#4 1/4 is 47.0mm")
+    
+    def testGetTableData(self):
+        app = xwu.app(True)[1]
+        wb = app.books.open(path.join(thispath,"res","getTableData.xlsx"))
+        nmap = {"id":"id,","9k":"9k,","S950":"S950,"}
+        sht = wb.sheets[0]
+        
+        s0 = "No Merge,FirstMerge,NonFirstmerge,3Rows"
+        #s0 = "NonFirstmerge,3Rows"
+        for name in s0.split(","):
+            rng = xwu.find(sht,name)
+            nls = [x for x in xwu.gettabledata(rng, True, nmap)]
+            self.assertEqual(3, len(nls), "result count of %s" % name)
+            self.assertEqual(2, nls[0]["9k"], "9K result of %s" % name)
+            self.assertEqual(16,nls[2].s950, "S950 of %s" % name)
+
 
 BaseClass = declarative_base()
 

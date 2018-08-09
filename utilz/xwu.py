@@ -9,7 +9,7 @@ Utils for xlwings's not implemented but useful function
 import xlwings.constants as const
 import xlwings
 import os
-from ._miscs import list2dict
+from ._miscs import list2dict, NamedLists
 
 __all__ = ["app","find","fromtemplate","list2dict","usedrange", "safeopen"]
 
@@ -102,3 +102,29 @@ def safeopen(app, fn, updlnk = False, readonly = True):
     except:
         flag = False
     if flag: return app.books[-1]
+
+def gettabledata(rng, skipfirstrow = False, nmap = None):
+    if skipfirstrow: rng = rng.offset(1,0)
+    sht = rng.sheet
+    cr = rng.current_region
+    tr, rr, mg = sht.range(rng,sht.range(rng.row,cr.last_cell.column)), (65000,0), False
+    #has merge items?
+    for cell in tr.columns:
+        if cell.api.mergecells:
+            if not mg: mg = True
+            mr = cell.api.mergearea
+            rr = (min(rr[0],mr.row),max(rr[1],mr.row + mr.rows.count - 1))
+    if not mg: rr = (rng.row,rng.row)
+    th = sht.range(sht.range(rr[0],rng.column),sht.range(rr[1],cr.last_cell.column))
+    if mg:
+        ttl = []
+        for cell in th.columns:
+            ttl.append(".".join([x for x in cell.value if x]))
+    else:
+        ttl = ["%s" % x for x in th.value]
+    cr = th.offset(1,0).current_region
+    cr = sht.range(sht.range(rr[1]+1,rng.column), cr.last_cell)
+    lst = cr.value
+    lst.insert(0,ttl)
+    return NamedLists(lst,nmap)
+    
