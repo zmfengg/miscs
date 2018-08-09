@@ -27,7 +27,8 @@ from xlwings.utils import col_name
 from sqlalchemy import and_, func
 from sqlalchemy.engine import create_engine
 from sqlalchemy.orm import Query
-from xlwings.constants import LookAt
+from xlwings.constants import LookAt, BorderWeight, LineStyle, FormatConditionOperator, FormatConditionType
+from hnjapp.c1rdrs import C1InvRdr
 
 from hnjcore import JOElement, appathsep, deepget, karatsvc, p17u, xwu
 from hnjcore.models.hk import JO as JOhk
@@ -42,7 +43,7 @@ from .dbsvcs import BCSvc, CNSvc, HKSvc
 from .localstore import PajInv as PajInvSt
 from .localstore import PajItem, PajCnRev as PajCnRevSt
 from .localstore import PajWgt as PrdWgtSt
-from .pajcc import PAJCHINAMPS, P17Decoder, PajCalc, PrdWgt, WgtInfo, MPS
+from .pajcc import PAJCHINAMPS, P17Decoder, PajCalc, PrdWgt, WgtInfo, MPS, _tofloat
 
 _accdfmt = "%Y-%m-%d %H:%M:%S"
 _dfkt = {"4":925,"5":925,"M":8,"B":9,"G":10,"Y":14,"P":18}
@@ -59,6 +60,8 @@ def _removenonascii(s0):
     return s0
 
 def _getdefkarat(jn):
+    if isinstance(jn,numbers.Number):
+        jn = "%d" % int(jn)
     return _dfkt.get(jn[0])
 
 class PajBomHhdlr(object):
@@ -391,7 +394,7 @@ class PajShpHdlr(object):
             return
         # because there is merged cells rng.expand('table').value
         # or sht.range(rng.end('right'),rng.end('down')).value failed
-        _ptngwt = re.compile("[\d.]+")
+        _ptngwt = re.compile(r"[\d.]+")
         vvs = sht.range(rng, rng.current_region.last_cell).value
         nls = NamedLists(vvs,{"pcode":"Item,","stone":"stone,","metal":"metal ,"},False)
         for tr in nls:
@@ -417,7 +420,7 @@ class PajShpHdlr(object):
                             mw.append(WgtInfo(karat,wgt))
                     else:
                         mt = _ptngwt.search(s0)
-                        mw.append(WgtInfo(0,float(mt.group()) if mt else 0))
+                        mw.append(WgtInfo(0,float(mt.group()) if mt else None))
                 qmap[p17] = (mw, sw)
 
     def _hasread(self,fmd, fn, invno = None):
@@ -560,11 +563,14 @@ class PajShpHdlr(object):
                 jono = JOElement(tr.jono).value
                 thekey = "%s,%s,%s" % (jono,tr.pcode,invno)
                 if thekey in items:
+                    #order item's weight does not have karat event, so append it to the main
                     si = items[thekey]
-                    items[thekey] = si._replace(qty = si.qty + tr.qty, mtlwgt = si.mtlwgt + mwgt)
+                    wi = si.mtlwgt
+                    wi = wi._replace(main = wi.main._replace(wgt = _tofloat((wi.main.wgt * si.qty + mwgt * tr.qty)/(si.qty + tr.qty),4)))
+                    items[thekey] = si._replace(qty = si.qty + tr.qty, mtlwgt = wi)
                 else:
                     ivd = tr.invdate
-                    si = PajShpItem(bfn, odno, jono, tr.qty, tr.pcode, invno, ivd, (WgtInfo(_getdefkarat(jono),mwgt),), tr.stwgt, ivd, fmd, td0)
+                    si = PajShpItem(bfn, odno, jono, tr.qty, tr.pcode, invno, ivd, PrdWgt(WgtInfo(_getdefkarat(jono),mwgt,4)), tr.stwgt, ivd, fmd, td0)
                     items[thekey] = si
         else:
             # new sample case, extract weight data from the quo sheet
@@ -584,9 +590,14 @@ class PajShpHdlr(object):
                         snm = qmap[p17]
                     else:
                         logger.info("failed to get quo info for pcode(%s)" % p17)
-                        snm = (0,0)
-                    si = PajShpItem(bfn, odno, JOElement(tr.jono).value, tr.qty, p17,
-                            tr.invno, ivd, snm[0], snm[1], ivd, fmd, td0)
+                        snm = ((None,),0)
+                    wis = list(snm[0])
+                    for idx in range(len(wis)):
+                        wi = wis[idx]
+                        if not wi: continue
+                        if not wi.karat: wis[idx] = wi._replace(karat = _getdefkarat(tr.jono))
+                    prdwgt = PrdWgt(*wis)
+                    si = PajShpItem(bfn, odno, JOElement(tr.jono).value, tr.qty, p17, tr.invno, ivd, prdwgt, snm[1],ivd, fmd, td0)
                     # new sample won't have duplicated items
                     items[random.random()] = si
             else:
@@ -622,7 +633,7 @@ class PajShpHdlr(object):
                         dct["fn"] = _removenonascii(dct["fn"])
                         dct["joid"] = jns[je].id
                         #"mtlwgt" is a list of WgtInfo Object
-                        dct["mtlwgt"] = sum([x.wgt for x in dct["mtlwgt"]])
+                        dct["mtlwgt"] = sum([x.wgt for x in dct["mtlwgt"].wgts if x])
                         shp = PajShp()
                         for x in dct.items():
                             k = x[0]
@@ -1196,6 +1207,7 @@ class ShpMkr(object):
     def __init__(self, cnsvc):
         self._cnsvc = cnsvc
         self._snrpt = "Rpt"
+        self._snerr = "错误及警告"
     
     def _newerr(self,loc,etype,msg):
         return {"location":loc,"type":etype,"msg":msg}
@@ -1210,6 +1222,8 @@ class ShpMkr(object):
         if len(dffn) > 0:
             logger.debug("target has already an result file(%s)" % os.path.basename(dffn[0]) )
             return dffn[0]
+        if len(fns) == 1:
+            return fns[0]
         ptn = re.compile(r"^HNJ \d+")
         kxl, app = xwu.app(False)
         wb = app.books.add()
@@ -1231,15 +1245,30 @@ class ShpMkr(object):
         for x in nshts:
             x.delete()
         if dffn:
-            dffn = os.path.join(fldr,dffn)
-            wb.save(dffn)
+            wb.save(os.path.join(fldr,dffn))
+            dffn = wb.fullname
             logger.debug("merged file saved to %s" % dffn)
         elif kxl:
             app.quit()
         return dffn
     
     def readc1(self, sht, args):
-        pass
+        """ determine the header row """
+        for shp in sht.shapes:
+            shp.delete()
+        ridx = 0
+        for row in xwu.usedrange(sht).rows:
+            if not row.api.entirerow.hidden:
+                ridx = row.row
+                break
+        if not ridx:
+            logger.debug("no data available")
+            return
+        sht.range("1:%d" % ridx).api.entirerow.delete
+        rng = xwu.find(sht, "日期")
+        if rng: args["shpdate"] = rng.offset(0, 1).value
+
+        #C1InvRdr()._readc1(sht,None)
     
     def readc2(self, sht, args):
         pass
@@ -1250,26 +1279,34 @@ class ShpMkr(object):
         """
         shps = PajShpHdlr._readshp(args["fn"],args["shpdate"],args["fmd"],sht)
         if not shps: return (None, None)
+        
         mp, errs, shn = {}, [], sht.name
         for shp in shps.values():
             jn = shp.jono
+            if jn == "462141":
+                print("x")
             key = jn if self._mergeshpjo else jn + str(random.random())
-            it = mp.setdefault(key,{"jono":jn,"qty":0,"location":(shn,jn)})
-            qty, dfkarat, wgts = shp.qty, _getdefkarat(jn), shp.mtlwgt
-            for wi in wgts:
-                karat, wgt = wi.karat if wi.karat else dfkarat, wi.wgt
-                if not wgt:
-                    errs.append(self._newerr(jn,"Error","failed to get metal wgt"))
-                else:
-                    idx = it.get("karat1")
-                    if idx:
-                        idx = 1 if idx == karat else 2
-                        if self._mergeshpjo:
-                            wgt = (wgt * shp.qty + it["wgt%d" % idx] * it["qty"]) / (shp.qty + it["qty"])
+            it = mp.setdefault(key,{"jono":jn,"qty":0,"location": "%s,%s" % (shn,jn)})
+            qty = shp.qty
+            if False:
+                dfkarat, wgts = _getdefkarat(jn), shp.mtlwgt
+                for wi in wgts.wgts:
+                    if not wi: continue
+                    karat, wgt = wi.karat if wi.karat else dfkarat, wi.wgt
+                    if not wgt:
+                        errs.append(self._newerr(jn,"Error","failed to get metal wgt"))
                     else:
-                        idx = 1
-                it["karat%d" % idx] = karat
-                it["wgt%d" % idx] = wgt
+                        idx = it.get("karat1")
+                        if idx:
+                            idx = 1 if idx == karat else 2
+                            if self._mergeshpjo:
+                                wgt = (wgt * shp.qty + it["wgt%d" % idx] * it["qty"]) / (shp.qty + it["qty"])
+                        else:
+                            idx = 1
+                    it["karat%d" % idx] = karat
+                    it["wgt%d" % idx] = wgt
+            else:
+                it["wgts"] = shp.mtlwgt
             it["qty"] += qty
         if mp:
             mp["invdate"] = shp.invdate
@@ -1280,17 +1317,29 @@ class ShpMkr(object):
             fn = self.merge(fldr)
         else:
             fn = fldr
-        if not fn: return
+        if not fn: return            
         pajopts = {"fn":fn,"shpdate":PajShpHdlr._getshpdate(fn),"fmd": datetime.fromtimestamp(os.path.getmtime(fn))}
-        kxl, app = xwu.app()
-        wb = app.books.open(fn)
+        app = xwu.app()[1]
+        wb, flag = app.books.open(fn), False
+        for sn in (self._snrpt,self._snerr):
+            shts = [x for x in wb.sheets if triml(x.name).find(triml(sn)) >= 0]
+            if not shts: continue
+            for sht in shts:
+                rng = xwu.usedrange(sht)
+                if not rng: continue
+                flag = [x for x in rng.value if x]
+                if flag: break
+            if flag: break
+        if flag:
+            logger.debug("target file(%s) already contains one of sheet%s" % (path.basename(fn),(self._snrpt,self._snerr)))
+            return
         invs, its, errs, vt, vn = [], [], [], None, None
         rdrmap = {"长兴珠宝":("c2",self.readc2),"诚艺,胤雅":("c1",self.readc1) ,"十七,物料编号":("paj",self.readpaj)}
         rsht =[x for x in wb.sheets if triml(x.name) == "rpt"]
         if rsht:
             wb.close()
             return
-        
+
         rdr = None
         for sht in wb.sheets:
             if not vt:
@@ -1313,7 +1362,7 @@ class ShpMkr(object):
                                 ivd = datetime.strptime(ivd, "%Y-%m-%d")
                             td = datetime.today() - ivd
                             if td.days > 2 or td.days < 0:
-                                errs.append(self._newerr("_Date_","warning","Maybe invalid file or invoice date"))
+                                errs.append(self._newerr("_日期_","warning","日期可能错误"))
                             del mp["invdate"]
                         its.extend(mp.values())
                     if lst[1]: errs.extend(lst[1])
@@ -1344,7 +1393,12 @@ class ShpMkr(object):
                         mp[y[0]] = sx
                     jo.qtyleft = jo.qtyleft - mp["qty"]
                     if jo.qtyleft < 0:
-                        errs.append(self._newerr(mp["location"],"Error","Qty not enough"))
+                        s0 = "数量不足"
+                        errs.append(self._newerr(mp["location"],"Error",s0))
+                        mp["errmsg"] = s0
+                    else:
+                        mp["errmsg"] = ""
+                        
             its = sorted(its,key = lambda d0: "%s,%6.1f" % (d0["jono"],d0["qtyleft"]))
             self._write(wb,its,errs,ivd,vn)
         return fn
@@ -1401,31 +1455,78 @@ class ShpMkr(object):
             if len(y1) > 1:
                 ns[y1[0]] = y[0]
             sht.range(1,len(ttl)).column_width = float(y1[len(y1) - 1])
+        ns["thisleft"] = "此次,"
         nl, maxr = NamedList(list2dict(ttl,ns)), iorst["maxrun#"]
-        lsts, ns, hls = [ttl], "jono,running,qty,cstname,styno,description,qtyleft,karat1,wgt1".split(","), []
+        lsts, ns, hls = [ttl], "jono,running,qty,cstname,styno,description,qtyleft,errmsg".split(","), []
+        newrunmp = {}
         for it in its:
-            if not it["running"]:
-                maxr += 1
-                it["running"], nl["running"] = maxr, maxr
-                hls.append(len(lsts))
             ttl = ["" for x in range(len(ttl))]
             nl.setdata(ttl)
+            if not it["running"]:
+                if it["jono"] not in newrunmp:
+                    maxr += 1
+                    it["running"], nl["running"] = maxr, maxr
+                    hls.append(len(lsts) + 1)
+                    newrunmp[it["jono"]] = maxr
             for col in ns:
                 nl[col] = it[col]
             nl.jono = "'" + nl.jono
+            karats = {}
+            for wi in it["wgts"].wgts:
+                if not wi: continue
+                if wi.karat not in karats:
+                    karats[wi.karat] = wi.wgt
+                else:
+                    karats[wi.karat] += wi.wgt
+            karats = [(x[0],x[1]) for x in karats.items()]
+            nl.karat1, nl.wgt1 = karats[0][0], karats[0][1]
             lsts.append(ttl)
-            if "karat2" in it:
-                nl.setdata(["" for x in range(len(ttl))])
-                nl.karat, nl.wgt = it["karat2"], it["wgt2"]
-                lsts.append(ttl)
-        iorst["maxrun#"] = maxr
+            if len(karats) > 1:
+                for idx in range(1,len(karats)):
+                    nl.setdata(["" for x in range(len(ttl))])
+                    nl.karat1, nl.wgt1 = karats[idx][0], karats[idx][1]
+                lsts.append(nl.data)
         sht.range(1,1).value = lsts
+        #the qtyleft formula
+        s0, s1, s2 = col_name(nl.getcol("qty") + 1), col_name(nl.getcol("qtyleft") + 1), col_name(nl.getcol("thisleft") + 1)
+        for idx in range(2,len(lsts) + 1):
+            rng = sht.range("%s%d" % (s2,idx))
+            rng.formula = "=%s%d-%s%d" % (s1,idx,s0,idx)
+            rng.api.numberformatlocal = "_ * #,##0_ ;_ * -#,##0_ ;_ * ""-""_ ;_ @_ "
+            rng.api.formatconditions.add(FormatConditionType.xlCellValue , FormatConditionOperator.xlLess, "0")
+            rng.api.formatconditions(1).interior.colorindex = 3
+        
+        rng = sht.range(sht.range(1,1),sht.range(len(lsts),len(nl._colnames)))
+        rng.api.borders.linestyle = LineStyle.xlContinuous
+        rng.api.borders.weight = BorderWeight.xlThin
 
         #write sum formula at the bottom
         s0 = int(nl.getcol("qty")) + 1
-        sht.range(len(lsts) + 1, s0).formula = "=sum(%s1:%s%d)" % (col_name(s0), col_name(s0), len(lsts))
+        rng = sht.range(len(lsts) + 1, s0)
+        rng.formula = "=sum(%s1:%s%d)" % (col_name(s0), col_name(s0), len(lsts))
+        rng.api.font.bold = True
+        rng.api.borders.linestyle = LineStyle.xlContinuous
+        rng.api.borders.weight = BorderWeight.xlThin
+        sht.range("A2:A%d" % (len(lsts) + 1)).row_height = 18
+        
+        if hls:
+            s0 = nl.getcol("running") + 1
+            for idx in hls:
+                sht.range(idx,s0).api.interior.colorindex = 6
+                sht.range(idx,s0).api.interior.pattern = 1
 
         #high-light the new runnings
-        #final step
+        #write IOs back
+        iorst["maxrun#"] = maxr
         for knv in iorst.items():
             shtio.range(ridx,itio.getcol(knv[0])+1).value = knv[1]
+        
+        if errs:
+            its = [[x for x in errs[0].keys()]]
+            ttl = its[0]
+            for mp in errs:
+                its.append([("%s" % mp.get(x)) for x in ttl])
+            sht = wb.sheets.add(self._snerr)
+            sht.range(1,1).value = its
+            sht.autofit("c")
+        return fn

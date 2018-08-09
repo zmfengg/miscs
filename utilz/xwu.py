@@ -102,3 +102,8 @@ def safeopen(app, fn, updlnk = False, readonly = True):
     except:
         flag = False
     if flag: return app.books[-1]
+
+def deleterow(rng):
+    if not rng: return
+    #don't need the (), strange
+    rng.api.entirerow.delete
