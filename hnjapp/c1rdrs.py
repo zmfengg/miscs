@@ -19,6 +19,7 @@ from os import path
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Query
 from xlwings import constants
+from hnjapp.pajcc import PrdWgt, WgtInfo, addwgt
 
 from hnjapp.dbsvcs import jesin
 from hnjcore import JOElement, karatsvc
@@ -31,7 +32,7 @@ from hnjcore.utils.consts import NA
 from utilz import NamedList, NamedLists, getfiles, list2dict, trimu
 
 from .common import _date_short
-from .common import _logger as logger
+from .common import _logger as logger, _getdefkarat
 
 _ptnbtno = re.compile(r"(\d+)([A-Z]{3})(\d+)")
 
@@ -112,8 +113,6 @@ class C1InvRdr():
     def __init__(self, c1log=None, cclog=None):
         self._c1log = c1log
         self._cclog = cclog
-        self._cnstqnw = "stqty,stwgt".split(",")
-        self._cnsnl = "setting,labor".split(",")
 
     def read(self, fldr = None):
         """
@@ -148,7 +147,7 @@ class C1InvRdr():
                         if rng:
                             rngs.append(rng)
                     if len(cnsc1) == len(rngs):
-                        items.extend(self._readc1(sht, rngs[0].row))
+                        items.extend(self._readc1(sht))
                     else:
                         for s0 in cnscc:
                             rng = xwu.find(
@@ -163,45 +162,50 @@ class C1InvRdr():
                 app.quit()
         return items
 
-    def _readc1(self, sht, hdrow):
+    @classmethod
+    def _readc1(self, sht):
         """
         read c1 invoice file
         @param   sht: the sheet that is verified to be the C1 format
         @param hdrow: the row of the header 
         @return: a list of C1InvItem with source = "C1"
         """
-        rng = sht.range("A%d" % hdrow).end("left")
-        rng = sht.range(sht.range(rng.row, rng.column),
-                        xwu.usedrange(sht).last_cell)
-        vvs = rng.value
+        
+        rng = xwu.find(sht, "图片")
+        if not rng: return
         C1InvItem = namedtuple(
-            "C1InvItem", "source,jono,qty,labor,setting,remarks,stones,parts")
+            "C1InvItem", "source,jono,qty,labor,setting,remarks,stones,mtlwgt")
         C1InvStone = namedtuple("C1InvStone", "stone,qty,wgt,remark")
+        km = {"jono":u"工单,", "setting":u"镶工,", "labor":u"胚底,", "remark":u"备注,", "joqty": u"数量", "stname": u"石名,", "stqty": "粒数,", "stwgt": u"石重,","karat":"成色,","swgt":"净银重,","gwgt":"净金重,","pwgt":"配件重,"}
 
-        km = {"jono":u"工单号", "setting":u"镶工", "labor":u"胚底,", "remark":u"备注,", "joqty": u"数量", "stname": u"石名称", "stqty": u"粒数", "stwgt": u"石重,"}
-        nls = NamedLists(vvs,km,False)
-        if len(nls.namemap) < len(km):
-            logger.debug("key columns(%s) not found in sheet(%s)" %
-                         (nls.namemap, sht.name))
-            return None
-
-        items = list()
+        nls = [x for x in xwu.gettabledata(rng,nmap = km)]
+        if not nls: return
+        nl = nls[0]
+        kns = [1 if nl.getcol(x) else 0 for x in "jono,gwgt,swgt".split(",")]
+        if sum(kns) != 3:
+            logger.debug("sheet(%s) does not contain necessary key columns" % sht.name)
+            return        
+        items, c1 = list(), None
+        _cnstqnw = "stqty,stwgt".split(",")
+        _cnsnl = "setting,labor".split(",")
         for nl in nls: 
             s0 = nl.jono
-            if isinstance(s0, numbers.Number):
-                s0 = str(int(s0))
-            je = JOElement(s0)
-            if je.isvalid():
-                snl = []
-                for x in self._cnsnl:
-                    a0 = nl[x]
-                    snl.append(float(a0) if isnumeric(a0) else 0)
-                if any(snl):
+            if s0:
+                je = JOElement(s0)
+                if je.isvalid():
+                    if c1: items.append(c1)
+                    snl = []
+                    for x in _cnsnl:
+                        a0 = nl[x]
+                        snl.append(float(a0) if isnumeric(a0) else 0)
+                    if not any(snl):
+                        logger.debug("JO(%s) does not contains any labor cost" % je.value)
+                        snl = (0,0)
                     c1 = C1InvItem(
-                        "C1", je.value, nl.joqty, snl[1], snl[0], nl.remark, [], "N/A")
-                    items.append(c1)
+                        "C1", je.value, nl.joqty, snl[1], snl[0], nl.remark, [], None)
+            #stone data
             qnw = []
-            for x in self._cnstqnw:
+            for x in _cnstqnw:
                 if not isnumeric(nl[x]):
                     break
                 qnw.append(float(nl[x]))
@@ -210,8 +214,31 @@ class C1InvRdr():
                 if s0 and isinstance(s0, str):
                     joqty = c1.qty
                     c1.stones.append(C1InvStone(
-                        nl.stname, qnw[0] / joqty, qnw[1] / joqty, "N/A"))
+                        nl.stname, qnw[0] / joqty, round(qnw[1] / joqty,4), "N/A"))
+            #wgt data
+            kt, gw, sw, pwgt = nl.karat, nl.gwgt, nl.swgt, nl.pwgt
+            if kt:
+                kt, wgt, joqty = self._tokarat(kt), gw if gw else sw, c1.qty
+                c1 = c1._replace(mtlwgt = addwgt(c1.mtlwgt,WgtInfo(kt, wgt/joqty, 4)))
+                if pwgt:
+                    c1 = c1._replace(mtlwgt = addwgt(c1.mtlwgt, WgtInfo(kt, pwgt/joqty, 4), True))
+        if c1: items.append(c1)
         return items
+    
+    @classmethod
+    def _tokarat(self, kt):
+        if kt < 1: kt = int(kt * 1000)
+        if kt >= 924 and kt <= 926:
+            rc = 925
+        elif kt >= 330 and kt <= 340:
+            rc = 8
+        elif kt >= 370 and kt <= 385:
+            rc = 9
+        elif kt >= 580 and kt <= 590:
+            rc = 14
+        elif kt >= 745 and kt <= 755:
+            rc = 18
+        return rc
 
     def _readcalc(self, sht):
         """

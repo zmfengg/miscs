@@ -20,7 +20,6 @@ from collections import namedtuple
 from datetime import date, datetime
 from decimal import Decimal
 from tkinter import filedialog
-import tkinter as tk
 
 import xlwings.constants as const
 from xlwings.utils import col_name
@@ -36,9 +35,9 @@ from hnjcore.models.hk import Orderma, PajInv, PajShp, PajCnRev
 from hnjcore.models.hk import Style as Styhk
 from hnjcore.utils import daterange, getfiles, isnumeric, p17u
 from hnjcore.utils.consts import NA
-from utilz import NamedList, NamedLists, ResourceCtx, SessionMgr, list2dict, splitarray, triml, trimu
+from utilz import NamedList, NamedLists, ResourceCtx, SessionMgr, list2dict, splitarray, triml, trimu, easydialog
 
-from .common import _logger as logger
+from .common import _logger as logger, _getdefkarat
 from .dbsvcs import BCSvc, CNSvc, HKSvc
 from .localstore import PajInv as PajInvSt
 from .localstore import PajItem, PajCnRev as PajCnRevSt
@@ -46,7 +45,6 @@ from .localstore import PajWgt as PrdWgtSt
 from .pajcc import PAJCHINAMPS, P17Decoder, PajCalc, PrdWgt, WgtInfo, MPS, _tofloat
 
 _accdfmt = "%Y-%m-%d %H:%M:%S"
-_dfkt = {"4":925,"5":925,"M":8,"B":9,"G":10,"Y":14,"P":18}
 
 def _accdstr(dt):
     """ make a date into an access date """
@@ -58,11 +56,6 @@ def _removenonascii(s0):
     if isinstance(s0, str):
         return "".join([x for x in s0 if ord(x) > 31 and ord(x) < 127 and x != "?"])
     return s0
-
-def _getdefkarat(jn):
-    if isinstance(jn,numbers.Number):
-        jn = "%d" % int(jn)
-    return _dfkt.get(jn[0])
 
 class PajBomHhdlr(object):
     """ methods to read BOMs from PAJ """
@@ -1160,15 +1153,6 @@ class PajUPTcr(object):
                 if sht not in shts:
                     sht.delete()
 
-def easydlg(dlg):
-    """ open a tk dialog and return sth. easily """
-    rt = tk.Tk()
-    rt.withdraw()
-    dlg.master = rt
-    rc = dlg.show()
-    rt.quit()
-    return rc
-
 class PajNSOFRdr(object):
     """
     class to read a NewSampleOrderForm's data out
@@ -1204,8 +1188,10 @@ class ShpMkr(object):
     """
     _mergeshpjo = False
 
-    def __init__(self, cnsvc):
+    def __init__(self, cnsvc, hksvc, bcsvc):
         self._cnsvc = cnsvc
+        self._hksvc = hksvc
+        self._bcsvc = bcsvc
         self._snrpt = "Rpt"
         self._snerr = "错误及警告"
     
@@ -1215,7 +1201,7 @@ class ShpMkr(object):
     def merge(self,fldr = None,tarfn = None):
         """ merge the files in given folder into one file """
         if not fldr:
-            fldr = easydlg(filedialog.Directory(title="Choose folder contains one-time-shipment files"))
+            fldr = easydialog(filedialog.Directory(title="Choose folder contains one-time-shipment files"))
             if not path.exists(fldr): return
         fns = getfiles(fldr,".xls")
         dffn = [x for x in fns if x.find("_") >= 0]
@@ -1256,19 +1242,30 @@ class ShpMkr(object):
         """ determine the header row """
         for shp in sht.shapes:
             shp.delete()
-        ridx = 0
+        ridx, flag = -1, False
         for row in xwu.usedrange(sht).rows:
             if not row.api.entirerow.hidden:
                 ridx = row.row
                 break
-        if not ridx:
-            logger.debug("no data available")
-            return
-        sht.range("1:%d" % ridx).api.entirerow.delete
+            else:
+                flag = True
+        if flag and ridx >= 0:
+            sht.range("1:%d" % ridx).api.entirerow.delete
         rng = xwu.find(sht, "日期")
+        if not rng:
+            logger.debug("not valid data in sheet(%s)" % sht.name)
+            return
         if rng: args["shpdate"] = rng.offset(0, 1).value
-
-        #C1InvRdr()._readc1(sht,None)
+        mp, errs, shn, its ={}, [], sht.name, C1InvRdr._readc1(sht)
+        for shp in its:
+            jn = shp.jono
+            key = jn if self._mergeshpjo else jn + str(random.random())
+            it = mp.setdefault(key,{"jono":jn,"qty":0,"location": "%s,%s" % (shn,jn)})
+            it["wgts"] = shp.mtlwgt
+            it["qty"] += shp.qty
+        if mp:
+            mp["invdate"] = args.get("shpdate")
+        return (mp, errs)
     
     def readc2(self, sht, args):
         pass
@@ -1283,31 +1280,10 @@ class ShpMkr(object):
         mp, errs, shn = {}, [], sht.name
         for shp in shps.values():
             jn = shp.jono
-            if jn == "462141":
-                print("x")
             key = jn if self._mergeshpjo else jn + str(random.random())
             it = mp.setdefault(key,{"jono":jn,"qty":0,"location": "%s,%s" % (shn,jn)})
-            qty = shp.qty
-            if False:
-                dfkarat, wgts = _getdefkarat(jn), shp.mtlwgt
-                for wi in wgts.wgts:
-                    if not wi: continue
-                    karat, wgt = wi.karat if wi.karat else dfkarat, wi.wgt
-                    if not wgt:
-                        errs.append(self._newerr(jn,"Error","failed to get metal wgt"))
-                    else:
-                        idx = it.get("karat1")
-                        if idx:
-                            idx = 1 if idx == karat else 2
-                            if self._mergeshpjo:
-                                wgt = (wgt * shp.qty + it["wgt%d" % idx] * it["qty"]) / (shp.qty + it["qty"])
-                        else:
-                            idx = 1
-                    it["karat%d" % idx] = karat
-                    it["wgt%d" % idx] = wgt
-            else:
-                it["wgts"] = shp.mtlwgt
-            it["qty"] += qty
+            it["wgts"] = shp.mtlwgt
+            it["qty"] += shp.qty
         if mp:
             mp["invdate"] = shp.invdate
         return (mp, errs)
@@ -1392,6 +1368,8 @@ class ShpMkr(object):
                         if sx and isinstance(sx,str): sx = sx.strip()
                         mp[y[0]] = sx
                     jo.qtyleft = jo.qtyleft - mp["qty"]
+                    #todo:: for paj, append ack check
+                    #todo:: for c1&paj, append weight check
                     if jo.qtyleft < 0:
                         s0 = "数量不足"
                         errs.append(self._newerr(mp["location"],"Error",s0))
@@ -1402,6 +1380,56 @@ class ShpMkr(object):
             its = sorted(its,key = lambda d0: "%s,%6.1f" % (d0["jono"],d0["qtyleft"]))
             self._write(wb,its,errs,ivd,vn)
         return fn
+
+    def _writebc(self, wb, its, invdate):
+        """ create a bc template
+        """
+        dmp, lsts, rcols = {}, [], "lymd,lcod,styn,mmon,mmo2,runn,detl,quan,gwgt,gmas,jobn,ston,descn,desc,rem1,rem2,rem3,rem4,rem5,rem6,rem7,rem8".split(",")
+        stynos = set([x["styno"] for x in its])
+        nl = NamedList(list2dict(rcols))
+        bcs = self._bcsvc.getbcs(stynos, True)
+        for it in bcs:
+            dmp.setdefault(it.styn,[]).append(it)
+        for x in dmp.items():
+            sorted(x[1], key = lambda x: x.runn, reverse = True)
+        bcmp, dmp, rems, lymd = dmp, {}, (0,0), invdate.strftime("%Y%m%d %H:%M%S")
+
+        for it in its:
+            jn = it["jono"]
+            if jn in dmp: continue
+            dmp[jn], styno = 1, it["styno"]
+            bcs, mc, mc0, bc = bcmp[styno], 0, 0, None
+            if bcs: 
+                if not any(rems):
+                    rems =(1,8)               
+                for x in bcs[:10]:                    
+                    mc = sum([1 for x in range(*rems) if eval("bc.rem%d" % x)])
+                    if mc > mc0:
+                        mc0, bc = mc, x
+                nl.setdata([None]*len(rcols))
+                nl.lymd, nl.lcod, nl.styn, nl.mmon = lymd, styno, styno, "'" + lymd[2:4]
+                nl.mmo2, nl.runn, nl.detl = lymd[4:6], it["running"], it["cstname"]
+                nl.quan, nl.jobn = it["qty"], jn
+                prdwgt = it["mtlwgt"]
+                nl.gmas, nl.gwgt = prdwgt.main.karat, prdwgt.main.wgt
+                nl.descn = it["description"]
+                if bc:
+                    pass
+                else:
+                    nl.ston, nl.desc = "--", "TODO::"
+                nrmks = []
+                for x in ((prdwgt.aux,"%s:%4.2f"),(prdwgt.part,"%s PTS:%4.2f")):
+                    if x[0]: nrmks.append(x[1],(x[0].karat,x[1].wgt))
+                rmks = [eval("bc.rem%d" % x) for x in range(*rems) if eval("bc.rem%d" % x)]
+                cn = len(nrmks) + len(rmks)
+                cn = cn - rems[1]
+                if cn > 0:
+                    rmks[-cn-1] = ";".join(rmks[-2:])
+                    rmks.extend(rmks[:-cn-1])
+                else:
+                    rmks.extend(rmks)                
+                #TODO::
+            
 
     def _write(self,wb,its,errs,invdate,vdrname):
         app = wb.app
@@ -1468,6 +1496,8 @@ class ShpMkr(object):
                     it["running"], nl["running"] = maxr, maxr
                     hls.append(len(lsts) + 1)
                     newrunmp[it["jono"]] = maxr
+            else:
+                newrunmp[it["jono"]] = it["running"]
             for col in ns:
                 nl[col] = it[col]
             nl.jono = "'" + nl.jono
@@ -1515,12 +1545,14 @@ class ShpMkr(object):
                 sht.range(idx,s0).api.interior.colorindex = 6
                 sht.range(idx,s0).api.interior.pattern = 1
 
-        #high-light the new runnings
         #write IOs back
         iorst["maxrun#"] = maxr
         for knv in iorst.items():
             shtio.range(ridx,itio.getcol(knv[0])+1).value = knv[1]
         
+        #create bc template
+        self._writebc(wb, its,invdate)
+
         if errs:
             its = [[x for x in errs[0].keys()]]
             ttl = its[0]

@@ -8,10 +8,12 @@
 
 
 import logging
+from numbers import Number
 from hnjcore import JOElement
 
 _logger = logging.getLogger("hnjapp")
 _date_short = "%Y/%m/%d"
+_dfkt = {"4":925,"5":925,"M":8,"B":9,"G":10,"Y":14,"P":18}
 
 def splitjns(jns):
     """ split the jes or runnings into 3 set
@@ -34,3 +36,9 @@ def splitjns(jns):
                 if(je.isvalid):
                     jes.add(je)
     return jes, rns, ids
+
+def _getdefkarat(jn):
+    """ return the jo#'s default main karat """
+    if isinstance(jn,Number):
+        jn = "%d" % int(jn)
+    return _dfkt.get(jn[0])

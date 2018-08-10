@@ -511,12 +511,42 @@ class BCSvc(object):
         except:
             pass
         finally:
-            if cur: cur.close()
-        #trim the spaces
-        if lst:
-            for x in lst:
-                for idx in range(len(x)):
-                    s0 = x[idx]
-                    if s0 and isinstance(s0,str) and s0.find(" ") >= 0:
-                        x[idx] = s0.strip()
+            if cur: cur.close()        
+        return self._trim(lst)        
+    
+    @classmethod
+    def _trim(self, lst):
+        if not lst: return
+        for x in lst:
+            for idx in range(len(x)):
+                s0 = x[idx]
+                if s0 and isinstance(s0,str) and s0[-1] == " ":
+                    x[idx] = s0.strip()
         return lst
+
+    def getbcs(self,jnorunn, isstyno = False):
+        """ should be jns or runnings
+        runnings should be of numeric type
+        """
+        if not (self._bcdb and jnorunn): return
+        if not isinstance(jnorunn, Sequence):
+            jnorunn = tuple(jnorunn)
+        if isstyno:
+            cn = "styn"
+        else:        
+            cn = "jobn" if isinstance(jnorunn[0],str) else "runn"
+        
+        s0, lst = "select * from stocks where %s in (%%s)" % cn, []
+        cur = self._bcdb.cursor()
+        try:
+            for x in splitarray(jnorunn, self._querysize):
+                cur.execute(s0 % ("'" + "','".join(x) + "'"))
+                rows = cur.fetchall()
+                if rows: lst.extend(rows)
+        except:
+            pass
+        finally:
+            if cur: cur.close()
+        return self._trim(lst)
+        
+        

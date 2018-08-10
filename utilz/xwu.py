@@ -119,7 +119,15 @@ def gettabledata(rng, skipfirstrow = False, nmap = None):
     if mg:
         ttl = []
         for cell in th.columns:
-            ttl.append(".".join([x for x in cell.value if x]))
+            #ttl.append(".".join([x for x in cell.value if x]))
+            lst = []
+            for idx in range(len(cell)):
+                cx = cell[idx]
+                s0 = cx.value
+                if not s0 and cx.api.mergecells:
+                    s0 = cx.api.mergearea.value[0][0]
+                if s0 and s0 not in lst: lst.append(s0)
+            ttl.append(".".join(lst))
     else:
         ttl = ["%s" % x for x in th.value]
     cr = th.offset(1,0).current_region

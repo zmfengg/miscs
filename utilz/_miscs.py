@@ -16,10 +16,10 @@ import re
 from sys import getfilesystemencoding, version_info
 
 from sqlalchemy.orm import Session
-
+import tkinter as tk
 from .common import _logger as logger
 
-__all__ = ["NamedList", "NamedLists", "appathsep", "daterange", "deepget", "getfiles", "isnumeric", "list2dict", "na", "splitarray", "stsizefmt", "triml", "trimu", "removews"]
+__all__ = ["NamedList", "NamedLists", "appathsep", "daterange", "deepget", "getfiles", "isnumeric", "list2dict", "na", "splitarray", "stsizefmt", "triml", "trimu", "removews", "easydialog"]
 
 na = "N/A"
 
@@ -382,3 +382,12 @@ class NamedLists(Iterator):
     @property
     def namemap(self):
         return self._nmap
+
+def easydialog(dlg):
+    """ open a tk dialog and return sth. easily """
+    rt = tk.Tk()
+    rt.withdraw()
+    dlg.master = rt
+    rc = dlg.show()
+    rt.quit()
+    return rc

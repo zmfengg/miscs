@@ -30,7 +30,37 @@ def _tofloat(val,precious = 4):
     except Exception as e:
         print(e)
         return -1
-    
+
+def addwgt(prdwgt,wi,isparts = False):
+    """ add wgt to target prdwgt """
+    if not wi: return
+    if not prdwgt:
+        prdwgt = PrdWgt(wi)
+    else:
+        #act table: 0 -> main; 1 -> +main, 10 -> aux; 11 -> +aux; 20 -> part; 21 -> +part
+        if isparts:
+            act = 21 if prdwgt.part and prdwgt.part.wgt else 20
+        elif prdwgt.main:
+            act = 0 if not prdwgt.main.wgt else 1 if prdwgt.main.karat == wi.karat else 11 if prdwgt.aux and prdwgt.aux.wgt else 10
+        else:
+            act = 0
+        if act == 0:
+            prdwgt = prdwgt._replace(main = wi)
+        elif act == 1:
+            prdwgt = prdwgt._replace(main = WgtInfo(wi.karat, wi.wgt + prdwgt.main.wgt))
+        elif act == 10:
+            prdwgt = prdwgt._replace(aux = wi)
+        elif act == 11:
+            prdwgt = prdwgt._replace(aux = WgtInfo(wi.karat, wi.wgt + prdwgt.aux.wgt))
+        elif act == 20:
+            prdwgt = prdwgt._replace(part = wi)
+        else:
+            prdwgt = prdwgt._replace(aux = WgtInfo(wi.part, wi.wgt + prdwgt.part.wgt))
+    if prdwgt:
+        if prdwgt.main and prdwgt.aux and prdwgt.main.wgt < prdwgt.aux.wgt:
+            prdwgt = prdwgt._replace(main = prdwgt.aux, aux = prdwgt.main)
+
+    return prdwgt
 
 # karat and weight
 class WgtInfo(namedtuple("WgtInfo", "karat,wgt")):

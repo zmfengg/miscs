@@ -8,7 +8,7 @@
 
 import random
 import unittest
-from os import path
+from os import path, listdir
 from unittest import TestCase
 
 from utilz import xwu
@@ -128,7 +128,7 @@ class KeyTests(TestCase):
 
         #now test a very often use ability, read data from (excel) and handle it
         #without NamedList(s), I have to use tr[map[name]] to get the value
-        fn = getfiles(self.resfldr,"xls")[0]
+        fn = getfiles(self.resfldr,"NamedList")[0]
         app = xwu.app(False)[1]
         try:
             wb = app.books.open(fn)
@@ -177,13 +177,14 @@ class KeyTests(TestCase):
         self.assertTrue(fldr[-1] == path.sep, "with path.sep appended")
 
     def testGetFiles(self):
-        fldr = appathsep(thispath) + "res"
-        fns = getfiles(fldr,"xls",True)
+        fldr = path.join(thispath, "res")
+        fns = getfiles(fldr,"NamedL",True)
         self.assertEqual("NamedList.xlsx",fns[0],"the only excel file there")
-        fns = getfiles(fldr,"xls")
+        fns = getfiles(fldr,"List")
         self.assertEqual(appathsep(fldr) + "NamedList.xlsx",fns[0],"the only excel file there")
         fns = getfiles(fldr,nameonly = True)
-        self.assertEqual(2,len(fns),"the count of files")
+        fnx = listdir(fldr)
+        self.assertEqual(len(fnx),len(fns),"the count of files")
         fns = set([x for x in fns])
         self.assertTrue(u"厉害为国為幗.txt" in fns, "utf-8 based system can return mixing charset")
 
@@ -223,14 +224,14 @@ class KeyTests(TestCase):
         sht = wb.sheets[0]
         
         s0 = "No Merge,FirstMerge,NonFirstmerge,3Rows"
-        #s0 = "NonFirstmerge,3Rows"
+        #s0 = "FirstMerge,NonFirstmerge,3Rows"
         for name in s0.split(","):
             rng = xwu.find(sht,name)
-            nls = [x for x in xwu.gettabledata(rng, True, nmap)]
+            nls = [x for x in xwu.gettabledata(rng, True, nmap)]            
+            print("%s colnames are:(%s)" % (name, list(nls[0]._colnames)))
             self.assertEqual(3, len(nls), "result count of %s" % name)
             self.assertEqual(2, nls[0]["9k"], "9K result of %s" % name)
             self.assertEqual(16,nls[2].s950, "S950 of %s" % name)
-
 
 BaseClass = declarative_base()
 
