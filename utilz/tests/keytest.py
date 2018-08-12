@@ -11,8 +11,8 @@ import unittest
 from os import path, listdir
 from unittest import TestCase
 
-from utilz import xwu
-from utilz._miscs import (NamedList, NamedLists, appathsep, getfiles,NamedList,list2dict, stsizefmt)
+from utilz import xwu, stsizefmt
+from utilz._miscs import (NamedList, NamedLists, appathsep, getfiles,NamedList,list2dict)
 from utilz.resourcemgr import ResourceCtx, ResourceMgr
 from functools import cmp_to_key
 
@@ -169,7 +169,28 @@ class KeyTests(TestCase):
         self.assertTrue("nick" not in d0)
         self.assertEqual(al.name, al.nick)
 
-                
+        nl = NamedList("id,name,agex,agey",[None]*4)
+        nl.id, nl.agex = 1, 30
+        self.assertEqual(1,nl.id)
+        nl = nl._replace({"idx":"id,","age":"agex"})
+        self.assertEqual(1,nl.idx)
+        self.assertEqual(30,nl.age)
+        self.assertTrue("id" not in nl._colnames)
+        self.assertEqual(2,nl.getcol("age"))
+
+    def testxwuappswitch(self):
+        kxl, app = xwu.app(True)
+        os = xwu.appswitch(app,False)
+        self.assertTrue(len(os) > 0)
+        xwu.appswitch(app,os)
+        app.visible = False
+        os = xwu.appswitch(app,{"visible":True})
+        self.assertFalse(os["visible"])
+        app.api.enableevents = True
+        os = xwu.appswitch(app,{"visible":True,"enableevents":False})
+        self.assertEqual(1,len(os))
+        self.assertTrue(os["enableevents"])
+
     def testAppathSep(self):
         fldr = thispath
         self.assertTrue(fldr[-1] != path.sep, "a path's name should not ends with path.sep")
@@ -225,13 +246,16 @@ class KeyTests(TestCase):
         
         s0 = "No Merge,FirstMerge,NonFirstmerge,3Rows"
         #s0 = "FirstMerge,NonFirstmerge,3Rows"
+        import time
         for name in s0.split(","):
+            t0 = time.clock()
             rng = xwu.find(sht,name)
-            nls = [x for x in xwu.gettabledata(rng, True, nmap)]            
-            print("%s colnames are:(%s)" % (name, list(nls[0]._colnames)))
+            nls = [x for x in xwu.NamedRanges(rng, True, nmap)]            
+            #print("%s colnames are:(%s)" % (name, list(nls[0]._colnames)))
             self.assertEqual(3, len(nls), "result count of %s" % name)
             self.assertEqual(2, nls[0]["9k"], "9K result of %s" % name)
             self.assertEqual(16,nls[2].s950, "S950 of %s" % name)
+            print("using %f ms to perform %s" % (time.clock() - t0, name))            
 
 BaseClass = declarative_base()
 

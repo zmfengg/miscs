@@ -9,7 +9,7 @@ Some handy utils for most of my projects
 
 from .resourcemgr import ResourceMgr, ResourceCtx, SessionMgr
 from ._miscs import *
-from ._jewelry import Karat, KaratSvc, RingSizeSvc
+from ._jewelry import Karat, KaratSvc, RingSizeSvc, stsizefmt
 from . import odbctpl
 from . import xwu
 

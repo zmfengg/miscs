@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 import tkinter as tk
 from .common import _logger as logger
 
-__all__ = ["NamedList", "NamedLists", "appathsep", "daterange", "deepget", "getfiles", "isnumeric", "list2dict", "na", "splitarray", "stsizefmt", "triml", "trimu", "removews", "easydialog"]
+__all__ = ["NamedList", "NamedLists", "appathsep", "daterange", "deepget", "getfiles", "isnumeric", "list2dict", "na", "splitarray", "triml", "trimu", "removews", "easydialog"]
 
 na = "N/A"
 
@@ -63,21 +63,21 @@ def list2dict(lst, trmap=None, dupdiv="", bname=None):
         return None, None
 
     lstl = [triml(x) for x in lst]
-    mp = {}
+    ctr = {}
     for ii in range(len(lstl)):
         x = lstl[ii]
         if not x and bname:
             lstl[ii] = bname
-        if x in mp:
-            mp[x] += 1
-            if dupdiv == None:
+        if x in ctr:
+            ctr[x] += 1
+            if dupdiv is None:
                 dupdiv = ""
             if lstl[ii]:
-                lstl[ii] += dupdiv + str(mp[x])
+                lstl[ii] += dupdiv + str(ctr[x])
             else:
-                lstl[ii] = dupdiv + str(mp[x])
+                lstl[ii] = dupdiv + str(ctr[x])
         else:
-            mp[x] = 0
+            ctr[x] = 0
     if not trmap:
         trmap = {}
     else:
@@ -135,63 +135,6 @@ def daterange(year, month, day=1):
     del dtm
     return df, dt
 
-
-def stsizefmt(sz, shortform=False):
-    """ format a stone size into long or short form, with big -> small sorting, some examples are
-    @param sz: the string to format
-    @param shortform: return a short format
-        "3x4x5mm" -> "0500X0400X0300"
-        "3x4x5" -> "0500X0400X0300"
-        "3.5x4.0x5.3" -> "0530X0400X0350"
-        "4" -> "0400"
-        "053004000350" -> "0530X0400X0350"
-        "040005300350" -> "0530X0400X0350"
-        "0400X0530X0350" -> "0530X0400X0350"
-        "4m" -> "0400"
-        "4m-3.5m" -> "0400-0350"
-        "3x4x5", False, True -> "5X4X3"
-        "0500X0400X0300" -> "5X4X3"
-        "0300X0500X0400" -> "5X4X3"
-    """
-    def _inc(segs):
-        segs.append("")
-        return len(segs) - 1
-
-    def _fmtpart(s0, shortform):
-        ln = len(s0)
-        if ln < 4 or s0.find(".") >= 0:
-            s0 = "%04d" % (float(s0) * 100)
-            if shortform:
-                s0 = "%d" % (int(s0) / 100)
-        else:
-            s0 = splitarray(s0, 4)
-            if shortform:
-                for ii in range(len(s0)):
-                    s0[ii] = "%d" % (int(s0[ii]) / 100)
-        return s0
-
-    sz = sz.strip().upper()
-    segs, parts, idx, rng = [""], [], 0, False
-    for x in sz:
-        if x.isdigit() or x == ".":
-            segs[idx] += x
-        elif x == "-":
-            idx = _inc(segs)
-            rng = True
-        elif x in ("X", "*"):
-            idx = _inc(segs)
-            if rng:
-                break
-        elif rng:
-            break
-    for x in segs:
-        x = _fmtpart(x, shortform)
-        if isinstance(x, str):
-            parts.append(x)
-        else:
-            parts.extend(x)
-    return ("-" if rng else "X").join(sorted(parts, reverse=True))
-
 def removews(s0):
     """ remove the invalid white space """
     if not s0: return
@@ -241,6 +184,30 @@ class NamedList(object):
     def clone(self, data = None):
         """ create a clone with the same definination as me, but not the same data set """
         return NamedList(self._nmap, data)
+    
+    def _replace(self, trmap, data = None):
+        """ do name replacing, return a new instance
+        trmap has the same meaning of list2dict
+        """
+        th = tuple(zip(*[(x[0],x[1]) for x in self._nmap.items()]))
+        th = (list(th[0]),th[1])
+        for x in trmap.items():
+            ss = x[1].split(",")
+            if len(ss) > 1:
+                for sx in ss:
+                    hit = False
+                    for ii in range(len(th[0])):
+                        if th[0][ii].find(sx) >= 0:
+                            th[0][ii] = x[0]
+                            hit = True
+                            break
+                    if hit: break
+            else:
+                for ii in range(len(th[0])):
+                    if th[0][ii] == x[1]:
+                        th[0][ii] = x[0]
+                        break
+        return NamedList(dict(zip(*th)), data if data else self._data)
 
     def setdata(self, data):
         if data:
@@ -329,6 +296,13 @@ class NamedList(object):
     @property
     def data(self):
         return self._data
+    
+    def __str__(self):
+        return self.__repr__()
+        
+    def __repr__(self):
+        if not self._data: return None
+        return repr(dict(zip(self._colnames,self._data)))
 
 
 class NamedLists(Iterator):
@@ -382,6 +356,12 @@ class NamedLists(Iterator):
     @property
     def namemap(self):
         return self._nmap
+
+    def __str__(self):
+        return self._lsts.__repr__() if self._lsts else None
+
+    def __repr__(self):
+        return self._lsts.__repr__() if self._lsts else None
 
 def easydialog(dlg):
     """ open a tk dialog and return sth. easily """

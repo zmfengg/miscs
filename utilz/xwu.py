@@ -6,12 +6,16 @@ Utils for xlwings's not implemented but useful function
 
 @author: zmFeng
 '''
-import xlwings.constants as const
-import xlwings
 import os
-from ._miscs import list2dict, NamedLists
+
+import xlwings
+import xlwings.constants as const
+from xlwings import Range, xlplatform
+
+from ._miscs import NamedLists, list2dict
 
 __all__ = ["app","find","fromtemplate","list2dict","usedrange", "safeopen"]
+_validappsws = set("visible,enableevents,displayalerts,asktoupdatelinks,screenupdating".split(","))
 
 def app(vis=True,dspalerts = False):    
     """ launch an excel or connect to existing one
@@ -21,20 +25,41 @@ def app(vis=True,dspalerts = False):
     
     flag = xlwings.apps.count == 0
     app = xlwings.apps.active if not flag else xlwings.App(visible=vis, add_book=False)
-    if app and dspalerts is not None: app.display_alerts = bool(dspalerts)
+    if app: app.display_alerts = bool(dspalerts)
     return flag, app
 
+def appswitch(app, sws):
+    """ turn switches on/off, return a string of the original value so that you can restore
+    appswitch(app,False) to turn all default switches off
+    appswitch(app,{"visible":False,"screenupdate":True})
+    remember to hold the result and call this method again to restore the prior state
+    """
+    if not app: return
+    if isinstance(sws,bool):
+        sws = dict([(x,sws) for x in _validappsws])
+    mp = {}
+    for knv in sws.items():
+        if knv[0] not in _validappsws: continue
+        ov = eval("app.api.%s" % knv[0])
+        if ov == bool(knv[1]): continue
+        mp[knv[0]] = ov        
+        exec("app.api.%s = %s" % (knv[0],bool(knv[1])))
+    return mp
+
+def apirange(rng):
+    """ wrap an range object returned by api, for example, rng.api.mergearea
+    """
+    if not rng: return
+    if isinstance(rng, Range): return rng
+    if not isinstance(rng,xlplatform.COMRetryObjectWrapper): return
+    return Range(impl = xlplatform.Range(rng))
 
 def usedrange(sh):
     """
     find out the used range of the given sheet
-    @param sh: the worksheet you want to find used range from
+    @param sh: the worksheet you want to find used range from. Maybe the same as sht.cells
     """
-    ur = sh.api.UsedRange
-    rows = (ur.Row, ur.Rows.Count)
-    cols = (ur.Column, ur.Columns.count)
-    return sh.range(*zip(rows, cols))
-
+    return apirange(sh.api.UsedRange)
 
 def find(sh, val, aftr=None, matchCase=False, lookat=const.LookAt.xlPart, \
          lookin=const.FindLookIn.xlValues, so=const.SearchOrder.xlByRows, \
@@ -50,14 +75,10 @@ def find(sh, val, aftr=None, matchCase=False, lookat=const.LookAt.xlPart, \
     if(not val): val = "*"
     aftr = sh.api.Cells(1, 1) if(not aftr) else \
         sh.api.Cells(aftr.row, aftr.column)
-    apiRng = sh.api.Cells.Find(What=val, After=aftr, \
+    return apirange(sh.api.Cells.Find(What=val, After=aftr, \
                    LookAt=lookat, LookIn=lookin, \
                    SearchOrder=so, SearchDirection=sd, \
-                       MatchCase=matchCase)
-    if(apiRng):
-        apiRng = sh.range((apiRng.row, apiRng.column))
-    return apiRng
-
+                       MatchCase=matchCase))
 
 def range2dict(vvs,trmap=None, dupdiv = "", bname = None):
     """ read a range's values into a list of dict item. vvs[0] should contains headers
@@ -103,35 +124,39 @@ def safeopen(app, fn, updlnk = False, readonly = True):
         flag = False
     if flag: return app.books[-1]
 
-def gettabledata(rng, skipfirstrow = False, nmap = None):
+def NamedRanges(rng, skipfirstrow = False, nmap = None, scolcnt = 0):
+    """ return the data under or include the range as namedlist list
+    @param scolcnt: the count of columns to search, default is unlimited
+    """
+    if not rng: return
     if skipfirstrow: rng = rng.offset(1,0)
-    sht = rng.sheet
-    cr = rng.current_region
-    tr, rr, mg = sht.range(rng,sht.range(rng.row,cr.last_cell.column)), (65000,0), False
-    #has merge items?
+    sht, cr, orgcord = rng.sheet, rng.current_region, (rng.row, rng.column)
+    ecol = orgcord[1] + scolcnt if scolcnt > 0 else cr.last_cell.column
+    tr, rr, mg = sht.range(rng,sht.range(rng.row, ecol)), (65000 ,0), False
     for cell in tr.columns:
         if cell.api.mergecells:
             if not mg: mg = True
-            mr = cell.api.mergearea
-            rr = (min(rr[0],mr.row),max(rr[1],mr.row + mr.rows.count - 1))
-    if not mg: rr = (rng.row,rng.row)
-    th = sht.range(sht.range(rr[0],rng.column),sht.range(rr[1],cr.last_cell.column))
+            mr = apirange(cell.api.mergearea)
+            rr = (min(rr[0],mr.row),max(rr[1],mr.last_cell.row))
+    if not mg: rr = (orgcord[0],)*2
+    th = sht.range(sht.range(rr[0],orgcord[1]),sht.range(rr[1],ecol))
     if mg:
-        ttl = []
-        for cell in th.columns:
-            #ttl.append(".".join([x for x in cell.value if x]))
-            lst = []
-            for idx in range(len(cell)):
-                cx = cell[idx]
-                s0 = cx.value
-                if not s0 and cx.api.mergecells:
-                    s0 = cx.api.mergearea.value[0][0]
-                if s0 and s0 not in lst: lst.append(s0)
-            ttl.append(".".join(lst))
+        if rr[0] == rr[1]:
+            ttl = th.value
+            for ii in range(len(ttl)):
+                if not ttl[ii] and ii > 0: ttl[ii] = ttl[ii - 1]
+        else:
+            vals = [list(x) for x in th.value]
+            for jj in range(len(vals)):
+                lst = vals[jj]
+                for ii in range(len(lst)):
+                    if not lst[ii]:
+                        val = lst[ii - 1] if ii > 0 else None
+                        if not val: val = vals[jj - 1][ii] if jj > 0 else None
+                        if val: lst[ii] = val
+            ttl = [".".join(x) for x in zip(*vals)]
     else:
         ttl = ["%s" % x for x in th.value]
-    cr = th.offset(1,0).current_region
-    cr = sht.range(sht.range(rr[1]+1,rng.column), cr.last_cell)
-    lst = cr.value
+    lst = sht.range(sht.range(rr[1]+1,orgcord[1]),  sht.range(cr.last_cell.row,ecol)).value
     lst.insert(0,ttl)
     return NamedLists(lst,nmap)

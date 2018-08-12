@@ -11,11 +11,67 @@ from numbers import Number
 from operator import attrgetter
 from os import path
 from .common import thispath
-from ._miscs import trimu
+from ._miscs import trimu, splitarray
 from threading import RLock
 
-__all__ = ["Karat","KaratSvc","RingSizeSvc"]
+__all__ = ["Karat","KaratSvc","RingSizeSvc", "stsizefmt"]
 
+def stsizefmt(sz, shortform=False):
+    """ format a stone size into long or short form, with big -> small sorting, some examples are
+    @param sz: the string to format
+    @param shortform: return a short format
+        "3x4x5mm" -> "0500X0400X0300"
+        "3x4x5" -> "0500X0400X0300"
+        "3.5x4.0x5.3" -> "0530X0400X0350"
+        "4" -> "0400"
+        "053004000350" -> "0530X0400X0350"
+        "040005300350" -> "0530X0400X0350"
+        "0400X0530X0350" -> "0530X0400X0350"
+        "4m" -> "0400"
+        "4m-3.5m" -> "0400-0350"
+        "3x4x5", False, True -> "5X4X3"
+        "0500X0400X0300" -> "5X4X3"
+        "0300X0500X0400" -> "5X4X3"
+    """
+    def _inc(segs):
+        segs.append("")
+        return len(segs) - 1
+
+    def _fmtpart(s0, shortform):
+        ln = len(s0)
+        if ln < 4 or s0.find(".") >= 0:
+            s0 = "%04d" % (float(s0) * 100)
+            if shortform:
+                s0 = "%d" % (int(s0) / 100)
+        else:
+            s0 = splitarray(s0, 4)
+            if shortform:
+                for ii in range(len(s0)):
+                    s0[ii] = "%d" % (int(s0[ii]) / 100)
+        return s0
+
+    sz = sz.strip().upper()
+    segs, parts, idx, rng = [""], [], 0, False
+    for x in sz:
+        if x.isdigit() or x == ".":
+            segs[idx] += x
+        elif x == "-":
+            idx = _inc(segs)
+            rng = True
+        elif x in ("X", "*"):
+            idx = _inc(segs)
+            if rng:
+                break
+        elif rng:
+            break
+    for x in segs:
+        x = _fmtpart(x, shortform)
+        if isinstance(x, str):
+            parts.append(x)
+        else:
+            parts.extend(x)
+    return ("-" if rng else "X").join(sorted(parts, reverse=True))
+  
 Karat = namedtuple("Karat","karat,name,fineness,category,color")
 
 class KaratSvc(object):
