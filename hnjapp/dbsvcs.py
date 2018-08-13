@@ -535,6 +535,8 @@ class BCSvc(object):
             cn = "styn"
         else:        
             cn = "jobn" if isinstance(jnorunn[0],str) else "runn"
+            if cn == "runn":
+                jnorunn = [str(x) for x in jnorunn]
         
         s0, lst = "select * from stocks where %s in (%%s)" % cn, []
         cur = self._bcdb.cursor()

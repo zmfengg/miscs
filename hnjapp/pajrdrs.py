@@ -17,7 +17,7 @@ from os import path
 import re
 import sys
 from collections import namedtuple
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from tkinter import filedialog
 
@@ -25,20 +25,20 @@ import xlwings.constants as const
 from xlwings.utils import col_name
 from sqlalchemy import and_, func
 from sqlalchemy.engine import create_engine
-from sqlalchemy.orm import Query
+from sqlalchemy.orm import Query, aliased
 from xlwings.constants import LookAt, BorderWeight, LineStyle, FormatConditionOperator, FormatConditionType
 from hnjapp.c1rdrs import C1InvRdr
 
-from hnjcore import JOElement, appathsep, deepget, karatsvc, p17u, xwu
+from hnjcore import JOElement, appathsep, deepget, karatsvc, p17u, xwu, samekarat
 from hnjcore.models.hk import JO as JOhk
-from hnjcore.models.hk import Orderma, PajInv, PajShp, PajCnRev
+from hnjcore.models.hk import Orderma, PajInv, PajShp, PajCnRev, POItem
 from hnjcore.models.hk import Style as Styhk
 from hnjcore.utils import daterange, getfiles, isnumeric, p17u
 from hnjcore.utils.consts import NA
 from utilz import NamedList, NamedLists, ResourceCtx, SessionMgr, list2dict, splitarray, triml, trimu, easydialog
 
 from .common import _logger as logger, _getdefkarat
-from .dbsvcs import BCSvc, CNSvc, HKSvc
+from .dbsvcs import BCSvc, CNSvc, HKSvc, jesin
 from .localstore import PajInv as PajInvSt
 from .localstore import PajItem, PajCnRev as PajCnRevSt
 from .localstore import PajWgt as PrdWgtSt
@@ -65,7 +65,7 @@ class PajBomHhdlr(object):
         """ read BOM from given folder
         @param fldr: the folder contains the BOM file(s)
         return a dict with "pcode" as key and dict as items
-            the item dict has keys("pcode","wgts")
+            the item dict has keys("pcode","mtlwgt")
         """
         _ptnoz = re.compile(r"\(\$\d*/OZ\)")
         _ptnsil = re.compile(r"(925)")
@@ -170,7 +170,7 @@ class PajBomHhdlr(object):
                             kt = _parsekarat(vvs[ii][wcn["mat"]])
                             if not kt: continue
                             it = pmap.setdefault(pcode,{"pcode":pcode})
-                            it.setdefault("wgts",[]).append((kt,vvs[ii][wcn["mtlwgt"]]))
+                            it.setdefault("mtlwgt",[]).append((kt,vvs[ii][wcn["mtlwgt"]]))
                     elif jj == 1:
                         nmap = {"pcode":u"十七位,","name":u"物料名称", \
                             "spec":u"物料特征","qty":u"数量","wgt":u"重量","unit":u"单位","length":u"长度"}
@@ -186,13 +186,13 @@ class PajBomHhdlr(object):
                                 it[cn] = vvs[ii][wcn[cn]]                        
                 wb.close()
             for x in pmap.items():
-                lst = x[1]["wgts"]
+                lst = x[1]["mtlwgt"]
                 sltid, wis = -1, [None,None,None]            
                 for y in lst:
                     sltid = _mergewgt(wis,WgtInfo(y[0],y[1]),1,True)
                     if sltid < 0:
                         logger.error("failed to get slot to store prodwgt for pcode %s" % x[0])
-                        x[1]["wgts"] = None
+                        x[1]["mtlwgt"] = None
                         continue
                 if "parts" in x[1]:                
                     if wis[1]:
@@ -239,7 +239,7 @@ class PajBomHhdlr(object):
                             _mergewgt(wis,WgtInfo(y["karat"],y["wgt"]),1)
                 if chlenerr and wis[2]:
                     wis[2] = WgtInfo(wis[2].karat,-wis[2].wgt)
-                x[1]["wgts"] = PrdWgt(wis[0],wis[1],wis[2])        
+                x[1]["mtlwgt"] = PrdWgt(wis[0],wis[1],wis[2])        
         finally:
             if kxl and app: app.quit()
         return pmap
@@ -289,7 +289,7 @@ class PajBomHhdlr(object):
         with hksvc.sessionctx() as sess:
             cnt = 0;ln = len(pmap)
             for x in pmap.values():
-                lst, wgt = [x["pcode"]], x["wgts"]
+                lst, wgt = [x["pcode"]], x["mtlwgt"]
                 if isinstance(wgt,PrdWgt):
                     lst.extend(_fmtwgt((wgt)))
                 else:
@@ -1194,6 +1194,7 @@ class ShpMkr(object):
         self._bcsvc = bcsvc
         self._snrpt = "Rpt"
         self._snerr = "错误及警告"
+        self._snbc = "BCData"
     
     def _newerr(self,loc,etype,msg):
         return {"location":loc,"type":etype,"msg":msg}
@@ -1261,7 +1262,7 @@ class ShpMkr(object):
             jn = shp.jono
             key = jn if self._mergeshpjo else jn + str(random.random())
             it = mp.setdefault(key,{"jono":jn,"qty":0,"location": "%s,%s" % (shn,jn)})
-            it["wgts"] = shp.mtlwgt
+            it["mtlwgt"] = shp.mtlwgt
             it["qty"] += shp.qty
         if mp:
             mp["invdate"] = args.get("shpdate")
@@ -1282,7 +1283,7 @@ class ShpMkr(object):
             jn = shp.jono
             key = jn if self._mergeshpjo else jn + str(random.random())
             it = mp.setdefault(key,{"jono":jn,"qty":0,"location": "%s,%s" % (shn,jn)})
-            it["wgts"] = shp.mtlwgt
+            it["mtlwgt"] = shp.mtlwgt
             it["qty"] += shp.qty
         if mp:
             mp["invdate"] = shp.invdate
@@ -1310,7 +1311,7 @@ class ShpMkr(object):
             logger.debug("target file(%s) already contains one of sheet%s" % (path.basename(fn),(self._snrpt,self._snerr)))
             return
         invs, its, errs, vt, vn = [], [], [], None, None
-        rdrmap = {"长兴珠宝":("c2",self.readc2),"诚艺,胤雅":("c1",self.readc1) ,"十七,物料编号":("paj",self.readpaj)}
+        rdrmap = {"长兴珠宝":("c2",self.readc2),"诚艺,胤雅":("c1",self.readc1) ,"十七,物料编号,paj,diamondlite":("paj",self.readpaj)}
         rsht =[x for x in wb.sheets if triml(x.name) == "rpt"]
         if rsht:
             wb.close()
@@ -1325,11 +1326,11 @@ class ShpMkr(object):
                             vt, vn = x, rdrmap[x][0]
                             break
                     if vt: break
-            rdr = rdrmap.get(vt)
+            rdr, flag = rdrmap.get(vt), False
             if rdr:
-                print("Processing sheet(%s)" % sht.name)
                 lst = rdr[1](sht, pajopts)
                 if lst and len([x for x in lst if x]):
+                    flag = True
                     mp = lst[0]
                     if mp: 
                         if "invdate" in mp:
@@ -1342,18 +1343,44 @@ class ShpMkr(object):
                             del mp["invdate"]
                         its.extend(mp.values())
                     if lst[1]: errs.extend(lst[1])
-                else:
-                    logger.debug("sheet does not contain standard shipment data")
-                    if rdr[0] == "paj":
-                        invno = PajShpHdlr._readinvno(sht)
-                        if not invno: continue
-                        lst = PajShpHdlr._rawreadinv(sht, invno)
-                        if not lst:
-                            invs.extend(lst)
-            else:
-                logger.debug("no suitable reader for sheet(%s)" % sht.name)
+            if not flag:
+                if vn == "paj":
+                    invno = PajShpHdlr._readinvno(sht)
+                    if not invno: continue
+                    lst = PajShpHdlr._rawreadinv(sht, invno)
+                    if lst:
+                        invs.extend(lst)
+                        flag = True
+            if not flag:
+                logger.debug("sheet(%s) does not contain any valid data" % sht.name)
         if its:
             jns = set([x["jono"] for x in its])
+            if False and invs:
+                tmp = {}
+                for x in invs:
+                    tmp1 = tmp.setdefault(x.jono,{})
+                    if "inv" not in tmp1:
+                        tmp1["inv"], tmp1["invqty"] = x, 0
+                    else:
+                        x0 = tmp1["inv"]
+                        if abs(x0.uprice - x.uprice) > 0.001:
+                            errs.append(self._newerr(x.jono,"Error","UPrice different in same JO#"))
+                    tmp1["invqty"] += x.qty
+                for x in its:
+                    jn = x["jono"]
+                    tmp1 = tmp.get(jn)
+                    if tmp1:
+                        tmp1["qty"] = tmp1.get("qty",0) + x["qty"]
+                for x in invs:
+                    if x.get("invqty") != x.get("qty"):
+                        if not x.get("qty"):
+                            errs.append(self._newerr("Inv(%s),JO#(%s)" % (x.invno, x.jono), "Error","No shipment found for invoice(%s) and JO#(%s)" % (x.invno, x.jono)))
+                        else:
+                            errs.append(self._newerr(x["jono"],"Error","Qty of Shipment(%f) and Invoice(%f) differs" % (x.get("qty", 0), x.get("invqty", 0))))
+                tmp = jns.difference(set([x["jono"] for x in tmp]))
+                if tmp:
+                    for x in tmp:
+                        errs.append(self._newerr(jn,"Error","No invoice for JO(%s)" % x["jono"]))
             with self._cnsvc.sessionctx():
                 jos = self._cnsvc.getjos(jns)
                 jos = dict([(x.name.value,x) for x in jos[0]])
@@ -1376,60 +1403,94 @@ class ShpMkr(object):
                         mp["errmsg"] = s0
                     else:
                         mp["errmsg"] = ""
-                        
+                    if vt == 'paj':
+                        pass
+                    elif vt == 'c1':
+                        pass
             its = sorted(its,key = lambda d0: "%s,%6.1f" % (d0["jono"],d0["qtyleft"]))
             self._write(wb,its,errs,ivd,vn)
+            self._writebc(wb, its,ivd)
         return fn
 
     def _writebc(self, wb, its, invdate):
         """ create a bc template
         """
         dmp, lsts, rcols = {}, [], "lymd,lcod,styn,mmon,mmo2,runn,detl,quan,gwgt,gmas,jobn,ston,descn,desc,rem1,rem2,rem3,rem4,rem5,rem6,rem7,rem8".split(",")
-        stynos = set([x["styno"] for x in its])
-        nl = NamedList(list2dict(rcols))
+        refjo, refpo = aliased(JOhk), aliased(POItem)
+        rems, nl =[999,0], NamedList(list2dict(rcols))
+        for x in nl._colnames:
+            if x.find("rem") == 0:
+                idx = int(x[len("rem"):])
+                if idx < rems[0]: rems[0] = idx
+                if idx > rems[1]: rems[1] = idx
+        rems[1] += 1
+        with self._hksvc.sessionctx() as cur:
+            dt = datetime.today() - timedelta(days = 365)
+            jes = set(JOElement(x["jono"]) for x in its)
+            q = Query([JOhk.name,func.max(refjo.running)]).join((refjo,JOhk.id != refjo.id), (POItem, JOhk.poid == POItem.id), (refpo, and_(refpo.id == refjo.poid, refpo.skuno == POItem.skuno))).filter(and_(POItem.id >0, refjo.createdate > dt)).group_by(JOhk.name)
+            q = q.filter(jesin(jes,JOhk))
+            lst = q.with_session(cur).all()
+            josku = dict([(x[1], x[0].value) for x in lst]) if lst else {}
+            
+        joskubcs = self._bcsvc.getbcs([x for x in josku.keys()])
+        joskubcs = dict([(josku[int(x.runn)],x) for x in joskubcs]) if joskubcs else None
+        
+        stynos = set([x["styno"] for x in its if x["jono"] not in joskubcs])
         bcs = self._bcsvc.getbcs(stynos, True)
         for it in bcs:
             dmp.setdefault(it.styn,[]).append(it)
-        for x in dmp.items():
-            sorted(x[1], key = lambda x: x.runn, reverse = True)
-        bcmp, dmp, rems, lymd = dmp, {}, (0,0), invdate.strftime("%Y%m%d %H:%M%S")
+        for x in dmp.keys():
+            dmp[x] = sorted(dmp[x], key = lambda x: x.runn, reverse = True)
+        bcmp, dmp, lymd = dmp, {}, invdate.strftime("%Y%m%d %H:%M%S")
 
+        lsts.append(rcols)
         for it in its:
             jn = it["jono"]
             if jn in dmp: continue
             dmp[jn], styno = 1, it["styno"]
-            bcs, mc, mc0, bc = bcmp[styno], 0, 0, None
-            if bcs: 
-                if not any(rems):
-                    rems =(1,8)               
-                for x in bcs[:10]:                    
-                    mc = sum([1 for x in range(*rems) if eval("bc.rem%d" % x)])
-                    if mc > mc0:
-                        mc0, bc = mc, x
-                nl.setdata([None]*len(rcols))
-                nl.lymd, nl.lcod, nl.styn, nl.mmon = lymd, styno, styno, "'" + lymd[2:4]
-                nl.mmo2, nl.runn, nl.detl = lymd[4:6], it["running"], it["cstname"]
-                nl.quan, nl.jobn = it["qty"], jn
-                prdwgt = it["mtlwgt"]
-                nl.gmas, nl.gwgt = prdwgt.main.karat, prdwgt.main.wgt
-                nl.descn = it["description"]
-                if bc:
-                    pass
-                else:
-                    nl.ston, nl.desc = "--", "TODO::"
-                nrmks = []
-                for x in ((prdwgt.aux,"%s:%4.2f"),(prdwgt.part,"%s PTS:%4.2f")):
-                    if x[0]: nrmks.append(x[1],(x[0].karat,x[1].wgt))
-                rmks = [eval("bc.rem%d" % x) for x in range(*rems) if eval("bc.rem%d" % x)]
-                cn = len(nrmks) + len(rmks)
-                cn = cn - rems[1]
-                if cn > 0:
-                    rmks[-cn-1] = ";".join(rmks[-2:])
-                    rmks.extend(rmks[:-cn-1])
-                else:
-                    rmks.extend(rmks)                
-                #TODO::
-            
+            bc, rmks = joskubcs.get(jn), []
+            if not bc:
+                bcs = bcmp[styno]
+                if bcs: 
+                    #find the same karat and longest remarks as template
+                    for bcx in bcs[:10]:
+                        if not samekarat(jn,bcx.jobn): continue
+                        mc0 = [x for x in [getattr(bcx,"rem%d" %y).strip() for y in range(*rems)] if x]
+                        if len(mc0) > len(rmks):
+                            rmks, bc = mc0, bcx
+                    if not bc:
+                        bc = bcs[0]
+                        rmks = [x for x in [getattr(bc,"rem%d" %y).strip() for y in range(*rems)] if x]
+                flag = False
+            else:
+                flag = True
+            nl.setdata([None]*len(rcols))
+            nl.lymd, nl.lcod, nl.styn, nl.mmon = lymd, styno, styno, "'" + lymd[2:4]
+            nl.mmo2, nl.runn, nl.detl = lymd[4:6], "'%d" % it["running"], it["cstname"]
+            nl.quan, nl.jobn = it["qty"], "'" + jn
+            nl.descn = ("Bingo!!!" if flag else "") + it["description"]
+            prdwgt = it["mtlwgt"]
+            nl.gmas, nl.gwgt = prdwgt.main.karat, "'" + str(prdwgt.main.wgt)
+            if not bc:
+                nl.ston, nl.desc = "--", "TODO"
+            else:
+                nl.ston, nl.desc = bc.ston, bc.desc
+                rmks = [x for x in [getattr(bc,"rem%d" % y).strip() for y in range(*rems)] if x]
+            nrmks = []
+            for x in ((prdwgt.aux,"*%s %4.2f"),(prdwgt.part,"*%sPTS %4.2f")):
+                if x[0]: nrmks.append(x[1] % (karatsvc.getkarat(x[0].karat).name,x[0].wgt))                
+            cn = len(nrmks) + len(rmks) - rems[1] + 1
+            if cn > 0:
+                rmks[-cn-1] = ";".join(rmks[-cn:])
+                nrmks.extend(rmks[:-cn])
+            else:
+                nrmks.extend(rmks)
+            for idx in range(len(nrmks)):
+                nl["rem%d" % (idx + 1)] = nrmks[idx]
+            lsts.append(nl.data)
+        sht = wb.sheets.add(self._snbc)
+        sht.range(1,1).value = lsts
+        sht.autofit("c")
 
     def _write(self,wb,its,errs,invdate,vdrname):
         app = wb.app
@@ -1449,9 +1510,9 @@ class ShpMkr(object):
             if vdrname != "paj" :
                 logger.debug("%s should not have more than one shipment in one date" % vdrname)
                 return
-            sfx = "%01d" % (int(max(existing)[-1])+1)
+            sfx = "%d" % (int(max(existing)[-1])+1)
         else:
-            sfx = "01" if vdrname == "paj" else trimu(vdrname)
+            sfx = "1" if vdrname == "paj" else trimu(vdrname)
         iorst["jmp#"] = pfx + sfx
         for idx in range(len(nls) - 1,0,-1):
             jn = nls[idx]["jmp#"]
@@ -1502,7 +1563,7 @@ class ShpMkr(object):
                 nl[col] = it[col]
             nl.jono = "'" + nl.jono
             karats = {}
-            for wi in it["wgts"].wgts:
+            for wi in it["mtlwgt"].wgts:
                 if not wi: continue
                 if wi.karat not in karats:
                     karats[wi.karat] = wi.wgt
@@ -1550,9 +1611,6 @@ class ShpMkr(object):
         for knv in iorst.items():
             shtio.range(ridx,itio.getcol(knv[0])+1).value = knv[1]
         
-        #create bc template
-        self._writebc(wb, its,invdate)
-
         if errs:
             its = [[x for x in errs[0].keys()]]
             ttl = its[0]

@@ -176,7 +176,7 @@ class C1InvRdr():
         C1InvItem = namedtuple(
             "C1InvItem", "source,jono,qty,labor,setting,remarks,stones,mtlwgt")
         C1InvStone = namedtuple("C1InvStone", "stone,qty,wgt,remark")
-        km = {"jono":u"工单,", "setting":u"镶工,", "labor":u"胚底,", "remark":u"备注,", "joqty": u"数量", "stname": u"石名,", "stqty": "粒数,", "stwgt": u"石重,","karat":"成色,","swgt":"净银重,","gwgt":"净金重,","pwgt":"配件重,"}
+        km = {"jono":u"工单,", "setting":u"镶工,", "labor":u"胚底,", "remark":u"备注,", "joqty": u"数量,", "stname": u"石名,", "stqty": "粒数,", "stwgt": u"石重,","karat":"成色,","swgt":"净银重,","gwgt":"净金重,","pwgt":"配件重,"}
 
         nls = [x for x in xwu.NamedRanges(rng,nmap = km)]
         if not nls: return

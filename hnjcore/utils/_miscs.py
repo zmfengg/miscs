@@ -13,6 +13,7 @@ import threading
 import inspect
 from sqlalchemy.orm import Session
 from .common import _logger as logger
+from hnjcore import JOElement
 from utilz import appathsep, getfiles, deepget, daterange, \
     splitarray, ResourceMgr, ResourceCtx, SessionMgr, isnumeric
 
@@ -24,4 +25,6 @@ _silveralphas = set(("4", "5"))
 def samekarat(srcje, tarje):
     """ detect if the given 2 JOElement are of the same karat """
     if not (srcje and tarje): return
+    if not isinstance(srcje,JOElement): srcje = JOElement(srcje)
+    if not isinstance(tarje,JOElement): tarje = JOElement(tarje)
     return srcje.alpha == tarje.alpha or (srcje.alpha in _silveralphas and tarje.alpha in _silveralphas)
