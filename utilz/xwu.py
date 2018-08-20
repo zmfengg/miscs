@@ -13,6 +13,7 @@ import xlwings.constants as const
 from xlwings import Range, xlplatform
 
 from ._miscs import NamedLists, list2dict
+from .resourcemgr import ResourceMgr
 
 __all__ = ["app","find","fromtemplate","list2dict","usedrange", "safeopen"]
 _validappsws = set("visible,enableevents,displayalerts,asktoupdatelinks,screenupdating".split(","))
@@ -79,6 +80,15 @@ def find(sh, val, aftr=None, matchCase=False, lookat=const.LookAt.xlPart, \
                    LookAt=lookat, LookIn=lookin, \
                    SearchOrder=so, SearchDirection=sd, \
                        MatchCase=matchCase))
+
+def contains(sht, vals):
+    """ check if the sheet contains all the value in the vals tuple
+    """
+    if not (isinstance(vals,tuple) or isinstance(vals,list)):
+        vals = (vals,)
+    for val in vals:
+        if not find(sht, val): return
+    return True
 
 def range2dict(vvs,trmap=None, dupdiv = "", bname = None):
     """ read a range's values into a list of dict item. vvs[0] should contains headers
@@ -160,3 +170,22 @@ def NamedRanges(rng, skipfirstrow = False, nmap = None, scolcnt = 0):
     lst = sht.range(sht.range(rr[1]+1,orgcord[1]),  sht.range(cr.last_cell.row,ecol)).value
     lst.insert(0,ttl)
     return NamedLists(lst,nmap)
+
+def appmgr(sws = {"visible":False,"displayalerts":False}):
+    class _AppStg(object):
+        def __init__(self, sws = None):
+            self._sws = sws
+
+        def crtr(self):
+            self._kxl, self._app = app(False)
+            if self._sws: self._sws = appswitch(self._app, sws)
+            return self._app
+
+        def dctr(self):
+            if hasattr(self,"_app"):
+                if self._kxl:
+                    self._app.quit()
+                elif hasattr(self,"_sws"):
+                    appswitch(self._app, self._sws)
+    aps = _AppStg(sws)
+    return ResourceMgr(aps.crtr,aps.dctr)

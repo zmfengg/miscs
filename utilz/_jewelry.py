@@ -77,10 +77,10 @@ Karat = namedtuple("Karat","karat,name,fineness,category,color")
 class KaratSvc(object):
     CATEGORY_GOLD = "GOLD"
     CATEGORY_SILVER = "SILVER"
-    CATEGORY_COPPER = "COPPER"
+    CATEGORY_BRONZE = "BRONZE"
     CATEGORY_BONDEDGOLD = "BG"
 
-    _priorities = {CATEGORY_COPPER:-100,CATEGORY_SILVER:-50,CATEGORY_BONDEDGOLD:-10,CATEGORY_GOLD:10}
+    _priorities = {CATEGORY_BRONZE:-100,CATEGORY_SILVER:-50,CATEGORY_BONDEDGOLD:-10,CATEGORY_GOLD:10}
     """ class help to solve karat related issues """
     def __init__(self,fn = None):
         if not fn or not path.exists(fn):

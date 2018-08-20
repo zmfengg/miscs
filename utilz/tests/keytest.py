@@ -222,7 +222,7 @@ class KeyTests(TestCase):
         self.assertTrue(ks.issamecategory(9,"9KW"),"9K and 9KW are all gold")
         self.assertFalse(ks.issamecategory(9,200), "gold is not bronze")
         self.assertTrue(ks.compare(k0,k0) == 0, "the same karat")
-        self.assertTrue(ks.compare(k0,ks[200]) > 0,"Gold is larger than copper")
+        self.assertTrue(ks.compare(k0,ks[200]) > 0,"Gold is larger than bronze")
         self.assertTrue(ks.compare(k0,ks[91]) < 0, "9K is smaller than 9KR")
         lst = [ks[9],ks[18],ks[200],ks[925]]
         lst = sorted(lst,key = cmp_to_key(ks.compare))

@@ -31,7 +31,7 @@ def _tofloat(val,precious = 4):
         print(e)
         return -1
 
-def addwgt(prdwgt,wi,isparts = False):
+def addwgt(prdwgt,wi,isparts = False, autoswap = True):
     """ add wgt to target prdwgt """
     if not wi: return
     if not prdwgt:
@@ -55,12 +55,33 @@ def addwgt(prdwgt,wi,isparts = False):
         elif act == 20:
             prdwgt = prdwgt._replace(part = wi)
         else:
-            prdwgt = prdwgt._replace(aux = WgtInfo(wi.part, wi.wgt + prdwgt.part.wgt))
-    if prdwgt:
+            prdwgt = prdwgt._replace(part = WgtInfo(wi.karat, wi.wgt + prdwgt.part.wgt))
+    if autoswap and prdwgt:
         if prdwgt.main and prdwgt.aux and prdwgt.main.wgt < prdwgt.aux.wgt:
             prdwgt = prdwgt._replace(main = prdwgt.aux, aux = prdwgt.main)
 
     return prdwgt
+
+def cmpwgt(first, second, tor = 5, strictkt = False):
+    """ tor is the toralent, positive stands for percentage, negative for actual wgt
+    """
+    if not (first and second): return
+    first, second, flag = first.wgts, second.wgts, False
+    if tor == 0: tor = 5
+    if tor > 0 and tor > 1: tor = tor / 100.0    
+    for idx in range(len(first)):
+        f, s = first[idx], second[idx]
+        if bool(f) ^ bool(s):
+            return False
+        if f:
+            flag = f.karat == s.karat if strictkt else karatsvc.getfamily(f.karat).karat == karatsvc.getfamily(s.karat).karat
+            if not flag: return False
+            if tor > 0:
+                flag = (f.wgt - s.wgt) / min(f.wgt, s.wgt) <= tor
+            else:
+                flag = abs(f.wgt - s.wgt) <= -tor
+            if not flag: break
+    return flag
 
 # karat and weight
 class WgtInfo(namedtuple("WgtInfo", "karat,wgt")):

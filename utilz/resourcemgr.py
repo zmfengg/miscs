@@ -45,22 +45,19 @@ class ResourceMgr(object):
     def _getstorage(self):
         return self._storage.setdefault(threading.get_ident(),([],{}))
 
-    def hasres(self):
-        return bool(self._getstorage()[0])
-    
-    def get(self):
-        stk = self._getstorage()[0]
-        rc = stk[len(stk) - 1] if stk else None
-        logger.debug("existing resource(%s) reused" % (rc) if rc else "No resource available, use acq() to new one")
-        return rc
-    
-    def acq(self):
+    def acq(self, usexisting = True):
         """ return an tuple, the resource as [0] while the token as [1]
         you need to provide the token while ret()
+        @param usexisting: when there is existing resource, try to use it
         """
         import random
         
-        stg = self._getstorage()
+        stg = self._getstorage()        
+        if usexisting and stg[0]:
+            #this resource is borrow, return will be ignored
+            rc = stg[0][-1]
+            logger.debug("existing resource(%s) reused" % (rc))
+            return rc, 0
         stk, rmap, token = stg[0], stg[1], 0
         while(not token or token in rmap):
             token = random.randint(1,65535)
@@ -74,14 +71,29 @@ class ResourceMgr(object):
         stg = self._getstorage()
         stk, rmap = stg[0], stg[1]
         
+        if not token: return
         if not stk:
             raise Exception("Invalid stack status")
         if token not in rmap:
             raise Exception("not returning sth. borrowed from me")
+        flag = False
         res = rmap[token]
-        del rmap[token]; stk.pop()
+        for idx in range(len(stk)):
+            if stk[idx] is res:
+                del stk[idx]
+                flag = True; break
+        if not flag:
+            logger.debug("Failed to return resouce(%s)" % res)
+            return
         self._dispose(res)
+        del rmap[token]
         logger.debug("resource(%s) return and disposed by token(%d)" % (res,token))
+    
+    def dispose(self):
+        stg = self._getstorage()        
+        if not stg: return
+        for tk in [x for x in stg[1].keys()]:
+            self.ret(tk)
 
 class SessionMgr(ResourceMgr):
     """ a sqlalchemy engine session manager by providing a sqlalchemy engine """
@@ -127,14 +139,9 @@ class ResourceCtx(object):
         self._closes, self._ress = [], []
         for ii in range(len(self._src)):
             x = self._src[ii]
-            if x.hasres():
-                self._closes.append(False)
-                self._ress.append((x.get(),0,ii))
-            else:
-                self._closes.append(True)
-                lst = list(x.acq()); lst.append(ii)
-                self._ress.append(lst)
-        
+            self._closes.append(True)
+            lst = list(x.acq()); lst.append(ii)
+            self._ress.append(lst)        
         return self._ress[0][0] if len(self._ress) == 1 else [x[0] for x in self._ress]
                 
     def __exit__(self, exc_type, exc_value, traceback):

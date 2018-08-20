@@ -23,14 +23,15 @@ from tkinter import filedialog
 
 import xlwings.constants as const
 from xlwings.utils import col_name
+from xlwings import Book
 from sqlalchemy import and_, func
 from sqlalchemy.engine import create_engine
 from sqlalchemy.orm import Query, aliased
-from xlwings.constants import LookAt, BorderWeight, LineStyle, FormatConditionOperator, FormatConditionType
+from xlwings.constants import LookAt, BorderWeight, LineStyle, FormatConditionOperator, FormatConditionType, Constants
 from hnjapp.c1rdrs import C1InvRdr
 
 from hnjcore import JOElement, appathsep, deepget, karatsvc, p17u, xwu, samekarat
-from hnjcore.models.hk import JO as JOhk
+from hnjcore.models.hk import JO as JOhk, PajAck
 from hnjcore.models.hk import Orderma, PajInv, PajShp, PajCnRev, POItem
 from hnjcore.models.hk import Style as Styhk
 from hnjcore.utils import daterange, getfiles, isnumeric, p17u
@@ -42,7 +43,7 @@ from .dbsvcs import BCSvc, CNSvc, HKSvc, jesin
 from .localstore import PajInv as PajInvSt
 from .localstore import PajItem, PajCnRev as PajCnRevSt
 from .localstore import PajWgt as PrdWgtSt
-from .pajcc import PAJCHINAMPS, P17Decoder, PajCalc, PrdWgt, WgtInfo, MPS, _tofloat
+from .pajcc import PAJCHINAMPS, P17Decoder, PajCalc, PrdWgt, WgtInfo, MPS, _tofloat, cmpwgt, addwgt
 
 _accdfmt = "%Y-%m-%d %H:%M:%S"
 
@@ -68,7 +69,8 @@ class PajBomHhdlr(object):
             the item dict has keys("pcode","mtlwgt")
         """
         _ptnoz = re.compile(r"\(\$\d*/OZ\)")
-        _ptnsil = re.compile(r"(925)")
+        _ptnsil = re.compile(r"(925)|(银)")
+        _ptncop = re.compile(r"(BRONZE)|(铜)")
         _ptngol = re.compile(r"^(\d*)K")    
         _ptdst = re.compile(r"[\(（](\d*)[\)）]")
         _ptfrcchain = re.compile(r"(弹簧扣)|(龙虾扣)|(狗仔头扣)")
@@ -82,9 +84,12 @@ class PajBomHhdlr(object):
             kt = None
             if ispol:
                 mt = _ptnoz.search(mat)
-                if not mt: return        
+                #bronze does not have oz
+                if not mt and not _ptncop.search(mat): return        
             if _ptnsil.search(mat):
                 kt = 925
+            elif _ptncop.search(mat):
+                kt = 200
             else:
                 mt = _ptngol.search(mat)
                 if mt:
@@ -125,123 +130,105 @@ class PajBomHhdlr(object):
         def _ispendant(pcode):       
             return _pcdec.decode(pcode,"PRODTYPE").find("吊") >= 0
         
-        def _mergewgt(wgts,wgt,maxidx,tryins = False):
-            sltid = -1
-            for ii in range(maxidx + 1):
-                if wgts[ii]:
-                    if wgts[ii].karat == wgt.karat:
-                        wis[ii] = WgtInfo(wgt.karat, wgt.wgt + wgts[ii].wgt)
-                        return ii
-                else:
-                    if tryins and sltid < 0:
-                        sltid = ii
-                        break
-            if sltid >= 0:
-                wgts[sltid] = wgt            
-            return sltid
-
-        if path.isdir(fldr):
-            fns = getfiles(fldr,"xls")
+        def _readwb(wb, pmap):
+            """ read bom in the given wb to pmap
+            """
+            shts = [0,0]
+            for sht in wb.sheets:
+                rng = xwu.find(sht, u"十七位")
+                if not rng: continue
+                if xwu.find(sht, u"抛光后"):
+                    shts[0] = (sht,rng)
+                elif xwu.find(sht, u"物料特征"):
+                    shts[1] = (sht,rng)
+                if all(shts): break
+            if not all(shts): return
+            shts[0][0].name, shts[1][0].name = "BOM_mstr", "BOM_part"
+            nmps = {0:{u"pcode":"十七位,","mat":u"材质,","mtlwgt":u"抛光,"},1:{"pcode":u"十七位,","name":u"物料名称", "spec":u"物料特征","qty":u"数量","wgt":u"重量","unit":u"单位","length":u"长度"}}
+            for jj in range(len(shts)):
+                vvs = shts[jj][1].end("left").expand("table").value
+                nls = NamedLists(vvs,nmps[jj])
+                if jj == 0:
+                    for nl in nls:
+                        pcode = nl.pcode
+                        if not p17u.isvalidp17(pcode): break
+                        kt = _parsekarat(nl.mat)
+                        if not kt: continue
+                        it = pmap.setdefault(pcode,{"pcode":pcode})
+                        it.setdefault("mtlwgt",[]).append((kt,nl.mtlwgt))
+                elif jj == 1:
+                    nmp = [x for x in nmps[jj].keys() if x.find("pcode") < 0]
+                    for nl in nls:
+                        pcode = nl.pcode
+                        if not p17u.isvalidp17(pcode): break
+                        it = pmap.setdefault(pcode,{"pcode":pcode})
+                        mats, it = it.setdefault("parts",[]), {}
+                        mats.append(it)
+                        for cn in nmp:
+                            it[cn] = nl[cn]        
+        pmap = {}
+        if isinstance(fldr, Book):
+            _readwb(fldr, pmap)
         else:
-            fns = [fldr]
-        if not fns: return
-
-        kxl,app = xwu.app(False)
-        try:
-            pmap = {}
-            for fn in fns:
-                wb = app.books.open(fn)
-                shts = [0,0]
-                for sht in wb.sheets:
-                    rng = xwu.find(sht, u"十七位")
-                    if not rng: continue
-                    if xwu.find(sht, u"抛光后"):
-                        shts[0] = (sht,rng)
-                    elif xwu.find(sht, u"物料"):
-                        shts[1] = (sht,rng)
-                if not all(shts): break
-                for jj in range(len(shts)):
-                    vvs = shts[jj][1].end("left").expand("table").value
-                    if jj == 0:                    
-                        wcn = xwu.list2dict(vvs[0],{u"pcode":"十七位,","mat":u"材质,","mtlwgt":u"抛光,"})
-                        for ii in range(1,len(vvs)):
-                            pcode = vvs[ii][wcn["pcode"]]
-                            if not p17u.isvalidp17(pcode): break
-                            kt = _parsekarat(vvs[ii][wcn["mat"]])
-                            if not kt: continue
-                            it = pmap.setdefault(pcode,{"pcode":pcode})
-                            it.setdefault("mtlwgt",[]).append((kt,vvs[ii][wcn["mtlwgt"]]))
-                    elif jj == 1:
-                        nmap = {"pcode":u"十七位,","name":u"物料名称", \
-                            "spec":u"物料特征","qty":u"数量","wgt":u"重量","unit":u"单位","length":u"长度"}
-                        wcn = xwu.list2dict(vvs[0],nmap)
-                        nmap = [x for x in nmap.values() if x.find("pcode") < 0]
-                        for ii in range(1,len(vvs)):
-                            pcode = vvs[ii][wcn["pcode"]]
-                            if not p17u.isvalidp17(pcode): break
-                            it = pmap.setdefault(pcode,{"pcode":pcode})
-                            mats, it = it.setdefault("parts",[]), {}
-                            mats.append(it)
-                            for cn in nmap:
-                                it[cn] = vvs[ii][wcn[cn]]                        
-                wb.close()
-            for x in pmap.items():
-                lst = x[1]["mtlwgt"]
-                sltid, wis = -1, [None,None,None]            
-                for y in lst:
-                    sltid = _mergewgt(wis,WgtInfo(y[0],y[1]),1,True)
-                    if sltid < 0:
-                        logger.error("failed to get slot to store prodwgt for pcode %s" % x[0])
-                        x[1]["mtlwgt"] = None
-                        continue
-                if "parts" in x[1]:                
-                    if wis[1]:
-                        if wis[0].wgt < wis[1].wgt:
-                            wis[0],wis[1] = wis[1], wis[0]
-                    ispendant,haschain,haskou,chlenerr = _ispendant(x[0]), False,False, False
-                    if ispendant:
-                        for y in x[1]["parts"]:
-                            nm = y["name"]
-                            if triml(nm).find("chain") >= 0:
-                                haschain = True
-                            if _ptfrcchain.search(nm):
-                                haskou = True
+            fns = getfiles(fldr,"xls") if path.isdir(fldr) else (fldr, )
+            if not fns: return
+            kxl,app = xwu.app(False)
+            try:            
+                for fn in fns:
+                    wb = app.books.open(fn)
+                    _readwb(wb, pmap)                                        
+                    wb.close()
+            finally:
+                if kxl and app: app.quit()       
+        
+        for x in pmap.items():
+            lst = x[1]["mtlwgt"]
+            prdwgt = None
+            for y in lst:
+                prdwgt = addwgt(prdwgt,WgtInfo(y[0],y[1]))
+            if "parts" in x[1]:
+                ispendant,haschain,haskou,chlenerr = _ispendant(x[0]), False,False, False
+                if ispendant:
                     for y in x[1]["parts"]:
                         nm = y["name"]
-                        kt = _parsekarat(nm,wis,False)
-                        if not kt: continue                
-                        y["karat"] = kt
-                        done = False
-                        if ispendant:
-                            if haschain:
-                                isch = triml(nm).find("chain") >= 0
-                                done = isch or (haskou and (_ptfrcchain.search(nm) or nm.find("圈") >= 0))
-                                if isch:
-                                    lc = y["length"]
-                                    if not lc is None:
-                                        try:
-                                            lc = float(lc)
-                                        except:
-                                            lc = 0
-                                        if lc > 0: chlenerr = True
-                                if done:
-                                    wgt0 = wis[2]
-                                    if not wgt0 or y["karat"] == wgt0.karat:
-                                        wgt = y["wgt"] + (wgt0.wgt if wgt0 else 0)
-                                        wis[2] = WgtInfo(y["karat"],wgt)
-                                        if wgt0:
-                                            logger.debug("Multi chain found for pcode(%s)" % x[0])
-                                    else:
-                                        done = False
+                        if triml(nm).find("chain") >= 0:
+                            haschain = True
+                        if _ptfrcchain.search(nm):
+                            haskou = True
+                for y in x[1]["parts"]:
+                    nm = y["name"]
+                    kt = _parsekarat(nm,prdwgt.wgts,False)
+                    if not kt: continue                
+                    y["karat"] = kt
+                    ispart = False
+                    if ispendant:
+                        if haschain:
+                            isch = triml(nm).find("chain") >= 0
+                            ispart = isch or (haskou and (_ptfrcchain.search(nm) or nm.find("圈") >= 0))
+                            if isch and not chlenerr:
+                                lc = y["length"]
+                                if not lc is None:
+                                    try:
+                                        lc = float(lc)
+                                    except:
+                                        lc = 0
+                                    if lc > 0: chlenerr = True
+                            if ispart:
+                                wgt0 = prdwgt.part
+                                if not wgt0 or y["karat"] == wgt0.karat:
+                                    logger.debug("Multi chain found for pcode(%s)" % x[0])
                                 else:
-                                    logger.debug("No wgt pos for chain(%s) in pcode(%s),merged to main" % (y["name"],x[0]))
-                        if not done:
-                            _mergewgt(wis,WgtInfo(y["karat"],y["wgt"]),1)
-                if chlenerr and wis[2]:
-                    wis[2] = WgtInfo(wis[2].karat,-wis[2].wgt)
-                x[1]["mtlwgt"] = PrdWgt(wis[0],wis[1],wis[2])        
-        finally:
-            if kxl and app: app.quit()
+                                    ispart = False
+                            else:
+                                logger.debug("No wgt pos for chain(%s) in pcode(%s),merged to main" % (y["name"],x[0]))
+                    #turn autoswap off in parts appending procedure to avoid main karat being modified
+                    prdwgt = addwgt(prdwgt,WgtInfo(y["karat"],y["wgt"]), ispart, autoswap = False)
+                if chlenerr:
+                    #in common  case, chain should not have length, when this happen
+                    #make the weight negative.
+                    prdwgt = prdwgt._replace(part = WgtInfo(prdwgt.part.karat, -prdwgt.part.wgt))
+            x[1]["mtlwgt"] = prdwgt
+        
         return pmap
 
     @classmethod
@@ -441,13 +428,17 @@ class PajShpHdlr(object):
 
     @classmethod
     def _rawreadinv(self, sht, invno = None, fmd = None):
+        """
+        read the invoice, return a map with inv#+jo# as key and PajInvItem as item
+        """
         PajInvItem = namedtuple(
             "PajInvItem", "invno,pcode,jono,qty,uprice,mps,stspec,lastmodified")
-        items = {}
+        mp = {}
         rng = xwu.find(sht, "Item*No", lookat=const.LookAt.xlWhole)
         if not rng:
             return
         if not invno: invno = self._readinvno(sht)
+        if sht.name != invno: sht.name = invno
         rng = rng.expand("table")
         nls = tuple(NamedLists(rng.value,{"pcode":"item,","gold":"gold,", "silver":"silver,", "jono": u"job#,工单", "uprice": "price,", "qty": "unit,", "stspec": "stone,"}))
         if not nls: return
@@ -478,15 +469,15 @@ class PajShpHdlr(object):
                 logger.debug("No JO# found for p17(%s)" % p17)
                 continue
             key = invno + "," + jn
-            if key in items.keys():
-                it = items[key]
-                items[key] = it._replace(qty=it.qty + tr.qty)
+            if key in mp.keys():
+                it = mp[key]
+                mp[key] = it._replace(qty=it.qty + tr.qty)
             else:
                 mps = MPS("S=%3.2f;G=%3.2f" % (tr.silver, tr.gold)).value \
                     if th.getcol("gold") and th.getcol("silver") else "S=0;G=0"
                 it = PajInvItem(invno, p17, jn, tr.qty, tr.uprice, mps, tr.stspec, fmd)
-                items[key] = it
-        return items
+                mp[key] = it
+        return mp
 
     @classmethod
     def _readinvno(self, sht):
@@ -528,6 +519,15 @@ class PajShpHdlr(object):
             ",") if th.getcol(x) is None]
         if x:
             return
+        def _getbomwgt(bomap, pcode):
+            """ in the case of ring, there is only one code there
+            """
+            if not (bomap and pcode): return
+            prdwgt = bomap.get(pcode)
+            if not prdwgt: # and is ring
+                print("failed to get bom wgt for pcode(%s)" % pcode)
+                pass
+            return prdwgt
         bfn = path.basename(fn).replace("_", "")
         shd = PajShpHdlr._getshpdate(sht.name, False)
         if shd:
@@ -535,14 +535,22 @@ class PajShpHdlr(object):
             shd = shd if abs(df.days) <= 7 else fshd 
         else:
             shd = fshd 
-        # finally I give up, don't use the shipdate, use invdate as shipdate
+        bomwgts = PajBomHhdlr.readbom(sht.book)
+        if bomwgts: bomwgts = dict([(x[0],x[1]["mtlwgt"]) for x in bomwgts.items()])
         if th.getcol("mtlwgt"):
             for tr in nls:
                 if not tr.pcode:
                     break
-                mwgt = tr.mtlwgt
-                if not (isinstance(mwgt, numbers.Number) and mwgt > 0):
-                    continue
+                jono = JOElement(tr.jono).value
+                mwgt = _getbomwgt(bomwgts, tr.pcode)
+                if not mwgt:
+                    mwgt = tr.mtlwgt
+                    if not (isinstance(mwgt, numbers.Number) and mwgt > 0):
+                        continue
+                    mwgt = PrdWgt(WgtInfo(_getdefkarat(jono),mwgt,4))
+                    bomsrc = False
+                else:
+                    bomsrc = True
                 invno = tr.invno
                 if not invno: invno = "N/A"
                 if th.getcol('orderno'):
@@ -552,18 +560,18 @@ class PajShpHdlr(object):
                 else:
                     odno = "N/A"
                 if not tr.stwgt:
-                    tr.stwgt = 0
-                jono = JOElement(tr.jono).value
+                    tr.stwgt = 0                
                 thekey = "%s,%s,%s" % (jono,tr.pcode,invno)
                 if thekey in items:
-                    #order item's weight does not have karat event, so append it to the main
-                    si = items[thekey]
-                    wi = si.mtlwgt
-                    wi = wi._replace(main = wi.main._replace(wgt = _tofloat((wi.main.wgt * si.qty + mwgt * tr.qty)/(si.qty + tr.qty),4)))
-                    items[thekey] = si._replace(qty = si.qty + tr.qty, mtlwgt = wi)
+                    #order item's weight does not have karat event, so append it to the main, but bom source case, no weight-recalculation is neeeded
+                    if not bomsrc:
+                        si = items[thekey]
+                        wi = si.mtlwgt
+                        wi = wi._replace(main = wi.main._replace(wgt = _tofloat((wi.main.wgt * si.qty + mwgt * tr.qty)/(si.qty + tr.qty),4)))
+                        items[thekey] = si._replace(qty = si.qty + tr.qty, mtlwgt = wi)
                 else:
                     ivd = tr.invdate
-                    si = PajShpItem(bfn, odno, jono, tr.qty, tr.pcode, invno, ivd, PrdWgt(WgtInfo(_getdefkarat(jono),mwgt,4)), tr.stwgt, ivd, fmd, td0)
+                    si = PajShpItem(bfn, odno, jono, tr.qty, tr.pcode, invno, ivd, mwgt, tr.stwgt, ivd, fmd, td0)
                     items[thekey] = si
         else:
             # new sample case, extract weight data from the quo sheet
@@ -579,18 +587,21 @@ class PajShpHdlr(object):
                     if not p17:
                         break
                     ivd, odno = tr.invdate, tr.get("orderno",NA)
+                    prdwgt = _getbomwgt(bomwgts, p17)
                     if p17 in qmap:
-                        snm = qmap[p17]
+                        #metal and stone weights
+                        mns = qmap[p17]
                     else:
                         logger.info("failed to get quo info for pcode(%s)" % p17)
-                        snm = ((None,),0)
-                    wis = list(snm[0])
-                    for idx in range(len(wis)):
-                        wi = wis[idx]
-                        if not wi: continue
-                        if not wi.karat: wis[idx] = wi._replace(karat = _getdefkarat(tr.jono))
-                    prdwgt = PrdWgt(*wis)
-                    si = PajShpItem(bfn, odno, JOElement(tr.jono).value, tr.qty, p17, tr.invno, ivd, prdwgt, snm[1],ivd, fmd, td0)
+                        mns = ((None,),0)
+                    if not prdwgt:                        
+                        wis = list(mns[0])
+                        for idx in range(len(wis)):
+                            wi = wis[idx]
+                            if not wi: continue
+                            if not wi.karat: wis[idx] = wi._replace(karat = _getdefkarat(tr.jono))
+                        prdwgt = PrdWgt(*wis)
+                    si = PajShpItem(bfn, odno, JOElement(tr.jono).value, tr.qty, p17, tr.invno, ivd, prdwgt, mns[1],ivd, fmd, td0)
                     # new sample won't have duplicated items
                     items[random.random()] = si
             else:
@@ -1187,6 +1198,7 @@ class ShpMkr(object):
     Technique that I don't know:: UI under python, use tkinter, and it's simle messages
     """
     _mergeshpjo = False
+    _appmgr = xwu.appmgr({"enableevents":False})
 
     def __init__(self, cnsvc, hksvc, bcsvc):
         self._cnsvc = cnsvc
@@ -1199,29 +1211,36 @@ class ShpMkr(object):
     def _newerr(self,loc,etype,msg):
         return {"location":loc,"type":etype,"msg":msg}
 
-    def merge(self,fldr = None,tarfn = None):
-        """ merge the files in given folder into one file """
+    def _pajfldr2file(self, fldr):
         if not fldr:
             fldr = easydialog(filedialog.Directory(title="Choose folder contains one-time-shipment files"))
             if not path.exists(fldr): return
-        fns = getfiles(fldr,".xls")
-        dffn = [x for x in fns if x.find("_") >= 0]
-        if len(dffn) > 0:
-            logger.debug("target has already an result file(%s)" % os.path.basename(dffn[0]) )
-            return dffn[0]
+        sts = self._nsofsettings
+        tarfldr, tarfn = path.dirname(sts.get("shp.template").value), None
+        fns = getfiles(fldr,".xls")        
+        ptn = re.compile(r"^HNJ \d+")
+        for fn in fns:
+            if ptn.search(path.basename(fn)):
+                sd = PajShpHdlr._getshpdate(fn)
+                if sd:
+                    tarfn = "HNJ %s 出货明细"  % sd.strftime("%Y-%m-%d")
+                    break
+        if not tarfn:
+            return
+        sts = getfiles(tarfldr, tarfn)
+        if sts:
+            tarfn = sts[0]
+            logger.debug("result file(%s) already there" % tarfn)
+            return tarfn
+        
         if len(fns) == 1:
             return fns[0]
-        ptn = re.compile(r"^HNJ \d+")
-        kxl, app = xwu.app(False)
+        
+        app = self._appmgr.acq()[0]
         wb = app.books.add()
         nshts = [x for x in wb.sheets]
         bfsht = wb.sheets[0]
         for fn in fns:
-            if fn.find("_") >= 0: continue
-            if not dffn and ptn.search(os.path.basename(fn)):
-                sd = PajShpHdlr._getshpdate(fn)
-                if sd:
-                    dffn = "HNJ %s 出货明细_" % sd.strftime("%Y-%m-%d")
             wbx = xwu.safeopen(app, fn)
             try:
                 for sht in wbx.sheets:
@@ -1231,15 +1250,14 @@ class ShpMkr(object):
                 wbx.close()
         for x in nshts:
             x.delete()
-        if dffn:
-            wb.save(os.path.join(fldr,dffn))
-            dffn = wb.fullname
-            logger.debug("merged file saved to %s" % dffn)
-        elif kxl:
-            app.quit()
-        return dffn
+        if tarfn:
+            wb.save(path.join(tarfldr,tarfn))
+            tarfn = wb.fullname
+            logger.debug("merged file saved to %s" % tarfn)
+            wb.close()
+        return tarfn
     
-    def readc1(self, sht, args):
+    def _readc1(self, sht, args):
         """ determine the header row """
         for shp in sht.shapes:
             shp.delete()
@@ -1268,10 +1286,10 @@ class ShpMkr(object):
             mp["invdate"] = args.get("shpdate")
         return (mp, errs)
     
-    def readc2(self, sht, args):
+    def _readc2(self, sht, args):
         pass
 
-    def readpaj(self, sht, args):
+    def _readpaj(self, sht, args):
         """ return tuple(map,errlist)
         where errlist contain err locations
         """
@@ -1289,130 +1307,82 @@ class ShpMkr(object):
             mp["invdate"] = shp.invdate
         return (mp, errs)
             
-    def _genrpt(self, fldr):
-        if os.path.isdir(fldr):
-            fn = self.merge(fldr)
-        else:
-            fn = fldr
-        if not fn: return            
-        pajopts = {"fn":fn,"shpdate":PajShpHdlr._getshpdate(fn),"fmd": datetime.fromtimestamp(os.path.getmtime(fn))}
-        app = xwu.app()[1]
-        wb, flag = app.books.open(fn), False
-        for sn in (self._snrpt,self._snerr):
-            shts = [x for x in wb.sheets if triml(x.name).find(triml(sn)) >= 0]
-            if not shts: continue
-            for sht in shts:
-                rng = xwu.usedrange(sht)
-                if not rng: continue
-                flag = [x for x in rng.value if x]
-                if flag: break
-            if flag: break
-        if flag:
-            logger.debug("target file(%s) already contains one of sheet%s" % (path.basename(fn),(self._snrpt,self._snerr)))
-            return
-        invs, its, errs, vt, vn = [], [], [], None, None
-        rdrmap = {"长兴珠宝":("c2",self.readc2),"诚艺,胤雅":("c1",self.readc1) ,"十七,物料编号,paj,diamondlite":("paj",self.readpaj)}
-        rsht =[x for x in wb.sheets if triml(x.name) == "rpt"]
-        if rsht:
-            wb.close()
-            return
-
-        rdr = None
-        for sht in wb.sheets:
-            if not vt:
-                for x in rdrmap.keys():
-                    for y in x.split(","):
-                        if xwu.find(sht, y):
-                            vt, vn = x, rdrmap[x][0]
-                            break
-                    if vt: break
-            rdr, flag = rdrmap.get(vt), False
-            if rdr:
-                lst = rdr[1](sht, pajopts)
-                if lst and len([x for x in lst if x]):
-                    flag = True
-                    mp = lst[0]
-                    if mp: 
-                        if "invdate" in mp:
-                            ivd = mp["invdate"]
-                            if isinstance(ivd,str):
-                                ivd = datetime.strptime(ivd, "%Y-%m-%d")
-                            td = datetime.today() - ivd
-                            if td.days > 2 or td.days < 0:
-                                errs.append(self._newerr("_日期_","warning","日期可能错误"))
-                            del mp["invdate"]
-                        its.extend(mp.values())
-                    if lst[1]: errs.extend(lst[1])
-            if not flag:
-                if vn == "paj":
-                    invno = PajShpHdlr._readinvno(sht)
-                    if not invno: continue
-                    lst = PajShpHdlr._rawreadinv(sht, invno)
-                    if lst:
-                        invs.extend(lst)
-                        flag = True
-            if not flag:
-                logger.debug("sheet(%s) does not contain any valid data" % sht.name)
-        if its:
-            jns = set([x["jono"] for x in its])
-            if False and invs:
-                tmp = {}
-                for x in invs:
-                    tmp1 = tmp.setdefault(x.jono,{})
-                    if "inv" not in tmp1:
-                        tmp1["inv"], tmp1["invqty"] = x, 0
+    def _shpcheck(self, shpmp, invmp, errlst):
+        """ check the source data about weight/pajinv
+        @param shpmp: the shipment map with JO# as key and map as value
+        """
+        jns = set([x["jono"] for x in shpmp])
+        errcat = "WARN.HK"
+        #pajinv verify
+        if invmp:
+            with self._hksvc.sessionctx() as cur:
+                q = Query([JOhk,PajAck]).join(PajAck).filter(jesin(set([JOElement(x) for x in jns]),JOhk))
+                q = q.with_session(cur).all()
+                acks = dict([(x[0].name.value,(x[1].uprice,x[1].mps,x[1].ackdate,x[1].docno,x[1].mps, x[1].pcode))for x in q]) if q else {}
+                if acks: nlack = NamedList(list2dict("uprice,mps,date,docno,mps,pcode".split(",")))
+            tmp = {}
+            for x in invmp.values():
+                tmp1 = tmp.setdefault(x.jono,{"jono":x.jono})
+                if "inv" not in tmp1:
+                    tmp1["inv"], tmp1["invqty"] = x, 0
+                else:
+                    x0 = tmp1["inv"]
+                    if abs(x0.uprice - x.uprice) > 0.001:
+                        errlst.append(self._newerr(x.jono,errcat,"工单(%s)对应的发票单价不一致" % x.jono))
+                tmp1["invqty"] += x.qty
+            for x in shpmp:
+                jn = x["jono"]
+                tmp1 = tmp.get(jn)
+                if tmp1:
+                    tmp1["qty"] = tmp1.get("qty",0) + x["qty"]
+            for x in tmp.values():
+                if x.get("invqty") != x.get("qty"):
+                    if not x.get("qty"):
+                        errlst.append(self._newerr("Inv(%s),JO#(%s)" % (x["inv"].invno, x["jono"]), errcat, "未发现发票号(%s)对应工单号(%s)的落货记录" % (x["inv"].invno, x["jono"])))
                     else:
-                        x0 = tmp1["inv"]
-                        if abs(x0.uprice - x.uprice) > 0.001:
-                            errs.append(self._newerr(x.jono,"Error","UPrice different in same JO#"))
-                    tmp1["invqty"] += x.qty
-                for x in its:
-                    jn = x["jono"]
-                    tmp1 = tmp.get(jn)
-                    if tmp1:
-                        tmp1["qty"] = tmp1.get("qty",0) + x["qty"]
-                for x in invs:
-                    if x.get("invqty") != x.get("qty"):
-                        if not x.get("qty"):
-                            errs.append(self._newerr("Inv(%s),JO#(%s)" % (x.invno, x.jono), "Error","No shipment found for invoice(%s) and JO#(%s)" % (x.invno, x.jono)))
-                        else:
-                            errs.append(self._newerr(x["jono"],"Error","Qty of Shipment(%f) and Invoice(%f) differs" % (x.get("qty", 0), x.get("invqty", 0))))
-                tmp = jns.difference(set([x["jono"] for x in tmp]))
-                if tmp:
-                    for x in tmp:
-                        errs.append(self._newerr(jn,"Error","No invoice for JO(%s)" % x["jono"]))
-            with self._cnsvc.sessionctx():
-                jos = self._cnsvc.getjos(jns)
-                jos = dict([(x.name.value,x) for x in jos[0]])
-                nmap = {"cstname":"customer.name","styno":"style.name.value","running":"running","description":"description","qtyleft":"qtyleft"}
-                for mp in its:
-                    jo = jos.get(mp["jono"])
-                    if not jo:
-                        errs.append(self._newerr(mp["location"],"Error","Invalid JO#(%s)" % mp["jono"]))
-                        continue
-                    for y in nmap.items():
-                        sx = deepget(jo,y[1])
-                        if sx and isinstance(sx,str): sx = sx.strip()
-                        mp[y[0]] = sx
-                    jo.qtyleft = jo.qtyleft - mp["qty"]
-                    #todo:: for paj, append ack check
-                    #todo:: for c1&paj, append weight check
-                    if jo.qtyleft < 0:
-                        s0 = "数量不足"
-                        errs.append(self._newerr(mp["location"],"Error",s0))
-                        mp["errmsg"] = s0
-                    else:
-                        mp["errmsg"] = ""
-                    if vt == 'paj':
-                        pass
-                    elif vt == 'c1':
-                        pass
-            its = sorted(its,key = lambda d0: "%s,%6.1f" % (d0["jono"],d0["qtyleft"]))
-            self._write(wb,its,errs,ivd,vn)
-            self._writebc(wb, its,ivd)
-        return fn
+                        errlst.append(self._newerr(x["jono"], errcat, "落货数量(%s)与发票数量(%s)不一致" % (str(x.get("qty", 0)), str(x.get("invqty", 0)))))
+                if acks:
+                    ack = acks.get(x["jono"])
+                    if not ack: continue
+                    inv = x["inv"]
+                    nlack.setdata(ack)
+                    if abs(inv.uprice - float(nlack.uprice)) > 0.01:
+                        errlst.append(self._newerr(x["jono"], errcat, "%s发票单价(%s@%s@%s)与\r\nAck.单价(%s@%s@%s)不一致.\r\nAck文件（%s）,日期(%s)" % ("+" if inv.uprice > nlack.uprice else "",  str(inv.uprice), inv.mps, inv.pcode, str(nlack.uprice), nlack.mps, nlack.pcode, nlack.docno,nlack.date.strftime("%Y-%m-%d"))))
+            tmp1 = jns.difference(tmp.keys())
+            if tmp1:
+                for x in tmp1:
+                    errlst.append(self._newerr(jn, errcat, "未发现工单号(%s)对应的发票" % x))
+        with self._cnsvc.sessionctx():
+            jos = self._cnsvc.getjos(jns)
+            jos = dict([(x.name.value,x) for x in jos[0]])
+            jwgtmp = {}
+            nmap = {"cstname":"customer.name","styno":"style.name.value","running":"running","description":"description","qtyleft":"qtyleft"}
+            for mp in shpmp:
+                jn = mp["jono"]
+                jo = jos.get(jn)
+                if not jo:
+                    errlst.append(self._newerr(mp["location"],"Error","Invalid JO#(%s)" % jn))
+                    continue
+                for y in nmap.items():
+                    sx = deepget(jo,y[1])
+                    if sx and isinstance(sx,str): sx = sx.strip()
+                    mp[y[0]] = sx
+                jo.qtyleft = jo.qtyleft - mp["qty"]
+                if jo.qtyleft < 0:
+                    s0 = "数量不足"
+                    errlst.append(self._newerr(mp["location"],"Error",s0))
+                    mp["errmsg"] = s0
+                else:
+                    mp["errmsg"] = ""
+                jwgt = jwgtmp.get(jn)
+                if not jwgt and jn not in jwgtmp:
+                    jwgt = self._hksvc.getjowgts(jn)
+                    jwgtmp[jn] = jwgt
+                if jwgt:
+                    if not cmpwgt(jwgt,mp["mtlwgt"]):
+                        errlst.append(self._newerr(mp["location"], errcat, "落货重量(%s)与金控重量(%s)不符" % (mp["mtlwgt"], jwgt)))
 
-    def _writebc(self, wb, its, invdate):
+    def _writebc(self, wb, shpmp, newrunmp, invdate):
         """ create a bc template
         """
         dmp, lsts, rcols = {}, [], "lymd,lcod,styn,mmon,mmo2,runn,detl,quan,gwgt,gmas,jobn,ston,descn,desc,rem1,rem2,rem3,rem4,rem5,rem6,rem7,rem8".split(",")
@@ -1426,16 +1396,16 @@ class ShpMkr(object):
         rems[1] += 1
         with self._hksvc.sessionctx() as cur:
             dt = datetime.today() - timedelta(days = 365)
-            jes = set(JOElement(x["jono"]) for x in its)
+            jes = set(JOElement(x["jono"]) for x in shpmp)
             q = Query([JOhk.name,func.max(refjo.running)]).join((refjo,JOhk.id != refjo.id), (POItem, JOhk.poid == POItem.id), (refpo, and_(refpo.id == refjo.poid, refpo.skuno == POItem.skuno))).filter(and_(POItem.id >0, refjo.createdate > dt)).group_by(JOhk.name)
             q = q.filter(jesin(jes,JOhk))
             lst = q.with_session(cur).all()
             josku = dict([(x[1], x[0].value) for x in lst]) if lst else {}
             
         joskubcs = self._bcsvc.getbcs([x for x in josku.keys()])
-        joskubcs = dict([(josku[int(x.runn)],x) for x in joskubcs]) if joskubcs else None
+        joskubcs = dict([(josku[int(x.runn)],x) for x in joskubcs]) if joskubcs else {}
         
-        stynos = set([x["styno"] for x in its if x["jono"] not in joskubcs])
+        stynos = set([x["styno"] for x in shpmp if x["jono"] not in joskubcs])
         bcs = self._bcsvc.getbcs(stynos, True)
         for it in bcs:
             dmp.setdefault(it.styn,[]).append(it)
@@ -1444,13 +1414,13 @@ class ShpMkr(object):
         bcmp, dmp, lymd = dmp, {}, invdate.strftime("%Y%m%d %H:%M%S")
 
         lsts.append(rcols)
-        for it in its:
+        for it in shpmp:
             jn = it["jono"]
-            if jn in dmp: continue
+            if jn not in newrunmp or jn in dmp: continue
             dmp[jn], styno = 1, it["styno"]
             bc, rmks = joskubcs.get(jn), []
             if not bc:
-                bcs = bcmp[styno]
+                bcs = bcmp.get(styno)
                 if bcs: 
                     #find the same karat and longest remarks as template
                     for bcx in bcs[:10]:
@@ -1468,7 +1438,7 @@ class ShpMkr(object):
             nl.lymd, nl.lcod, nl.styn, nl.mmon = lymd, styno, styno, "'" + lymd[2:4]
             nl.mmo2, nl.runn, nl.detl = lymd[4:6], "'%d" % it["running"], it["cstname"]
             nl.quan, nl.jobn = it["qty"], "'" + jn
-            nl.descn = ("Bingo!!!" if flag else "") + it["description"]
+            nl.descn = ("---" if flag else "") + it["description"]
             prdwgt = it["mtlwgt"]
             nl.gmas, nl.gwgt = prdwgt.main.karat, "'" + str(prdwgt.main.wgt)
             if not bc:
@@ -1490,11 +1460,20 @@ class ShpMkr(object):
             lsts.append(nl.data)
         sht = wb.sheets.add(self._snbc)
         sht.range(1,1).value = lsts
-        sht.autofit("c")
+        sht.autofit()
 
-    def _write(self,wb,its,errs,invdate,vdrname):
+    @property
+    def _nsofsettings(self):
+        if not hasattr(self, "_nsofsts"):
+            self._nsofsts = PajNSOFRdr().readsettings()
+        return self._nsofsts
+
+    def _writerpts(self,wb,shpmp,errlst,newrunmp,invdate,vdrname):
+        """ send the shipment and errs to related sheets(Rpt/Err)
+        """
         app = wb.app
-        sts = PajNSOFRdr().readsettings()
+        sts = self._nsofsettings
+
         fn = sts.get(triml("Shipment.IO")).value
         wbio, iorst = app.books.open(fn), {}
         shtio = wbio.sheets["master"]
@@ -1547,8 +1526,7 @@ class ShpMkr(object):
         ns["thisleft"] = "此次,"
         nl, maxr = NamedList(list2dict(ttl,ns)), iorst["maxrun#"]
         lsts, ns, hls = [ttl], "jono,running,qty,cstname,styno,description,qtyleft,errmsg".split(","), []
-        newrunmp = {}
-        for it in its:
+        for it in shpmp:
             ttl = ["" for x in range(len(ttl))]
             nl.setdata(ttl)
             if not it["running"]:
@@ -1573,8 +1551,10 @@ class ShpMkr(object):
             nl.karat1, nl.wgt1 = karats[0][0], karats[0][1]
             lsts.append(ttl)
             if len(karats) > 1:
+                jn = nl.jono
                 for idx in range(1,len(karats)):
                     nl.setdata(["" for x in range(len(ttl))])
+                    nl.jono = jn
                     nl.karat1, nl.wgt1 = karats[idx][0], karats[idx][1]
                 lsts.append(nl.data)
         sht.range(1,1).value = lsts
@@ -1599,7 +1579,7 @@ class ShpMkr(object):
         rng.api.borders.linestyle = LineStyle.xlContinuous
         rng.api.borders.weight = BorderWeight.xlThin
         sht.range("A2:A%d" % (len(lsts) + 1)).row_height = 18
-        
+        xwu.usedrange(sht).api.VerticalAlignment = Constants. xlCenter
         if hls:
             s0 = nl.getcol("running") + 1
             for idx in hls:
@@ -1611,12 +1591,94 @@ class ShpMkr(object):
         for knv in iorst.items():
             shtio.range(ridx,itio.getcol(knv[0])+1).value = knv[1]
         
-        if errs:
-            its = [[x for x in errs[0].keys()]]
-            ttl = its[0]
-            for mp in errs:
-                its.append([("%s" % mp.get(x)) for x in ttl])
+        if errlst:
+            shpmp = [[x for x in errlst[0].keys()]]
+            ttl = shpmp[0]
+            for mp in errlst:
+                shpmp.append([("%s" % mp.get(x)) for x in ttl])
             sht = wb.sheets.add(self._snerr)
-            sht.range(1,1).value = its
+            sht.range(1,1).value = shpmp
             sht.autofit("c")
         return fn
+
+    def buildrpts(self, fldr = None):
+        """ create the rpt/err/bc sheets if they're not available
+        """
+        if not fldr or path.isdir(fldr):
+            fn = self._pajfldr2file(fldr)
+        else:
+            fn = fldr
+        if not fn: return            
+        pajopts = {"fn":fn,"shpdate":PajShpHdlr._getshpdate(fn),"fmd": datetime.fromtimestamp(path.getmtime(fn))}
+        app = self._appmgr.acq()[0]
+        wb, flag = app.books.open(fn), False
+        for sn in (self._snrpt,self._snerr):
+            shts = [x for x in wb.sheets if triml(x.name).find(triml(sn)) >= 0]
+            if not shts: continue
+            for sht in shts:
+                rng = xwu.usedrange(sht)
+                if not rng: continue
+                flag = [x for x in rng.value if x]
+                if flag: break
+            if flag: break
+        if flag:
+            logger.debug("target file(%s) already contains one of sheet%s" % (path.basename(fn),(self._snrpt,self._snerr)))
+            return
+        invmp, shpmp, errlst, vt, vn = {}, [], [], None, None
+        rdrmap = {"长兴珠宝":("c2",self._readc2),"诚艺,胤雅":("c1",self._readc1) ,"十七,物料编号,paj,diamondlite":("paj",self._readpaj)}
+        rsht =[x for x in wb.sheets if triml(x.name) == "rpt"]
+        if rsht:
+            wb.close()
+            return
+
+        rdr = None
+        for sht in wb.sheets:
+            if not vt:
+                for x in rdrmap.keys():
+                    for y in x.split(","):
+                        if xwu.find(sht, y):
+                            vt, vn = x, rdrmap[x][0]
+                            break
+                    if vt: break
+            rdr, flag = rdrmap.get(vt), False
+            if rdr:
+                lst = rdr[1](sht, pajopts)
+                if lst and len([x for x in lst if x]):
+                    flag = True
+                    mp = lst[0]
+                    if mp: 
+                        if "invdate" in mp:
+                            ivd = mp["invdate"]
+                            if isinstance(ivd,str):
+                                ivd = datetime.strptime(ivd, "%Y-%m-%d")
+                            td = datetime.today() - ivd
+                            if td.days > 2 or td.days < 0:
+                                errlst.append(self._newerr("_日期_","warning","日期可能错误"))
+                            del mp["invdate"]
+                        shpmp.extend(mp.values())
+                    if lst[1]: errlst.extend(lst[1])
+            if not flag:
+                if vn == "paj":
+                    invno = PajShpHdlr._readinvno(sht)
+                    if not invno: continue
+                    mp = PajShpHdlr._rawreadinv(sht, invno)
+                    if mp:
+                        invmp.update(mp)
+                        flag = True
+            if not flag:
+                logger.debug("sheet(%s) does not contain any valid data" % sht.name)
+        if shpmp:
+            self._shpcheck(shpmp, invmp, errlst)
+            shpmp = sorted(shpmp,key = lambda d0: "%s,%6.1f" % (d0["jono"],d0["qtyleft"]))
+            newrunmp = {}
+            self._writerpts(wb,shpmp,errlst,newrunmp,ivd,vn)
+            self._writebc(wb, shpmp, newrunmp, ivd)
+        app.visible = True
+        return fn
+
+    def doimport(self, fldr):
+        fn = self.buildrpts(fldr)
+        #TODO::
+        if not fn: return
+        with self._cnsvc.sessionctx() as cur:
+            pass

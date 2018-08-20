@@ -217,11 +217,15 @@ class C1InvRdr():
                         nl.stname, qnw[0] / joqty, round(qnw[1] / joqty,4), "N/A"))
             #wgt data
             kt, gw, sw, pwgt = nl.karat, nl.gwgt, nl.swgt, nl.pwgt
-            if kt:
-                kt, wgt, joqty = self._tokarat(kt), gw if gw else sw, c1.qty
-                c1 = c1._replace(mtlwgt = addwgt(c1.mtlwgt,WgtInfo(kt, wgt/joqty, 4)))
-                if pwgt:
-                    c1 = c1._replace(mtlwgt = addwgt(c1.mtlwgt, WgtInfo(kt, pwgt/joqty, 4), True))
+            if not kt or not isnumeric(kt): continue
+            joqty = c1.qty
+            if not joqty:
+                logger.debug("JO(%s) without qty, skipped" % nl.jono)
+                continue
+            kt, wgt = self._tokarat(kt), gw if gw else sw            
+            c1 = c1._replace(mtlwgt = addwgt(c1.mtlwgt,WgtInfo(kt, wgt/joqty, 4)))
+            if pwgt:
+                c1 = c1._replace(mtlwgt = addwgt(c1.mtlwgt, WgtInfo(kt, pwgt/joqty, 4), True))
         if c1: items.append(c1)
         return items
     
@@ -238,6 +242,8 @@ class C1InvRdr():
             rc = 14
         elif kt >= 745 and kt <= 755:
             rc = 18
+        else:
+            rc = kt
         return rc
 
     def _readcalc(self, sht):
@@ -347,12 +353,10 @@ class C1JCMkr(object):
         with self._cnsvc.sessionctx() as cur:
             mmids, vvs, refs = set(), {}, []
             gccols = [
-                x.split(",") for x in "goldwgt,goldcost;extgoldwgt,extgoldcost".split(";")]
-            ttls = ("mmid,lastmmdate,jobno,cstname,styno,running,mstone,description,joqty"
-                    ",karat,goldwgt,goldcost,extgoldcost,stonecost,laborcost,extlaborcost,extcost,"
-                    "totalcost,unitcost,extgoldwgt,cflag,rmb2hk").split(",")
-            cnmap= xwu.list2dict(ttls)
-            nl = NamedList(cnmap)            
+                x.split(",") for x in "goldwgt,goldcost;extgoldwgt,extgoldcost;extgoldwgt2,extgoldcost2".split(";")]
+            ttls = ("mmid,lastmmdate,jobno,cstname,styno,running,mstone,description,joqty,karat,goldwgt,goldcost,extgoldcost,extgoldcost2,stonecost,laborcost,extlaborcost,extcost,totalcost,unitcost,extgoldwgt,extgoldwgt2,cflag,rmb2hk").split(",")
+            nl = NamedList(xwu.list2dict(ttls))
+            invs = C1InvRdr().read(self._invfldr)
             q = Query([JO.name.label("jono"), Customer.name.label("cstname"),
                        Style.name.label("styno"), JO.running, JO.karat.label(
                            "jokarat"), MMgd.karat,
@@ -365,20 +369,21 @@ class C1JCMkr(object):
             #vvs["_TITLE_"] = ttls
             for x in lst:
                 jn = x.jono.value
-                # if jn != "580356": continue
                 if x.id not in mmids:
                     mmids.add(x.id)
                     if jn not in vvs:
-                        ll = [x.id, "'" + x.refdate.strftime(_date_short), "'" + x.jono.value, x.cstname.strip(),
-                              x.styno.value, x.running, "_ST", "_EDESC", 0, karatsvc.getfamily(x.jokarat).karat, [],
-                              0, 0, 0, 0, 0, 0, 0, 0, 0, "NA",rmbtohk]
+                        nl.setdata([0] * len(ttls))
+                        nl.mmid, nl.lastmmdate, nl.jobno = x.id, "'" + x.refdate.strftime(_date_short), "'" + x.jono.value
+                        nl.cstname, nl.styno, nl.running = x.cstname.strip(), x.styno.value, x.running
+                        nl.mstone, nl.description, nl.karat = "_ST", "_EDESC", karatsvc.getfamily(x.jokarat).karat
+                        nl.goldwgt, nl.cflag, nl.rmb2hk = [], "NA",rmbtohk
                         mt = ptncx.search(x.docno)
                         if mt:
-                            ll[cnmap["cflag"]] = "'" + mt.group(1)
-                        vvs[jn] = ll
+                            nl.cflag = "'" + mt.group(1)
+                        vvs[jn] = nl.data
                         runns.add(int(x.running))
-                    vvs[jn][cnmap["joqty"]] += float(x.qty)
-                vvs[jn][cnmap["goldwgt"]].append((karatsvc.getfamily(x.karat).karat, x.wgt))
+                    nl.setdata(vvs[jn]).joqty += float(x.qty)
+                #nl.setdata(vvs[jn]).goldwgt.append((karatsvc.getfamily(x.karat).karat, x.wgt))
             bcs = self._bcsvc.getbcsforjc(runns)
             if not bcs or len(bcs) < len(runns):
                 logger.debug("%s:Not all records found in BCSystem" % actname)
@@ -386,13 +391,12 @@ class C1JCMkr(object):
             stcosts = self._getstcosts(runns)
             if not stcosts or len(stcosts) < len(runns) / 2:
                 logger.debug("%s:No stone or less than 1/2 has stone, make sure you've prepared stone data with C1STIOData" % actname)
-            invs = C1InvRdr().read(self._invfldr)
             x = set([x.jono for x in invs if x.jono in vvs]) if invs else set()
             if not invs or len(x) < len(runns):
                 logger.debug(
                     "%s:No or not enough C1 invoice data from file(%s)" % (actname,self._invfldr))
             invs = dict([(x.jono, x) for x in invs]) if invs else {}
-            cstlst = "goldcost,extgoldcost,stonecost,laborcost".split(",")
+            cstlst = "goldcost,extgoldcost,stonecost,laborcost,extlaborcost,extcost,extgoldcost2".split(",")
             for x in vvs.values():                
                 nl.setdata(x)
                 runn = nl.running
@@ -410,20 +414,14 @@ class C1JCMkr(object):
                 else:
                     logger.debug("%s:No invoice data for JO(%s)" %
                                 (actname,runn))
-                lst1 = nl.goldwgt
-                if len(lst1) > 1:
-                    mmids = {}
-                    for knw in lst1:
-                        if knw[0] in mmids:
-                            mmids[knw[0]] += knw[1]
-                        else:
-                            mmids[knw[0]] = knw[1]
-                    kt = nl.karat
-                    nl.goldwgt = [(kt, mmids[kt])]
-                    del mmids[kt]
-                    if len(mmids) > 0:
-                        nl.extgoldwgt = list(mmids.items())
-                lst1 = nl.goldwgt
+                prdwgt = invs.get(nl.jobno[1:]).mtlwgt #a ' should be skipped
+                prdwgt = (prdwgt.main,prdwgt.aux,prdwgt.part)
+                for idx in range(len(prdwgt)):
+                    wi = prdwgt[idx]
+                    #unitwgt to total wgt
+                    if wi:
+                        wi = wi._replace(wgt = round(wi.wgt * nl.joqty,2))
+                        nl[gccols[idx][0]] = wi
                 refid = self._getrefid(nl.running, refs)
                 if not refid:
                     logger.critical(("No refid found for running(%d),"
@@ -433,21 +431,17 @@ class C1JCMkr(object):
                 else:
                     mp = self._getmps(refid, mpsmp)
                     for vv in gccols:
-                        lst1 = x[cnmap[vv[0]]]
-                        if lst1:
-                            ttlwgt = 0.0
-                            for knw in lst1:
-                                kt = knw[0]
-                                # in extgold case, if different karat exists, the weight is merged
-                                ttlwgt += float(knw[1])
-                                if kt not in mp:
-                                    logger.critical("No MPS found for running(%d)'s karat(%d)" %
-                                                    (nl.running, kt))
-                                    x[cnmap[vv[1]]] = -1000
-                                else:
-                                    x[cnmap[vv[1]]
-                                    ] += round(float(mp[kt]) * float(knw[1]), 2)
-                            x[cnmap[vv[0]]] = ttlwgt
+                        wi = nl[vv[0]]
+                        if not wi: continue
+                        if wi.karat not in mp:
+                            logger.critical("No MPS found for running(%d)'s karat(%d)" %
+                                            (nl.running, wi.karat))
+                            cost = -1000
+                        else:
+                            cost = round(float(mp[wi.karat]) * float(wi.wgt), 2)
+                        nl[vv[0]], nl[vv[1]] = wi.wgt, cost
+                        if vv[0] == "extgoldwgt2" and wi.wgt:
+                            nl.extlaborcost = round(wi.wgt * (2.5 if wi.karat == 925 or wi.karat == 200 else 30),2)
                 if vvs == None:
                     break
                 for cx in cstlst:
