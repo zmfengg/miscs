@@ -10,7 +10,6 @@
 import datetime
 import re
 from collections.abc import Sequence
-import threading
 from collections import Iterable
 from contextlib import contextmanager
 from operator import attrgetter

@@ -414,6 +414,7 @@ class C1JCMkr(object):
                 else:
                     logger.debug("%s:No invoice data for JO(%s)" %
                                 (actname,runn))
+                    continue
                 prdwgt = invs.get(nl.jobno[1:]).mtlwgt #a ' should be skipped
                 prdwgt = (prdwgt.main,prdwgt.aux,prdwgt.part)
                 for idx in range(len(prdwgt)):
@@ -621,8 +622,12 @@ class C1STHdlr(object):
         with open(fn,"w") as fh:
             if pknos[1]:
                 print("Below PK# does not exist, Pls. acquire them from HK first",file = fh)
-                for x in sorted([(pkmap[x].id,x) for x in pknos[1]]):
+                lst = sorted([(pkmap[x].id,x) for x in pknos[1]])
+                for x in lst:
                     print("%d,%s" % x,file = fh)
+                print("#use below sql to fetch pk info from hk's pms system", file = fh)
+                print("use hnj_hk", file = fh)
+                print("select package, unit_price, case when unit = 1 then 'PC' when unit = 2 then 'PC' when unit = 3 then 'CT' when unit = 4 then 'GM' when unit = 5 then 'PR' when unit = 6 then 'TL' end from package_ma where package in ('%s')" % "','".join([x[1] for x in lst]), file = fh)
                 crterr = True
             if btnos[1]:                
                 print("Below BT# does not exists, Pls. get confirm from Kary",file = fh)

@@ -86,7 +86,7 @@ class KaratSvc(object):
         if not fn or not path.exists(fn):
             fn = path.join(thispath,"res","karats.csv")
         lst = []
-        with open(fn,"r+t") as fh:
+        with open(fn,"rt") as fh:
             rdr = DictReader(fh)
             for x in rdr:
                 kt = x["karat"]

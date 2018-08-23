@@ -62,24 +62,25 @@ def addwgt(prdwgt,wi,isparts = False, autoswap = True):
 
     return prdwgt
 
-def cmpwgt(first, second, tor = 5, strictkt = False):
+def cmpwgt(expected, actual, tor = 5, strictkt = False):
     """ tor is the toralent, positive stands for percentage, negative for actual wgt
     """
-    if not (first and second): return
-    first, second, flag = first.wgts, second.wgts, False
+    if not (expected and actual): return
+    expected, actual, flag = expected.wgts, actual.wgts, False
     if tor == 0: tor = 5
     if tor > 0 and tor > 1: tor = tor / 100.0    
-    for idx in range(len(first)):
-        f, s = first[idx], second[idx]
-        if bool(f) ^ bool(s):
+    for idx in range(len(expected)):
+        exp, act = expected[idx], actual[idx]
+        if bool(exp) ^ bool(act):
             return False
-        if f:
-            flag = f.karat == s.karat if strictkt else karatsvc.getfamily(f.karat).karat == karatsvc.getfamily(s.karat).karat
+        if exp:
+            flag = exp.karat == act.karat if strictkt else karatsvc.getfamily(exp.karat).karat == karatsvc.getfamily(act.karat).karat
             if not flag: return False
             if tor > 0:
-                flag = (f.wgt - s.wgt) / min(f.wgt, s.wgt) <= tor
+                xw = min(exp.wgt, act.wgt)
+                flag = (exp.wgt - act.wgt) / xw <= tor if xw else True
             else:
-                flag = abs(f.wgt - s.wgt) <= -tor
+                flag = abs(exp.wgt - act.wgt) <= -tor
             if not flag: break
     return flag
 

@@ -18,6 +18,26 @@ from .resourcemgr import ResourceMgr
 __all__ = ["app","find","fromtemplate","list2dict","usedrange", "safeopen"]
 _validappsws = set("visible,enableevents,displayalerts,asktoupdatelinks,screenupdating".split(","))
 
+__crtappmgr = None
+
+class _AppStg(object):
+    def __init__(self, sws = None):
+        self._sws = sws
+        self._swso = None
+
+    def crtr(self):
+        self._kxl, self._app = app(False)
+        if self._sws: self._swso = appswitch(self._app, self._sws)
+        return self._app
+
+    def dctr(self, app):
+        if not hasattr(self,"_app"): return
+        if not (self._app is app): return
+        if self._kxl:
+            self._app.quit()
+        elif self._swso:
+            appswitch(self._app, self._swso)
+
 def app(vis=True,dspalerts = False):    
     """ launch an excel or connect to existing one
     return (flag,app), where flag is True means it's created by me, the caller should
@@ -29,14 +49,17 @@ def app(vis=True,dspalerts = False):
     if app: app.display_alerts = bool(dspalerts)
     return flag, app
 
-def appswitch(app, sws):
+def appswitch(app, sws = None):
     """ turn switches on/off, return a string of the original value so that you can restore
+    appswitch(app) or appswitch(app, True) to turn all default switch on
     appswitch(app,False) to turn all default switches off
     appswitch(app,{"visible":False,"screenupdate":True})
     remember to hold the result and call this method again to restore the prior state
     """
     if not app: return
-    if isinstance(sws,bool):
+    if sws is None:
+        sws = dict([(x,True) for x in _validappsws])
+    elif isinstance(sws,bool):
         sws = dict([(x,sws) for x in _validappsws])
     mp = {}
     for knv in sws.items():
@@ -172,20 +195,8 @@ def NamedRanges(rng, skipfirstrow = False, nmap = None, scolcnt = 0):
     return NamedLists(lst,nmap)
 
 def appmgr(sws = {"visible":False,"displayalerts":False}):
-    class _AppStg(object):
-        def __init__(self, sws = None):
-            self._sws = sws
-
-        def crtr(self):
-            self._kxl, self._app = app(False)
-            if self._sws: self._sws = appswitch(self._app, sws)
-            return self._app
-
-        def dctr(self):
-            if hasattr(self,"_app"):
-                if self._kxl:
-                    self._app.quit()
-                elif hasattr(self,"_sws"):
-                    appswitch(self._app, self._sws)
+    global __crtappmgr
+    if __crtappmgr: return __crtappmgr
     aps = _AppStg(sws)
-    return ResourceMgr(aps.crtr,aps.dctr)
+    __crtappmgr = ResourceMgr(aps.crtr,aps.dctr)
+    return __crtappmgr
