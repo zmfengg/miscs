@@ -22,7 +22,9 @@ import datetime
 from utilz._jewelry import RingSizeSvc
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import Column,Integer,VARCHAR
+import xlwings as xw
 
+resfldr = appathsep(appathsep(thispath) + "res")
 
 class KeyTests(TestCase):
     """ key tests for this util funcs """
@@ -56,10 +58,6 @@ class KeyTests(TestCase):
         with ResourceCtx([mgr,mgr1]) as r:
             r[0].run()
             r[1].run()
-
-    @property
-    def resfldr(self):
-        return appathsep(appathsep(thispath) + "res")
 
     def testStsize(self):
         self.assertEqual("0500X0400X0300",stsizefmt("3x4x5mm") ,"Size format")
@@ -126,29 +124,6 @@ class KeyTests(TestCase):
         self.assertEqual(lsts[3],lsts1[1].data,"newinst=False affect list()")
         self.assertEqual(lsts[3],lsts1[2].data,"newinst=False affect list()")
 
-        #now test a very often use ability, read data from (excel) and handle it
-        #without NamedList(s), I have to use tr[map[name]] to get the value
-        fn = getfiles(self.resfldr,"NamedList")[0]
-        app = xwu.app(False)[1]
-        try:
-            wb = app.books.open(fn)
-            sht = wb.sheets[0]
-            rng = xwu.find(sht,"*Table")
-            rng = rng.offset(1,0)
-            rng = rng.expand("table")
-            lst = [x for x in NamedLists(rng.value)]
-            self.assertEqual(8,len(lst), "the count of data")
-            self.assertEqual(1,lst[0].id, "the id of first Emp")
-            #try build a dict
-            lst = dict((x.id,x) for x in NamedLists(rng.value))
-            self.assertEqual("Name 8",lst[8].name,"The Name")
-            #now try an named-translation
-            nl = NamedLists(rng.value,{"Edate":"enter,"})
-            emp = nl.__next__()
-            self.assertEqual(datetime.datetime(1998,1,3,0,0), emp["edate"],"get date use translated name")
-        finally:
-            if app: app.quit()
-                
         #now namedlist treating normal object, There is an object NamedList before
         #but finally merged into NamedList
         class A(object):
@@ -177,19 +152,6 @@ class KeyTests(TestCase):
         self.assertEqual(30,nl.age)
         self.assertTrue("id" not in nl._colnames)
         self.assertEqual(2,nl.getcol("age"))
-
-    def testxwuappswitch(self):
-        kxl, app = xwu.app(True)
-        os = xwu.appswitch(app,False)
-        self.assertTrue(len(os) > 0)
-        xwu.appswitch(app,os)
-        app.visible = False
-        os = xwu.appswitch(app,{"visible":True})
-        self.assertFalse(os["visible"])
-        app.api.enableevents = True
-        os = xwu.appswitch(app,{"visible":True,"enableevents":False})
-        self.assertEqual(1,len(os))
-        self.assertTrue(os["enableevents"])
 
     def testAppathSep(self):
         fldr = thispath
@@ -238,8 +200,62 @@ class KeyTests(TestCase):
         self.assertTrue(rgsvc.convert("EU","A","US") is None,"EU#A does not exist")
         self.assertAlmostEqual(47.0,rgsvc.getcirc("US","4 1/4"),"the circumference of US#4 1/4 is 47.0mm")
     
+
+class XwuTest(TestCase):
+    def testappmgr(self):
+        self.assertEqual(0, xw.apps.count, "apps.count")
+        app, tk = xwu.appmgr().acq()
+        self.assertEqual(1, xw.apps.count, "apps.count")
+        xwu.appmgr().ret(tk)
+        try:
+            app.quit()
+            self.assertFalse(True,"you should not see me")
+        except:
+            self.assertTrue(True,"You should seed me")            
+
+    def testxwuappswitch(self):
+        app, tk = xwu.appmgr().acq()
+        os = xwu.appswitch(app)
+        self.assertFalse(bool(os), "no changes need to be made")
+        os = xwu.appswitch(app,False)
+        self.assertTrue(len(os) > 0)
+        xwu.appswitch(app,os)
+        app.visible = False
+        os = xwu.appswitch(app,{"visible":True})
+        self.assertFalse(os["visible"])
+        app.api.enableevents = True
+        os = xwu.appswitch(app,{"visible":True,"enableevents":False})
+        self.assertEqual(1,len(os))
+        self.assertTrue(os["enableevents"])
+        xwu.appmgr().ret(tk)    
+
+    def testNamedList(self):
+        #now test a very often use ability, read data from (excel) and handle it
+        #now think of use NamedRanges, better ability to detect even if there is merged range
+        #without NamedList(s), I have to use tr[map[name]] to get the value
+        fn = getfiles(resfldr,"NamedList")[0]
+        app, tk = xwu.appmgr().acq()
+        try:
+            wb = app.books.open(fn)
+            sht = wb.sheets[0]
+            rng = xwu.find(sht,"*Table")
+            rng = rng.offset(1,0)
+            rng = rng.expand("table")
+            lst = [x for x in NamedLists(rng.value)]
+            self.assertEqual(8,len(lst), "the count of data")
+            self.assertEqual(1,lst[0].id, "the id of first Emp")
+            #try build a dict
+            lst = dict((x.id,x) for x in NamedLists(rng.value))
+            self.assertEqual("Name 8",lst[8].name,"The Name")
+            #now try an named-translation
+            nl = NamedLists(rng.value,{"Edate":"enter,"})
+            emp = nl.__next__()
+            self.assertEqual(datetime.datetime(1998,1,3,0,0), emp["edate"],"get date use translated name")
+        finally:
+            xwu.appmgr().ret(tk)
+
     def testGetTableData(self):
-        app = xwu.app(True)[1]
+        app, tk = xwu.appmgr().acq()
         wb = app.books.open(path.join(thispath,"res","getTableData.xlsx"))
         nmap = {"id":"id,","9k":"9k,","S950":"S950,"}
         sht = wb.sheets[0]
@@ -255,7 +271,9 @@ class KeyTests(TestCase):
             self.assertEqual(3, len(nls), "result count of %s" % name)
             self.assertEqual(2, nls[0]["9k"], "9K result of %s" % name)
             self.assertEqual(16,nls[2].s950, "S950 of %s" % name)
-            print("using %f ms to perform %s" % (time.clock() - t0, name))            
+            print("using %f ms to perform %s" % (time.clock() - t0, name))        
+        xwu.appmgr().ret(tk)
+
 
 BaseClass = declarative_base()
 

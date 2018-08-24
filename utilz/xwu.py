@@ -34,7 +34,11 @@ class _AppStg(object):
         if not hasattr(self,"_app"): return
         if not (self._app is app): return
         if self._kxl:
+            #quit() sometime does not work
             self._app.quit()
+            if hasattr(self._app,"version"):
+                self._app.kill()
+            self._app = None
         elif self._swso:
             appswitch(self._app, self._swso)
 
@@ -113,15 +117,6 @@ def contains(sht, vals):
         if not find(sht, val): return
     return True
 
-def range2dict(vvs,trmap=None, dupdiv = "", bname = None):
-    """ read a range's values into a list of dict item. vvs[0] should contains headers
-    @param vvs: the range's value, an 2d array, use range.value to get it
-    @param otherParm" refer to @list2dict
-    """
-    cmap = list2dict(vvs[0],trmap,dupdiv,bname)
-    cns = [x for x in cmap.keys()]
-    return list([x for x in [dict(zip(cns,y)) for y in vvs[1:]]])
-
 def fromtemplate(tplfn, app=None):
     """new a workbook based on the tmpfn template
         @param tplfn: the template file
@@ -129,7 +124,7 @@ def fromtemplate(tplfn, app=None):
     """
     if not os.path.exists(tplfn): return
     if not app:
-        app = xlwings.App() if not xlwings.apps else xlwings.apps(0)
+        app = appmgr().acq()[0]
     app.api.Application.Workbooks.Add(tplfn)
     return app.books.active
 

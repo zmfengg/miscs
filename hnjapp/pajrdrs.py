@@ -148,15 +148,24 @@ class PajBomHhdlr(object):
                     shts[1] = (sht,rng)
                 if all(shts): break
             if not all(shts): return
+            #duplicated item detection
+            mstrs, pts = set(), set()
             shts[0][0].name, shts[1][0].name = "BOM_mstr", "BOM_part"
-            nmps = {0:{u"pcode":"十七位,","mat":u"材质,","mtlwgt":u"抛光,"},1:{"pcode":u"十七位,","name":u"物料名称", "spec":u"物料特征","qty":u"数量","wgt":u"重量","unit":u"单位","length":u"长度"}}
+            nmps = {0:{u"pcode":"十七位,","mat":u"材质,","mtlwgt":u"抛光,","up":"单价","fwgt":"成品重"},1:{"pcode":u"十七位,","matid":"物料ID,","name":u"物料名称", "spec":u"物料特征","qty":u"数量","wgt":u"重量","unit":u"单位","length":u"长度"}}
+            nis0 = lambda x: x if x else 0
             for jj in range(len(shts)):
                 vvs = shts[jj][1].end("left").expand("table").value
                 nls = NamedLists(vvs,nmps[jj])
                 if jj == 0:
                     for nl in nls:
-                        pcode = nl.pcode
+                        pcode = nl.pcode                        
                         if not p17u.isvalidp17(pcode): break
+                        fpt = tuple(nis0(x) for x in (nl.pcode, nl.mat, nl.up, nl.mtlwgt, nl.fwgt))
+                        key = ("%s" * len(fpt)) % fpt
+                        if key in mstrs:
+                            logger.debug("duplicated bom_mstr found(%s, %s)" % (nl.pcode, nl.mat))
+                            continue
+                        mstrs.add(key)
                         kt = _parsekarat(nl.mat)
                         if not kt: continue
                         it = pmap.setdefault(pcode,{"pcode":pcode})
@@ -166,6 +175,12 @@ class PajBomHhdlr(object):
                     for nl in nls:
                         pcode = nl.pcode
                         if not p17u.isvalidp17(pcode): break
+                        fpt =  tuple(nis0(x) for x in (nl.pcode, nl.matid, nl.name, nl.spec, nl.qty, nl.wgt, nl.unit, nl.length))
+                        key = ("%s" * len(fpt)) % fpt
+                        if key in pts:
+                            logger.debug("duplicated bom_part found(%s, %s)" % (nl.pcode, nl.name))
+                            continue
+                        pts.add(key)
                         it = pmap.setdefault(pcode,{"pcode":pcode})
                         mats, it = it.setdefault("parts",[]), {}
                         mats.append(it)
@@ -220,17 +235,17 @@ class PajBomHhdlr(object):
                                     if lc > 0: chlenerr = True
                             if ispart:
                                 wgt0 = prdwgt.part
-                                if not wgt0 or y["karat"] == wgt0.karat:
-                                    logger.debug("Multi chain found for pcode(%s)" % x[0])
+                                ispart = (not wgt0 or y["karat"] == wgt0.karat)
+                            if not ispart:
+                                if isch:
+                                    logger.debug("No wgt slot for chain(%s) in pcode(%s),merged to main" % (y["name"],x[0]))
                                 else:
-                                    ispart = False
-                            else:
-                                logger.debug("No wgt pos for chain(%s) in pcode(%s),merged to main" % (y["name"],x[0]))
+                                    logger.debug("parts(%s) in pcode(%s) merged to main" % (y["name"],x[0]))
                     #turn autoswap off in parts appending procedure to avoid main karat being modified
                     prdwgt = addwgt(prdwgt,WgtInfo(y["karat"],y["wgt"]), ispart, autoswap = False)
-                if chlenerr:
+                if False and chlenerr:
                     #in common  case, chain should not have length, when this happen
-                    #make the weight negative.
+                    #make the weight negative. Skipped
                     prdwgt = prdwgt._replace(part = WgtInfo(prdwgt.part.karat, -prdwgt.part.wgt))
             x[1]["mtlwgt"] = prdwgt
         
@@ -1386,6 +1401,10 @@ class ShpMkr(object):
                     s0 = "数量不足"
                     errlst.append(self._newerr(mp["location"], self._ec_qty,s0))
                     mp["errmsg"] = s0
+                elif jo.qtyleft > 0:
+                    s0 = "数量有余"
+                    errlst.append(self._newerr(mp["location"], self._wc_qty,s0))
+                    mp["errmsg"] = s0
                 else:
                     mp["errmsg"] = ""
                 jwgt = jwgtmp.get(jn)
@@ -1437,8 +1456,7 @@ class ShpMkr(object):
         lsts.append(rcols)
         for it in shpmp:
             jn = it["jono"]
-            #if jn not in newrunmp or jn in dmp: continue
-            if jn in dmp: continue
+            if jn not in newrunmp or jn in dmp: continue
             dmp[jn], styno = 1, it["styno"]
             bc, rmks = joskubcs.get(jn), []
             if not bc:
@@ -1615,7 +1633,7 @@ class ShpMkr(object):
         
         if errlst:
             sns = (self._snerr, self._snwarn)
-            data = ([x for x in errlst if x["type"].find("ERR") >= 0], [x for x in errlst if x["type"].find("ERR") < 0])
+            data = self._errandwarn(errlst)
             for idx in range(len(sns)):
                 shpmp = [[x for x in errlst[0].keys()]]
                 ttl = shpmp[0]            
@@ -1625,6 +1643,9 @@ class ShpMkr(object):
                 sht.range(1,1).value = shpmp
                 sht.autofit("c")
         return fn
+    
+    def _errandwarn(self, errlst):
+        return ([x for x in errlst if x["type"].find("ERR") >= 0], [x for x in errlst if x["type"].find("ERR") < 0])
 
     def buildrpts(self, fldr = None):
         """ create the rpt/err/bc sheets if they're not available
@@ -1712,9 +1733,19 @@ class ShpMkr(object):
             self._writebc(wb, shpmp, newrunmp, ivd)
         return fn
 
-    def doimport(self, fldr):
-        fn = self.buildrpts(fldr)
-        #TODO::
+    def doimport(self, fn):
+        if not fn: return
+        app = _appmgr.acq()[0]
+        wb = app.books.open(fn)
+        sht = wb.sheets[self._snrpt]
+               
+
+class ShpImptr(object):
+    
+    def __init__(self, cnsvc, hksvc, bcsvc):
+        self._cnsvc, self._hksvc, self._bcsvc = cnsvc, hksvc, bcsvc
+        
+    def doimport(self, fn):
         if not fn: return
         with self._cnsvc.sessionctx() as cur:
             pass
