@@ -231,7 +231,7 @@ class NamedList(object):
         elif name in self._nmap:
             name = self._nmap[name]
         return self._data[name] if self._dtype == 2 else getattr(self._data, name)
-
+    
     def __setattr__(self, name, val):
         #self._checkarg(name)
         if name.startswith("_"):            

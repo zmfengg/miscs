@@ -90,6 +90,7 @@ class KeyTests(TestCase):
                 self.assertEqual("Admin",x.group,"the group property")
                 self.assertEqual(30,x.age,"the age property")
         nl = lsts1[0]
+        self.assertTrue(hasattr(nl,"name"),"response to hasattr")
         self.assertEqual(lsts[1], nl.data,"title off, first row of data")
         self.assertEqual(lsts[1][0], nl[0],"access by index")
         sl = slice(1,None)
@@ -228,6 +229,12 @@ class XwuTest(TestCase):
         self.assertEqual(1,len(os))
         self.assertTrue(os["enableevents"])
         xwu.appmgr().ret(tk)    
+    
+    def testEscapettl(self):
+        ttls = ('2017&"宋体,Regular"年&"Arial,Regular"6&"宋体,Regular"月', '2017&"宋体,Regular"年&"Arial,Regular"&6 6&"宋体,Regular"月')
+        exps = ("2017年6月","2017年6月")
+        for idx in range(len(ttls)):
+            self.assertEquals(exps[idx], xwu.escapetitle(ttls[idx]),"the title")
 
     def testNamedList(self):
         #now test a very often use ability, read data from (excel) and handle it
