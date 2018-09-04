@@ -279,6 +279,9 @@ class XwuTest(TestCase):
             self.assertEqual(2, nls[0]["9k"], "9K result of %s" % name)
             self.assertEqual(16,nls[2].s950, "S950 of %s" % name)
             print("using %f ms to perform %s" % (time.clock() - t0, name))        
+        #try a blank range, should return none
+        nls = xwu.NamedRanges(sht.range(1000,1000))
+        self.assertIsNone(nls,"Nothing should be returned")
         xwu.appmgr().ret(tk)
 
 

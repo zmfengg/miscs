@@ -718,6 +718,9 @@ class PajShpHdlr(object):
             fns = [x[0] for x in fns]
             for fn in fns:
                 rflag = self._hasread(fmds[fn],fn)
+                if rflag == 1:
+                    logger.debug("data in file(%s) is up-to-date" % path.basename(fn))
+                    continue
                 shptorv, invtorv = [], []
                 shps, invs = {}, {}
                 shtshps, shtinvs = [], []
@@ -753,20 +756,26 @@ class PajShpHdlr(object):
                     if wb:
                         wb.close()
                 if sum((len(x) for x in (shptorv,shps,invtorv,invs))) == 0:
-                    if rflag != 1:
-                        logger.debug("no valid data returned from file(%s)" % path.basename(fn))
-                    else:
-                        logger.debug("data in file(%s) is up-to-date" % path.basename(fn))
-                    continue
-                logger.debug("counts of file(%s) are: Shp2Rv=%d, Shps=%d, Inv2Rv=%d, Invs=%d" % (path.basename(fn), len(shptorv),len(shps),len(invtorv),len(invs)))
-                if True:
-                    x = self._persist((shptorv, shps),(invtorv,invs))
-                    if x[0] != 1:
-                        errors.append(x[1])
-                        logger.info("file(%s) contains errors" % path.basename(fn))
-                        logger.info(x[1])
-                    else:
-                        logger.debug("data in file(%s) were updated" % (path.basename(fn)))
+                    logger.debug("no valid data returned from file(%s)" % path.basename(fn))
+                logger.debug("counts of file(%s) are: Shp2Rv=%d, Shps=%d, Inv2Rv=%d, Invs=%d" % (path.basename(fn), len(shptorv),len(shps),len(invtorv),len(invs)))                
+                #sometimes the shipmentdata does not have inv# data
+                its = {x[0]:x[1] for x in shps.items() if not x[1].invno}
+                if its:
+                    xmp = {x.jono:x for x in invs.values()}
+                    for it in its.items():
+                        x = xmp.get(it[1].jono)
+                        if not x:
+                            logger.debug("failed to get invoice for JO#(%s)" % it[1].jono)
+                            return -1
+                        else:
+                            shps[it[0]] = it[1]._replace(invno = x.invno)
+                x = self._persist((shptorv, shps),(invtorv,invs))
+                if x[0] != 1:
+                    errors.append(x[1])
+                    logger.info("file(%s) contains errors" % path.basename(fn))
+                    logger.info(x[1])
+                else:
+                    logger.debug("data in file(%s) were committed to db" % (path.basename(fn)))
         finally:
             _appmgr.ret(kxl)
         return -1 if len(errors) > 0 else 1, errors
@@ -1244,7 +1253,7 @@ class ShpSns(object):
 
     @classmethod
     def _newerr(self, jn, loc, etype, msg, objs = None):
-        return {"jono":jn, "location":loc,"type":etype,"msg":msg, "objs":objs}
+        return {"jono":"'" + jn, "location": "'" + loc,"type":etype,"msg":msg, "objs":objs}
 
 class ShpMkr(object):
     """ class to make the daily shipment, include below functions
@@ -1692,11 +1701,23 @@ class ShpMkr(object):
             if not data[idx]: continue
             sht = ShpSns.get(wb, sns[idx])
             if idx == 0:
-                ttl = "location,type,msg".split(",")
-                vvs = [ttl]
+                nls = xwu.NamedRanges(sht.range(1,1))
+                if nls:
+                    ttl= None
+                    for nl in nls:
+                        if not ttl:
+                            ttl = nl._colnames
+                            vvs = []
+                        vvs.append(nl.data)
+                else:
+                    ttl = "location,type,msg".split(",")                    
                 for mp in data[idx]:
                     vvs.append([("%s" % mp.get(x)) for x in ttl])
-                sht.range(1,1).value = vvs                
+                #suppress the duplicates
+                vvs = {"%s%s%s" % (x[0],x[1],x[2]):x for x in vvs}                
+                vvs = list(vvs.values())
+                vvs.insert(0,ttl)
+                sht.range(1,1).value = vvs
             else:
                 #you can write with array with various length
                 ridx, ttl = 1, "cstname,jono,styno,location,type,msg".split(",")
@@ -1740,6 +1761,7 @@ class ShpMkr(object):
             xwu.freeze(sht.range("D2"))
             sht.autofit("c")
     
+    @classmethod
     def _errandwarn(self, errlst):
         return ([x for x in errlst if x["type"].find("ERR") >= 0], [x for x in errlst if x["type"].find("ERR") < 0])
 
@@ -1778,7 +1800,7 @@ class ShpMkr(object):
                 if flag: break
             if flag: break
         if flag:
-            logger.debug("target file(%s) already contains one of sheet%s" % (path.basename(fn),(ShpSns._snrpt,ShpSns._snerr)))
+            logger.debug("target file(%s) don't need regeneration" % (path.basename(fn)))
             return wb
         invmp, shpmp, errlst, vt, vn = {}, [], [], None, None
         rdrmap = {"长兴珠宝":("c2",self._readc2),"诚艺,胤雅":("c1",self._readc1) ,"十七,物料编号,paj,diamondlite":("paj",self._readpaj)}
@@ -1833,13 +1855,6 @@ class ShpMkr(object):
             if haserr: return None
         return wb
 
-    def doimport(self, fn):
-        if not fn: return
-        wb = self.buildrpts(fn)
-        if not wb:
-            messagebox.showwarning("文件错误","%s\n有错误或不存在" % fn)
-        ShpImptr(self._cnsvc, self._hksvc, self._bcsvc).doimport(wb)
-
 class ShpImptr():
     
     def __init__(self, cnsvc, hksvc, bcsvc):
@@ -1851,123 +1866,136 @@ class ShpImptr():
         pts = (sht.api.pagesetup.leftheader, sht.api.pagesetup.centerheader, sht.api.pagesetup.rightheader)
         pts = [xwu.escapetitle(pt) for pt in pts]
         ptn = re.compile(r"\d+")
-        pts[0] = datetime.date(*[int(x) for x in ptn.findall(pts[0])])
+        pts[0] = dtm.date(*[int(x) for x in ptn.findall(pts[0])])
         return pts
         
-    def doimport(self, wb):
-        if not wb: return
+    def doimport(self, fn):
+        sm = ShpMkr(self._cnsvc, self._hksvc, self._bcsvc)
+        wb = sm.buildrpts(fn)
+        if not wb:
+            messagebox.showwarning("文件错误","%s\n有错误或不存在" % fn)
+            return
         sht = wb.sheets[ShpSns._snrpt]
         hdrs, errs = self.exacthdr(sht), []
         nlhdr =  NamedList(list2dict("date,jmpno,iono".split(",")),hdrs)
-        if self.isImported(nlhdr.jmpno):
+        if self.isimported(nlhdr.jmpno):
             s0 = "JMP#(%s) already imported" % nlhdr.jmpno
             errs.append(ShpSns._newerr("_记录重复_","_all_", ShpSns._ec_jmp,s0))
         if nlhdr.jmpno[0] != "J":
             s0 = "落货纸#(%s)应该以J开头" % nlhdr.jmpno
             errs.append(ShpSns._newerr("_落货纸错误_","_all_", ShpSns._ec_jmp,s0))
-        df = datetime.today() - nlhdr.date
+        df = date.today() - nlhdr.date
         if df.days < 0 or df.days > 20:
             s0 = ("来至未来(%s)的资料" if df.days < 0 else "太早以前(%s)的资料") % nlhdr.date.strftime("%Y-%m-%d")
             errs.append(ShpSns._newerr("_日期错误_","_all_", ShpSns._ec_date,s0))
-        nls = xwu.NamedRanges(sht.usedrange, nmap = {"jono":"工单","qty":"此次,","runn":"run#","karat":"成色"})
-        ttlqty, ttlwgt, jns = 0, 0, set()
+        nls = [x for x in xwu.NamedRanges(sht.range(1,1), nmap = {"jono":"工单","qty":"件数", "qtyleft":"此次,","running":"run#","karat":"成色"})]
+        ttlqty, ttlwgt, jns, lqty, cidxqty = 0, 0, set(), 0, 0
         for nl in nls:
-            if not (nl.jono or nl.wgt): break
+            if not nl.jono: break
+            if not cidxqty:
+                cidxqty = nl.getcol("qty")
             if nl.qtyleft < 0:
                 errs.append(ShpSns._newerr(nl.jono,nl.jono,ShpSns._ec_qty,"数量不足"))
             if not nl.wgt:
                 errs.append(ShpSns._newerr(nl.jono,nl.jono,ShpSns._ec_wgt,"未有重量"))
-            ttlqty += nl.qty
-            ttlwgt += nl.wgt
+            if nl.qty:
+                ttlqty += nl.qty
+                lqty = nl.qty
+            ttlwgt += nl.wgt * (nl.qty if nl.qty else lqty)
             jns.add(nl.jono)
+        xwu.appswitch(wb.app, True)
+        if not errs:            
+            sht.activate()
+            sht.range(xwu.usedrange(sht).last_cell.row, cidxqty + 1).select()
+            msg = "文件=%s,\n日期=%s，落货纸号=%s\n总件数=%s，总重量=%s" % (wb.name, 
+            nlhdr.date.strftime("%Y-%m-%d"), nlhdr.jmpno, ttlqty, str(round(ttlwgt,2)))
+            msg = messagebox.askyesno("确定要将以下资料导入落货系统?", msg)        
+            if not msg:
+                return
+            refid, refno = (None,) * 2
+            maMap, mmMap, gdMap, updjos = ({},) * 4
+            with self._cnsvc.sessionctx() as cur:
+                jos = self._cnsvc.getjos(jns)[0]
+                jos = {x.name.value:x for x in jos}
+                for nl in nls:
+                    jn = nl.jono
+                    if not jn: break
+                    jn = JOElement(nl.jono).value
+                    nl.jono = jn
+                    karat, jo = nl.karat, jos.get(jn)
+                    if karat not in maMap:
+                        if jn not in updjos and nl.running > 0 and jo.running != nl.running:
+                            updjos[jn] = jo
+                            jo.running = nl.running
+                        if not refid:
+                            refid, refno, mmid = self.lastrefid(), self.nextrefno(), self.lastmmid()
+                        ma = MMMa()
+                        maMap[karat] = ma
+                        refid += 1
+                        ma.id, ma.name, ma.karat, ma.refdate, ma.tag = refid, refno, karat, datetime.today(), 0
+                    ma = maMap.get(karat)
+                    mmmapid = jo.id if self._groupsampjo else random.randint(0,9999999)
+                    if nl.qty:
+                        if mmmapid not in mmMap:
+                            mm = MM()
+                            mmMap[mmmapid] = mm
+                            mmid += 1
+                            mm.id, mm.jsid, mm.name, mm.refid, mm.qty = mmid, jo.id, jn, refid, 0
+                        mm = mmMap[mmmapid]
+                        mm.qty += nl.qty
+                        jo.qtyleft = jo.qtyleft - nl.qty
+                        if jn not in updjos: updjos[jn] = jo
+                        if jo.qtyleft > 0:
+                            mm.tag = 0
+                        elif jo.qtyleft == 0:
+                            mm.tag = 4
+                        else:
+                            errs.append(ShpSns._newerr(nl.jono, nl.jono, ShpSns._ec_qty, "数量不足"))
+                    key = "%d/%d" % (mm.id, nl.karat)
+                    if key not in gdMap:
+                        gd = MMgd()
+                        gd.id, gd.karat, gd.wgt = mm.id, nl.karat, 0
+                        gdMap[key] = gd
+                    gd = gdMap[key]
+                    gd.wgt += nl.wgt * (nl.qty if nl.qty else mm.qty)
+                if not errs:
+                    for ma in maMap.values():
+                        cur.add(ma)
+                    for mm in mmMap.values():
+                        cur.add(mm)
+                    for gd in gdMap.values():
+                        cur.add(gd)
+                    for jo in updjos.values():
+                        cur.add(jo)
         if errs:
-            #TODO::write errors
-            return
-        sht.activate()
-        sht.usedrange.activate()
-        msg = "文件=%s,\n日期=%s，落货纸号=%s\n总件数=%s，总重量=%s" % (wb.name, nlhdr.date.strftime("%Y-%m-%d"), nlhdr.jmpno, str(ttlqty), str(ttlwgt))
-        msg = messagebox.askyesno("确定要将以下资料导入落货系统?", msg)
-        if msg != "yes":
-            return
-        refid, refno = (None,) * 2
-        maMap, mmMap, gdMap, updjos = ({},) * 4
-        with self._cnsvc.sessionctx() as cur:
-            jos = self._cnsvc.getjos(jns)[0]
-            jos = {x.name.value:x for x in jos}
-            for nl in nls:
-                jn = nl.jono
-                if not jn: break
-                karat, jo = nl.karat, jos.get(jn)
-                if karat not in maMap:
-                    if jn not in updjos and nl.running > 0 and jo.running != nl.running:
-                        updjos[jn] = jo
-                        jo.running = nl.running
-                    if not refid:
-                        refid, refno, mmid = self.getLastMMId(), self.getNextRefno(), self.getLastMMId()
-                    ma = MMMa()
-                    maMap[karat] = ma
-                    refid += 1
-                    ma.id, ma.name, ma.karat, ma.refdate, ma.tag = refid, refno, karat, datetime.today(), 0
-                ma = maMap.get(karat)
-                mmmapid = jo.id if self._groupsampjo else random.randint
-                if nl.qty > 0:
-                    if mmmapid not in mmMap:
-                        mm = MM()
-                        mmMap[mmmapid] = mm
-                        mmid += 1
-                        mm.id, mm.jsid, mm.name, mm.refid, mm.qty , mm.tags = mmid, jo.id, jn, refid, 0, {"karat":karat,"unitwgt":nl.wgt}
-                    mm = mmMap[mmmapid]
-                    mm.qty += nl.qty
-                    jo.qtyleft = jo.qtyleft - nl.qty
-                    if jn not in updjos: updjos[jn] = jo
-                    if jo.qtyleft > 0:
-                        mm.tag = 0
-                    elif jo.qtyleft == 0:
-                        mm.tag = 4
-                    else:
-                        errs.append(ShpSns._newerr(nl.jono, nl.jono, ShpSns._ec_qty, "数量不足"))
-                else:
-                    mm.tags["karat1"] = nl.karat
-                    mm.tags["wgt1"] = nl.wgt
-                key = "%d/%d" % (mm.id, nl.karat)
-                if key not in gdMap:
-                    gd = MMgd()
-                    gd.id, gd.karat = mm.id, nl.karat
-                    gdMap[key] = gd
-                gd = gdMap[key]
-                gd.wgt += nl.wgt * (nl.qty if nl.qty else mm.qty)
-            if not errs:
-                for ma in maMap.values():
-                    cur.add(ma)
-                for mm in mmMap.values():
-                    cur.add(mm)
-                for gd in gdMap.values():
-                    cur.add(gd)
-                for jo in updjos.values():
-                    cur.add(jo)
-        if errs:
-            self._apperrs(wb, errs)
+            sm._writeerrs(wb, errs)
+            ShpSns.get(wb, ShpSns._snerr).activate()
+            messagebox.showwarning("检测到错误","详情请参考Excel")
             return
         return wb
-
-        
-    def isImported(self, jn):
+    
+    def isimported(self, jn):
         with self._cnsvc.sessionctx() as cur:
-            cnt = cur.query(func.count(MM.docno)).filter(MM.docno == jn).first()
-            return cnt > 0
+            cnt = cur.query(func.count(MM.name)).filter(MM.name == jn).first()
+            return cnt[0] > 0
 
-    def getNextRefno(self):
+    def nextrefno(self):
         pf, pl = "J", 7
         with self._cnsvc.sessionctx() as cur:
-            refno = cur.query(func.max(MMMa.refno)).filter(MMMa.tag == 0, MMMa.refno.like('%0%')).first()
-            if not refno:
-                refno = cur.query(func.max(MMMa.refno)).filter(MMMa.tag == Query(func.max(MMMa.tag).subquery()), MMMa.refno.like('%0%')).first()
-        if not refno: refno = pf & "0"
-        je = JOElement(refno)
+            name = cur.query(func.max(MMMa.name)).filter(MMMa.tag == 0, MMMa.name.like('%0%')).first()
+            if not name:
+                name = cur.query(func.max(MMMa.name)).filter(MMMa.tag == Query(func.max(MMMa.tag).subquery()), MMMa.name.like('%0%')).first()
+        name = name[0] if name else pf & "0"
+        je = JOElement(name)
         je.digit += 1
         return je.alpha + ("%%0%dd" % (pl - len(je.alpha))) % je.digit
 
-    def getLastMMId(self):
+    def lastmmid(self):
         with self._cnsvc.sessionctx() as cur:
             mmid = cur.query(func.max(MM.id)).first()
-        return mmid
+        return mmid[0] if mmid else 0
+
+    def lastrefid(self):
+        with self._cnsvc.sessionctx() as cur:
+            id = cur.query(func.max(MMMa.id)).first()
+        return id[0] if id else 0        

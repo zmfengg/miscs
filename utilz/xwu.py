@@ -186,7 +186,8 @@ def NamedRanges(rng, skipfirstrow = False, nmap = None, scolcnt = 0):
                         if val: lst[ii] = val
             ttl = [".".join(x) for x in zip(*vals)]
     else:
-        ttl = ["%s" % x for x in th.value]
+        ttl = ["%s" % x for x in th.value] if th.value else None
+    if not ttl: return
     lst = sht.range(sht.range(rr[1]+1,orgcord[1]),  sht.range(cr.last_cell.row,ecol)).value
     lst.insert(0,ttl)
     return NamedLists(lst,nmap)
