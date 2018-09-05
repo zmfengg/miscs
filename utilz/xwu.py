@@ -12,7 +12,7 @@ import xlwings
 import xlwings.constants as const
 from xlwings import Range, xlplatform
 
-from ._miscs import NamedLists, list2dict
+from ._miscs import NamedLists, list2dict, isnumeric
 from .resourcemgr import ResourceMgr
 
 __all__ = ["app","find","fromtemplate","list2dict","usedrange", "safeopen"]
@@ -36,7 +36,9 @@ class _AppStg(object):
         if self._kxl:
             #quit() sometime does not work
             self._app.quit()
-            if hasattr(self._app,"version"):
+            try:
+                self._app.version
+            except:
                 self._app.kill()
             self._app = None
         elif self._swso:
@@ -184,7 +186,8 @@ def NamedRanges(rng, skipfirstrow = False, nmap = None, scolcnt = 0):
                         if val: lst[ii] = val
             ttl = [".".join(x) for x in zip(*vals)]
     else:
-        ttl = ["%s" % x for x in th.value]
+        ttl = ["%s" % x for x in th.value] if th.value else None
+    if not ttl: return
     lst = sht.range(sht.range(rr[1]+1,orgcord[1]),  sht.range(cr.last_cell.row,ecol)).value
     lst.insert(0,ttl)
     return NamedLists(lst,nmap)
@@ -195,3 +198,19 @@ def appmgr(sws = {"visible":False,"displayalerts":False}):
     aps = _AppStg(sws)
     __crtappmgr = ResourceMgr(aps.crtr,aps.dctr)
     return __crtappmgr
+
+def escapetitle(pg):
+    """ when excel's page title has format set, you can not get the raw directly. this function
+    help to get rid of the format, return raw data only 
+    the string format is:
+    ' &"fontName,italia"[&size]. Just remove such pair
+    """
+    ss = pg.split('&"')
+    for idx in range(len(ss)):
+        s0 = ss[idx][ss[idx].find('"') + 1:]            
+        flag = s0[0] == "&"
+        if flag:
+            idx1 = s0.find(" ")
+        ss[idx] = s0[idx1 + 1:] if flag else s0
+    s0 = "".join(ss)
+    return s0

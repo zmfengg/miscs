@@ -92,6 +92,7 @@ class KeySuite(TestCase):
                 self.assertEqual("Admin",x.group,"the group property")
                 self.assertEqual(30,x.age,"the age property")
         nl = lsts1[0]
+        self.assertTrue(hasattr(nl,"name"),"response to hasattr")
         self.assertEqual(lsts[1], nl.data,"title off, first row of data")
         self.assertEqual(lsts[1][0], nl[0],"access by index")
         sl = slice(1,None)
@@ -259,6 +260,13 @@ class XwuSuite(TestCase):
         os = xwu.appswitch(app,{"visible":True,"enableevents":False})
         self.assertEqual(1,len(os))
         self.assertTrue(os["enableevents"])
+        xwu.appmgr().ret(tk)    
+    
+    def testEscapettl(self):
+        ttls = ('2017&"宋体,Regular"年&"Arial,Regular"6&"宋体,Regular"月', '2017&"宋体,Regular"年&"Arial,Regular"&6 6&"宋体,Regular"月')
+        exps = ("2017年6月","2017年6月")
+        for idx in range(len(ttls)):
+            self.assertEquals(exps[idx], xwu.escapetitle(ttls[idx]),"the title")
 
     def testNamedList(self):
         #now test a very often use ability, read data from (excel) and handle it
@@ -306,6 +314,11 @@ class XwuSuite(TestCase):
             self.assertEqual(2, nls[0]["9k"], "9K result of %s" % name)
             self.assertEqual(16,nls[2].s950, "S950 of %s" % name)
             print("using %f ms to perform %s" % (time.clock() - t0, name))        
+        #try a blank range, should return none
+        nls = xwu.NamedRanges(sht.range(1000,1000))
+        self.assertIsNone(nls,"Nothing should be returned")
+        xwu.appmgr().ret(tk)
+
 
 BaseClass = declarative_base()
 
