@@ -9,6 +9,12 @@ tests that I can choose to run. use along with VS's debug function
 
 import unittest
 import sys
+from os import path
+import logging
+
+thispath = path.dirname(__file__)
+logger = logging.getLogger("tests")
+logger.setLevel(logging.DEBUG)
 
 def main():
     vl = 2

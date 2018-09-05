@@ -1,14 +1,7 @@
 #! coding=utf-8 
 '''
 * @Author: zmFeng 
-* @Date: 2018-06-23 16:12:22 
+* @Date: 2018-09-01 17:37:59 
 * @Last Modified by:   zmFeng 
-* @Last Modified time: 2018-06-23 16:12:22 
+* @Last Modified time: 2018-09-01 17:37:59 
 '''
-
-from os import path
-import logging
-
-thispath = path.dirname(__file__)
-logger = logging.getLogger("tests")
-logger.setLevel(logging.DEBUG)

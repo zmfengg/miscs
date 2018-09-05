@@ -10,23 +10,25 @@ import random
 import unittest
 from os import path, listdir
 from unittest import TestCase
+import logging
 
 from utilz import xwu, stsizefmt
 from utilz._miscs import (NamedList, NamedLists, appathsep, getfiles,NamedList,list2dict)
-from utilz.resourcemgr import ResourceCtx, ResourceMgr
+from utilz.resourcemgr import ResourceCtx, ResourceMgr, SessionMgr
 from functools import cmp_to_key
 
-from . import logger, thispath
+from .main import logger, thispath
 from utilz import karatsvc
 import datetime
 from utilz._jewelry import RingSizeSvc
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.engine import create_engine
 from sqlalchemy import Column,Integer,VARCHAR
 import xlwings as xw
 
 resfldr = appathsep(appathsep(thispath) + "res")
 
-class KeyTests(TestCase):
+class KeySuite(TestCase):
     """ key tests for this util funcs """
 
     def testResourceMgr(self):
@@ -201,20 +203,50 @@ class KeyTests(TestCase):
         self.assertAlmostEqual(47.0,rgsvc.getcirc("US","4 1/4"),"the circumference of US#4 1/4 is 47.0mm")
     
 
-class XwuTest(TestCase):
-    def testappmgr(self):
-        self.assertEqual(0, xw.apps.count, "apps.count")
-        app, tk = xwu.appmgr().acq()
-        self.assertEqual(1, xw.apps.count, "apps.count")
-        xwu.appmgr().ret(tk)
+#@unittest.skip("no excel")
+class XwuSuite(TestCase):
+
+    @classmethod
+    def setUpClass(self):
         try:
-            app.quit()
+            self.app, self.tk = xwu.appmgr().acq()
+            self.hasxls = True
+        except:
+            self.app, self.tk = (None,) * 2
+            self.hasxls = False
+        if not self.hasxls:
+            logger.debug("No excel is available")
+        
+    @classmethod
+    def tearDownClass(self):
+            if self.hasxls:
+                xwu.appmgr().ret(self.tk)
+
+    def fail_noexcel(self):
+        self.fail("no excel was available, Pls. insteall one")
+
+    def testappmgr(self):
+        if not self.hasxls:
+            self.fail_noexcel()
+            return            
+        #because class setup has one instance, so return it first
+        xwu.appmgr().ret(self.tk)
+        self.assertEqual(0, xw.apps.count, "apps.count")
+        self.app, self.tk = xwu.appmgr().acq()
+        self.assertEqual(1, xw.apps.count, "apps.count")
+        try:
+            self.app.quit()
             self.assertFalse(True,"you should not see me")
         except:
             self.assertTrue(True,"You should seed me")            
+        self.app, self.tk = xwu.appmgr()
 
     def testxwuappswitch(self):
-        app, tk = xwu.appmgr().acq()
+        if not self.hasxls:
+            self.fail_noexcel()
+            return        
+        app = self.app
+        xwu.appswitch(app, True)
         os = xwu.appswitch(app)
         self.assertFalse(bool(os), "no changes need to be made")
         os = xwu.appswitch(app,False)
@@ -227,35 +259,37 @@ class XwuTest(TestCase):
         os = xwu.appswitch(app,{"visible":True,"enableevents":False})
         self.assertEqual(1,len(os))
         self.assertTrue(os["enableevents"])
-        xwu.appmgr().ret(tk)    
 
     def testNamedList(self):
         #now test a very often use ability, read data from (excel) and handle it
         #now think of use NamedRanges, better ability to detect even if there is merged range
         #without NamedList(s), I have to use tr[map[name]] to get the value
+        if not self.hasxls:
+            self.fail_noexcel()
+            return
         fn = getfiles(resfldr,"NamedList")[0]
-        app, tk = xwu.appmgr().acq()
-        try:
-            wb = app.books.open(fn)
-            sht = wb.sheets[0]
-            rng = xwu.find(sht,"*Table")
-            rng = rng.offset(1,0)
-            rng = rng.expand("table")
-            lst = [x for x in NamedLists(rng.value)]
-            self.assertEqual(8,len(lst), "the count of data")
-            self.assertEqual(1,lst[0].id, "the id of first Emp")
-            #try build a dict
-            lst = dict((x.id,x) for x in NamedLists(rng.value))
-            self.assertEqual("Name 8",lst[8].name,"The Name")
-            #now try an named-translation
-            nl = NamedLists(rng.value,{"Edate":"enter,"})
-            emp = nl.__next__()
-            self.assertEqual(datetime.datetime(1998,1,3,0,0), emp["edate"],"get date use translated name")
-        finally:
-            xwu.appmgr().ret(tk)
+        app  = self.app
+        wb = app.books.open(fn)
+        sht = wb.sheets[0]
+        rng = xwu.find(sht,"*Table")
+        rng = rng.offset(1,0)
+        rng = rng.expand("table")
+        lst = [x for x in NamedLists(rng.value)]
+        self.assertEqual(8,len(lst), "the count of data")
+        self.assertEqual(1,lst[0].id, "the id of first Emp")
+        #try build a dict
+        lst = dict((x.id,x) for x in NamedLists(rng.value))
+        self.assertEqual("Name 8",lst[8].name,"The Name")
+        #now try an named-translation
+        nl = NamedLists(rng.value,{"Edate":"enter,"})
+        emp = nl.__next__()
+        self.assertEqual(datetime.datetime(1998,1,3,0,0), emp["edate"],"get date use translated name")        
 
     def testGetTableData(self):
-        app, tk = xwu.appmgr().acq()
+        if not self.hasxls:
+            self.fail_noexcel()
+            return
+        app = self.app
         wb = app.books.open(path.join(thispath,"res","getTableData.xlsx"))
         nmap = {"id":"id,","9k":"9k,","S950":"S950,"}
         sht = wb.sheets[0]
@@ -272,20 +306,66 @@ class XwuTest(TestCase):
             self.assertEqual(2, nls[0]["9k"], "9K result of %s" % name)
             self.assertEqual(16,nls[2].s950, "S950 of %s" % name)
             print("using %f ms to perform %s" % (time.clock() - t0, name))        
-        xwu.appmgr().ret(tk)
-
 
 BaseClass = declarative_base()
 
 class T(BaseClass):
-    __tablename__ = "xx"
+    __tablename__ = "tbl"
     id = Column(Integer,primary_key = True)
     name = Column(VARCHAR(20))
 
-class SessMgrTest(unittest.TestCase):
+    def __init__(self, name):
+        self.name = name
+
+class SessMgrSuite(unittest.TestCase):
     """ check if a sessionmgr will automatically rollback a transaction """
-    def sessmgr(self):
-        pass
-    
+    #engine = create_engine('sqlite:///:memory:', echo=True)
+    engine = create_engine('sqlite:///:memory:')
+    T.metadata.create_all(engine)
+    sessmgr = SessionMgr(engine)
+
+    def setup(self):
+        logging.getLogger("sqlalchemy").setLevel(logging.DEBUG)
+        
+    @property
+    def sessctx(self):
+        return ResourceCtx(self.sessmgr)
+
+    @property    
+    def newitem(self):
+        return T("fx")
+
     def testRollback(self):
-        pass
+        id = 0
+        #by default, the session is not auto-commit, so it's rollbacked while exist
+        with self.sessctx as cur:
+            t = self.newitem
+            cur.add(t)
+            cur.flush()
+            id = t.id
+        with self.sessctx as cur:
+            t = cur.query(T).filter(T.id == id).first()
+            self.assertFalse(t,"The item should not be inserted")
+            t = cur.query(T).all()
+            self.assertFalse(t,"There should be nothing in the db")
+        
+    def testCommit(self):
+        id = 0
+        with self.sessctx as cur:
+            t = self.newitem
+            cur.add(t)
+            cur.flush()
+            id = t.id
+            cur.commit()
+        with self.sessctx as cur:
+            t = cur.query(T).filter(T.id == id).first()
+            self.assertEqual(self.newitem.name, t.name, "Committed")
+            t = cur.query(T).all()
+            self.assertEqual(1, len(t), "There should be only one item inside")
+            cur.delete(t[0])
+            cur.commit()
+            t = cur.query(T).all()
+            self.assertFalse(t, "nothing in the db")
+
+if __name__ == "__main__":
+    unittest.main()
