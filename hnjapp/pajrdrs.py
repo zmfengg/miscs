@@ -2013,5 +2013,5 @@ class ShpImptr():
 
     def lastrefid(self):
         with self._cnsvc.sessionctx() as cur:
-            id = cur.query(func.max(MMMa.id)).first()
-        return id[0] if id else 0        
+            id = cur.query(func.max(MMMa.id)).first()[0]
+        return id if id else 0

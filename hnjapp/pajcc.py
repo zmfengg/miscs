@@ -72,7 +72,7 @@ def cmpwgt(expected, actual, tor = 5, strictkt = False):
     for idx in range(len(expected)):
         exp, act = expected[idx], actual[idx]
         if bool(exp) ^ bool(act):
-            return False        
+            return False
         if exp:
             if not (exp.karat and act.karat): return
             flag = exp.karat == act.karat if strictkt else karatsvc.getfamily(exp.karat).karat == karatsvc.getfamily(act.karat).karat
