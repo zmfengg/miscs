@@ -10,7 +10,7 @@ resource manager for the ResourceCtx using for cross-method session sharing
 
 import threading
 from .common import _logger as logger
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 __all__ = ["ResourceMgr","ResourceCtx"]
 
@@ -97,14 +97,19 @@ class ResourceMgr(object):
 
 class SessionMgr(ResourceMgr):
     """ a sqlalchemy engine session manager by providing a sqlalchemy engine """
-    def __init__(self,engine,autocommit = False):
+    def __init__(self,engine,autocommit = False, autoflush = False):
         self._engine = engine
         #super(SessionMgr,self).__init__(self._newsess,self._closesess)
         super().__init__(self._newsess,self._closesess)
         self._autocommit = autocommit
+        self._autoflush = autoflush
+        self._smkr = None
 
     def _newsess(self):
-        return Session(self._engine)
+        if not self._smkr: 
+            self._smkr = sessionmaker(bind = self._engine, autoflush = self._autoflush, autocommit= self._autocommit)
+        return self._smkr()
+        #return Session(self._engine)
     
     def _closesess(self,sess):
         if False:

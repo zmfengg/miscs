@@ -1913,7 +1913,7 @@ class ShpImptr():
             if not msg:
                 return
             refid, refno = (None,) * 2
-            maMap, mmMap, gdMap, updjos = ({},) * 4
+            maMap, mmMap, gdMap, updjos = {}, {}, {}, {}
             with self._cnsvc.sessionctx() as cur:
                 jos = self._cnsvc.getjos(jns)[0]
                 jos = {x.name.value:x for x in jos}
@@ -1927,6 +1927,7 @@ class ShpImptr():
                         if jn not in updjos and nl.running > 0 and jo.running != nl.running:
                             updjos[jn] = jo
                             jo.running = nl.running
+                            jo.lastupdate = datetime.today()
                         if not refid:
                             refid, refno, mmid = self.lastrefid(), self.nextrefno(), self.lastmmid()
                         ma = MMMa()
@@ -1944,7 +1945,6 @@ class ShpImptr():
                         mm = mmMap[mmmapid]
                         mm.qty += nl.qty
                         jo.qtyleft = jo.qtyleft - nl.qty
-                        if jn not in updjos: updjos[jn] = jo
                         if jo.qtyleft > 0:
                             mm.tag = 0
                         elif jo.qtyleft == 0:
@@ -1959,14 +1959,30 @@ class ShpImptr():
                     gd = gdMap[key]
                     gd.wgt += nl.wgt * (nl.qty if nl.qty else mm.qty)
                 if not errs:
-                    for ma in maMap.values():
-                        cur.add(ma)
-                    for mm in mmMap.values():
-                        cur.add(mm)
-                    for gd in gdMap.values():
-                        cur.add(gd)
-                    for jo in updjos.values():
-                        cur.add(jo)
+                    lst, xx = [], cur.query(MMMa).filter(MMMa.tag == 0).all()
+                    if xx:
+                        lst.append(xx)
+                        mmid = cur.query(func.max(MMMa.tag)).first()
+                        mmid = (mmid[0] if mmid else 0) + 1
+                        for ma in lst:
+                            ma.tag = mmid
+                    else:
+                        lst = []
+                    lst.extend([tuple(y) for y in (maMap.values(), mmMap.values(), updjos.values()) if y])
+
+                    for x in lst:
+                        for y in x:
+                            cur.add(y)
+                        cur.flush()
+                    cur.commit()
+                    #mms = cur.query(MMMa).filter(MMMa.tag == 0).all()
+                    #mms = cur.query(MM).filter(MM.id.in_(set([x.id for x in gdMap.values()]))).all()
+                    if False:
+                        for x in gdMap.values():
+                            cur.add(x)
+                        cur.flush()
+                    #it's quite stupid that mmgd's add won't sueccessfully    
+                    #cur.rollback()
         if errs:
             sm._writeerrs(wb, errs)
             ShpSns.get(wb, ShpSns._snerr).activate()
