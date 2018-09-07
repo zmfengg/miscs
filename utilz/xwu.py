@@ -15,10 +15,8 @@ from xlwings import Range, xlplatform
 from ._miscs import NamedLists, list2dict, isnumeric
 from .resourcemgr import ResourceMgr
 
-__all__ = ["app","find","fromtemplate","list2dict","usedrange", "safeopen"]
+__all__ = ["app", "appmgr", "find", "fromtemplate", "list2dict", "usedrange", "safeopen"]
 _validappsws = set("visible,enableevents,displayalerts,asktoupdatelinks,screenupdating".split(","))
-
-__crtappmgr = None
 
 class _AppStg(object):
     def __init__(self, sws = None):
@@ -34,12 +32,14 @@ class _AppStg(object):
         if not hasattr(self,"_app"): return
         if not (self._app is app): return
         if self._kxl:
-            #quit() sometime does not work
             self._app.quit()
             try:
                 self._app.version
-            except:
+                #quit() sometime does not work
+                #if the app was closed, .version throws exception
                 self._app.kill()
+            except:
+                pass                
             self._app = None
         elif self._swso:
             appswitch(self._app, self._swso)
@@ -126,7 +126,7 @@ def fromtemplate(tplfn, app=None):
     """
     if not os.path.exists(tplfn): return
     if not app:
-        app = appmgr().acq()[0]
+        app = appmgr.acq()[0]
     app.api.Application.Workbooks.Add(tplfn)
     return app.books.active
 
@@ -192,12 +192,9 @@ def NamedRanges(rng, skipfirstrow = False, nmap = None, scolcnt = 0):
     lst.insert(0,ttl)
     return NamedLists(lst,nmap)
 
-def appmgr(sws = {"visible":False,"displayalerts":False}):
-    global __crtappmgr
-    if __crtappmgr: return __crtappmgr
+def _newappmgr(sws = {"visible":False,"displayalerts":False}):
     aps = _AppStg(sws)
-    __crtappmgr = ResourceMgr(aps.crtr,aps.dctr)
-    return __crtappmgr
+    return ResourceMgr(aps.crtr,aps.dctr)
 
 def escapetitle(pg):
     """ when excel's page title has format set, you can not get the raw directly. this function
@@ -214,3 +211,6 @@ def escapetitle(pg):
         ss[idx] = s0[idx1 + 1:] if flag else s0
     s0 = "".join(ss)
     return s0
+
+#an appmgr factory, instead of using app(), use appmgr.acq()/appmgr.ret()
+appmgr = _newappmgr()

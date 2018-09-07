@@ -48,7 +48,7 @@ from .localstore import PajWgt as PrdWgtSt
 from .pajcc import PAJCHINAMPS, P17Decoder, PajCalc, PrdWgt, WgtInfo, MPS, _tofloat, cmpwgt, addwgt
 
 _accdfmt = "%Y-%m-%d %H:%M:%S"
-_appmgr = xwu.appmgr()
+_appmgr = xwu.appmgr
 
 def _accdstr(dt):
     """ make a date into an access date """
@@ -203,10 +203,14 @@ class PajBomHhdlr(object):
                 if kxl and app: _appmgr.ret(kxl)
         
         for x in pmap.items():
-            lst = x[1]["mtlwgt"]
+            lst = x[1].get("mtlwgt")
             prdwgt = None
-            for y in lst:
-                prdwgt = addwgt(prdwgt,WgtInfo(y[0],y[1]))
+            if lst:                
+                for y in lst:
+                    prdwgt = addwgt(prdwgt,WgtInfo(y[0],y[1]))
+            else:
+                logger.debug("%s does not have master weight" % x[0])
+                prdwgt = PrdWgt(WgtInfo(0,0))
             if "parts" in x[1]:
                 ispendant,haschain,haskou,chlenerr = _ispendant(x[0]), False,False, False
                 if ispendant:
@@ -1710,7 +1714,7 @@ class ShpMkr(object):
                             vvs = []
                         vvs.append(nl.data)
                 else:
-                    ttl = "location,type,msg".split(",")                    
+                    ttl, vvs = "location,type,msg".split(","), []
                 for mp in data[idx]:
                     vvs.append([("%s" % mp.get(x)) for x in ttl])
                 #suppress the duplicates
@@ -1756,7 +1760,8 @@ class ShpMkr(object):
                         elif wt == ShpSns._wc_ack:
                             vvs.append(objs[1] - objs[0])
                         elif wt == ShpSns._wc_qty:
-                            vvs.append(objs[0] - objs[1])
+                            if objs and len(objs) == 2:
+                                vvs.append(objs[0] - objs[1])
                         sht.range(ridx,1).value = vvs
             xwu.freeze(sht.range("D2"))
             sht.autofit("c")
@@ -1802,7 +1807,7 @@ class ShpMkr(object):
         if flag:
             logger.debug("target file(%s) don't need regeneration" % (path.basename(fn)))
             return wb
-        invmp, shpmp, errlst, vt, vn = {}, [], [], None, None
+        invmp, shplst, errlst, vt, vn = {}, [], [], None, None
         rdrmap = {"长兴珠宝":("c2",self._readc2),"诚艺,胤雅":("c1",self._readc1) ,"十七,物料编号,paj,diamondlite":("paj",self._readpaj)}
         rdr, bomwgts = None, None
         for sht in wb.sheets:
@@ -1830,9 +1835,9 @@ class ShpMkr(object):
                                 ivd = datetime.strptime(ivd, "%Y-%m-%d")
                             td = datetime.today() - ivd
                             if td.days > 2 or td.days < 0:
-                                errlst.append(ShpSns._newerr(None, "_日期_", ShpSns._wc_date, "日期%s可能错误" % ivd.strftime("%Y-%m-%d"), None))
+                                errlst.append(ShpSns._newerr("_all__", "_日期_", ShpSns._wc_date, "日期%s可能错误" % ivd.strftime("%Y-%m-%d"), None))
                             del mp["invdate"]
-                        shpmp.extend(mp.values())
+                        shplst.extend(mp.values())
                     if lst[1]: errlst.extend(lst[1])
             if not flag:
                 if vn == "paj":
@@ -1844,14 +1849,14 @@ class ShpMkr(object):
                         flag = True
             if not flag:
                 logger.debug("sheet(%s) does not contain any valid data" % sht.name)
-        if shpmp:
-            self._shpcheck(shpmp, invmp, errlst)            
+        if shplst:
+            self._shpcheck(shplst, invmp, errlst)            
             newrunmp, haserr = {}, False
             self._writeerrs(wb, errlst)
             if errlst:
                 haserr = bool(self._errandwarn(errlst)[0])
-            self._writerpts(wb,shpmp,newrunmp,ivd,vn)            
-            self._writebc(wb, shpmp, newrunmp, ivd)
+            self._writerpts(wb,shplst,newrunmp,ivd,vn)            
+            self._writebc(wb, shplst, newrunmp, ivd)
             if haserr: return None
         return wb
 
@@ -1941,7 +1946,7 @@ class ShpImptr():
                             mm = MM()
                             mmMap[mmmapid] = mm
                             mmid += 1
-                            mm.id, mm.jsid, mm.name, mm.refid, mm.qty = mmid, jo.id, jn, refid, 0
+                            mm.id, mm.jsid, mm.name, mm.refid, mm.qty = mmid, jo.id, nlhdr.jmpno, refid, 0
                         mm = mmMap[mmmapid]
                         mm.qty += nl.qty
                         jo.qtyleft = jo.qtyleft - nl.qty
@@ -1964,7 +1969,7 @@ class ShpImptr():
                         lst.append(xx)
                         mmid = cur.query(func.max(MMMa.tag)).first()
                         mmid = (mmid[0] if mmid else 0) + 1
-                        for ma in lst:
+                        for ma in xx:
                             ma.tag = mmid
                     else:
                         lst = []

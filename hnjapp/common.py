@@ -24,7 +24,7 @@ def splitjns(jns):
     jes, rns,ids= set(),set(),set()
     for x in jns:
         if isinstance(x, JOElement):
-            jes.add(x)
+            if x.isvalid: jes.add(x)
         elif isinstance(x, int):
             ids.add(x)
         elif isinstance(x, str):

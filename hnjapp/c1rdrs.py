@@ -176,7 +176,7 @@ class C1InvRdr():
         C1InvItem = namedtuple(
             "C1InvItem", "source,jono,qty,labor,setting,remarks,stones,mtlwgt")
         C1InvStone = namedtuple("C1InvStone", "stone,qty,wgt,remark")
-        km = {"jono":u"工单,", "setting":u"镶工,", "labor":u"胚底,", "remark":u"备注,", "joqty": u"数量,", "stname": u"石名,", "stqty": "粒数,", "stwgt": u"石重,","karat":"成色,","swgt":"净银重,","gwgt":"净金重,","pwgt":"配件重,"}
+        km = {"styno":"图片,","jono":u"工单,", "setting":u"镶工,", "labor":u"胚底,", "remark":u"备注,", "joqty": u"数量,", "stname": u"石名,", "stqty": "粒数,", "stwgt": u"石重,","karat":"成色,","swgt":"净银重,","gwgt":"净金重,","pwgt":"配件重,"}
 
         nls = [x for x in xwu.NamedRanges(rng,nmap = km)]
         if not nls: return
@@ -188,6 +188,7 @@ class C1InvRdr():
         items, c1 = list(), None
         _cnstqnw = "stqty,stwgt".split(",")
         _cnsnl = "setting,labor".split(",")
+        ispd = lambda styno: styno and styno[:2].upper().find("P") >= 0
         for nl in nls: 
             s0 = nl.jono
             if s0:
@@ -203,6 +204,7 @@ class C1InvRdr():
                         snl = (0,0)
                     c1 = C1InvItem(
                         "C1", je.value, nl.joqty, snl[1], snl[0], nl.remark, [], None)
+            if nl.styno: styno = nl.styno
             #stone data
             qnw = []
             for x in _cnstqnw:
@@ -221,8 +223,11 @@ class C1InvRdr():
             joqty = c1.qty
             if not joqty:
                 logger.debug("JO(%s) without qty, skipped" % nl.jono)
-                continue
-            kt, wgt = self._tokarat(kt), gw if gw else sw            
+                continue                
+            kt, wgt = self._tokarat(kt), gw if gw else sw
+            #only pendant's pwgt is pwgt, else to mainpart
+            if pwgt and not ispd(styno):
+                wgt += pwgt; pwgt = 0            
             c1 = c1._replace(mtlwgt = addwgt(c1.mtlwgt,WgtInfo(kt, wgt/joqty, 4)))
             if pwgt:
                 c1 = c1._replace(mtlwgt = addwgt(c1.mtlwgt, WgtInfo(kt, pwgt/joqty, 4), True))

@@ -98,9 +98,8 @@ class ResourceMgr(object):
 class SessionMgr(ResourceMgr):
     """ a sqlalchemy engine session manager by providing a sqlalchemy engine """
     def __init__(self,engine,autocommit = False, autoflush = False):
-        self._engine = engine
-        #super(SessionMgr,self).__init__(self._newsess,self._closesess)
         super().__init__(self._newsess,self._closesess)
+        self._engine = engine        
         self._autocommit = autocommit
         self._autoflush = autoflush
         self._smkr = None
