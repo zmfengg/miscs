@@ -225,7 +225,7 @@ class XwuSuite(TestCase):
             xwu.appmgr.ret(self.tk)
 
     def fail_noexcel(self):
-        self.fail("no excel was available, Pls. insteall one")
+        self.fail("no excel was available, Pls. install one")
 
     def testappmgr(self):
         if not self.hasxls:
