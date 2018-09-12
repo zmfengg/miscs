@@ -52,6 +52,7 @@ class JO(CNBase):
     deadline = Column(DateTime, nullable=False, name="dead_line")
     lastupdate = Column(DateTime, nullable=False, name = "modi_date")
     docno = Column(VARCHAR(7), nullable=False, name = "dept_bill_id")
+    ordertype = Column(VARCHAR(1), name = "remark", nullable = False)
     
     styid = Column(Integer,ForeignKey('styma.styid'))
     style = relationship("Style")
