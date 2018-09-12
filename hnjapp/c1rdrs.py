@@ -171,6 +171,15 @@ class C1InvRdr():
         @return: a list of C1InvItem with source = "C1"
         """
         
+        sn = sht.name
+        nl = sn.find("月")
+        if nl > 0:
+            nl = sn[:nl]
+            if nl.isnumeric():
+                nl = int(nl)
+                if nl != datetime.date.today().month:
+                    sht.delete
+                    return None
         rng = xwu.find(sht, "图片")
         if not rng: return
         C1InvItem = namedtuple(
@@ -267,11 +276,11 @@ class C1InvRdr():
         vvs = rng.value
 
 class C1JCMkr(object):
-    """
+    r"""
     C1 JOCost maker, First, Invoke C1STHdlr to create Stone Usage , then generate the jocost report to given folder(default is p:\aa\)
     """
     def __init__(self, cnsvc, bcsvc, invfldr):
-        """
+        r"""
         @param cnsvc: the CNSvc instance
         @param dbsvc: the BCSvc instance
         @param invfldr: folder contains C1's invoices, one example is 

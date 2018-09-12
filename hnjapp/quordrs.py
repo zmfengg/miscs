@@ -299,7 +299,7 @@ class QuoDatMkr(object):
         @param pfrmap: each customer's profit ratio, if not provided, each use default's 1.15
         """
         if not stpfn:
-            stpfn = r"\\172.16.8.46\pb\dptfile\quotation\date\Date2018\0502\(6) PriceDrop\StpStynos.dat"
+            stpfn = r"\\172.16.8.46\pb\dptfile\quotation\date\Date2018\0502\(06) PriceDrop\StpStynos.dat"
         with open(stpfn,"r") as fh:
             stpstys = set([x.replace("\n","") for x in fh])
         mp = self.readreqs(fldr,checkdone = False)[0]        
@@ -928,13 +928,13 @@ class AckPriceCheck(object):
                             cur.flush()
                         except Exception as err:
                             flag = False
+                            logger.debug("error occur while persisting: %s" % err)
                         finally:
                             if flag:
                                 cur.commit()
                                 logger.debug("persisted")
                             else:
-                                cur.rollback()
-                                logger.debug("error occur while persisting: %s" % err)
+                                cur.rollback()                                
             finally:
                 if app: app.quit()
         return lst

@@ -35,7 +35,7 @@ from . import pajcc
 from .pajcc import MPS, PrdWgt, WgtInfo
 from .common import _logger as logger, splitjns
 
-__all__ = ["HKSvc", "CNSvc","jesin","idsin","idset","namesin","nameset"]
+__all__ = ["CNSvc", "formatsn", "HKSvc", "idsin", "idset", "jesin", "namesin", "nameset"]
 
 def fmtsku(skuno):
     if not skuno:
@@ -44,6 +44,75 @@ def fmtsku(skuno):
     if skuno.upper() == NA:
         return None
     return skuno
+
+class SNFmtr(object):    
+    _ptn_rmk = re.compile(r"\(.*\)")
+    _voidset = set("SN;HB".split(";"))
+    _crmp = {"）":")","（":"(",";":",","六號瓜子耳":"6號瓜子耳","小心形":"小心型","細心":"小心型","中號光銀光子耳":"中號光金瓜子耳","中號光銀瓜子耳":"中號光金瓜子耳"}
+    _rvlst = sorted("不用封底;執模加圈;圈仔執模做加啤件;不用封底;加啤件;耳針位;請提供;飛邊;占位;光底;夾片;#; ;底;針夾;捲底;相盒;吊墜;吊咀;面做相同花紋;面同一花紋;較用;請提供模號;樣品號;模號請提供;夾底片;片夾底;小占位;有字;用;啤沒有耳仔的".split(";"), key = lambda x: len(x), reverse = True)
+    _pfx = sorted("大2號;中號".split(";"), key = lambda x: len(x), reverse = True)
+    _sfx = sorted("夾層;針;小心型;瓜子耳;花".split(";"), key = lambda x: len(x), reverse = True)
+    
+    def _splitsn(self, sn):
+        if not sn: return
+        sfx, ots = "", ""
+        for x in sn:
+            if ord(x) > 128:
+                sfx += x
+            else:
+                ots += x
+        je = JOElement(ots)
+        if je.digit > 0:
+            pfx = "%s%d" % (je.alpha, je.digit)
+            sfxx = [x for x in je.suffix]
+            if sfx: sfxx.append(sfx)
+            sn = tuple(pfx + x for x in sfxx) if sfxx else (sn,)
+        else:
+            sn = (sn,)
+        return sn
+    
+    def formatsn(self, sn, parsemode = 2, retuple = False):
+        """
+        parse/formatted/sort a sn string to tuple or a string
+
+        @parsemode: #0 for keep SN like "BT1234ABC" as it was
+                    #1 for set SN like "BT1234ABC" to BT1234
+                    #2 for split SN like "BT1234ABC" to BT1234A,BT1234B,BT1234C
+        @retuple:   return the result as a tuple instead of string
+        """
+        for x in self._crmp.items():
+            sn = sn.replace(x[0],x[1])
+        for x in self._rvlst:
+            sn = sn.replace(x,",")
+        for x in self._pfx:
+            sn = sn.replace(x,"," + x)
+        for x in self._sfx:
+            sn = sn.replace(x,x + ",")
+        sn = re.sub(self._ptn_rmk,",",sn)
+        if not sn or sn in self._voidset: return
+        lst = sorted([x for x in sn.split(",") if x])
+        buf, dup = [], set()
+        for x in lst:
+            if x in self._voidset: continue
+            if x in dup: continue
+            if parsemode != 0:
+                je = JOElement(x)
+                if je.alpha >= 'A' and je.alpha <= 'Z' and je.suffix:
+                    if parsemode == 1:
+                        x = (je.alpha + str(je.digit),)
+                    else:
+                        x = self._splitsn(x)
+                else:
+                    x = (x,)
+            else:
+                x = (x,)
+            for y in x:
+                if not y or y in dup: continue
+                dup.add(y)
+                buf.append(y)
+        return buf if retuple else ",".join(buf)
+
+formatsn = SNFmtr().formatsn
 
 def jesin(jes,objclz):
     """ simulate a in operation for jo.name """
@@ -60,17 +129,17 @@ idset = lambda ids: set([y.id for y in ids])
 namesin = lambda names,objclz: objclz.name.in_(names)
 nameset =lambda names: set([y.name for y in names])
 
-def _getjos(self, objclz, q0, jns):
+def _getjos(self, objclz, q0, jns, extfltr = None):
     ss = splitjns(jns)
     if not(ss and any(ss)): return
     jes, rns,ids= ss[0],ss[1],ss[2] 
     rsts = [None,None,None]
     if ids:
-        rsts[0] = self._getbyids(q0,ids,idsin,objclz,idset)
+        rsts[0] = self._getbyids(q0,ids,idsin,objclz,idset, extfltr)
     if rns:
-        rsts[1] = self._getbyids(q0,rns,lambda x,y: y.running.in_(x),objclz,lambda x: set([y.running for y in x]))
+        rsts[1] = self._getbyids(q0,rns,lambda x,y: y.running.in_(x),objclz,lambda x: set([y.running for y in x]), extfltr)
     if jes:       
-        rsts[2] = self._getbyids(q0,jes,jesin,objclz,nameset)
+        rsts[2] = self._getbyids(q0,jes,jesin,objclz,nameset, extfltr)
     its, failed = dict(), []
     for x in rsts:
         if not x: continue
@@ -90,7 +159,7 @@ class SvcBase(object):
     def sessionctx(self):
         return ResourceCtx(self._trmgr)
     
-    def _getbyids(self,q0, objs, qmkr, objclz, smkr):
+    def _getbyids(self,q0, objs, qmkr, objclz, smkr, extfltr = None):
         """
         get object by providing a list of vars, return tuple with valid object tuple and not found set
         """
@@ -101,8 +170,10 @@ class SvcBase(object):
         al = []
         with self.sessionctx() as cur:
             for x in objss:
-                lst = q0.filter(qmkr(x,objclz)).with_session(cur).all()
-                if lst: al.extend(lst) 
+                q = q0.filter(qmkr(x,objclz))
+                if extfltr is not None: q = q.filter(extfltr)
+                lst = q.with_session(cur).all()
+                if lst: al.extend(lst)
         if al:
             if len(al) < len(objs):
                 a0 = set(objs)
@@ -147,7 +218,7 @@ class HKSvc(SvcBase):
                                             JO, JO.id == PajShp.joid)
                                         .join(PajInv, and_(PajShp.joid == PajInv.joid, PajShp.invno == PajInv.invno)))
 
-    def getjos(self, jesorrunns):
+    def getjos(self, jesorrunns, extfltr = None):
         """get jos by a collection of JOElements/Strings or Integers
         when the first item is string or JOElement, it will be treated as getbyname, else by runn
         return a tuple, the first item is list containing hnjcore.models.hk.JO
@@ -156,7 +227,7 @@ class HKSvc(SvcBase):
             starts with 'r' for example, 'r410100', id should be integer,
             name should be JOElement or string without 'r' as prefix
         """
-        return _getjos(self,JO, Query(JO),jesorrunns)
+        return _getjos(self,JO, Query(JO),jesorrunns, extfltr)
 
     def getjo(self, jeorrunn):
         """ a convenient way for getjos """
