@@ -365,9 +365,15 @@ class NamedLists(Iterator):
 
 def easydialog(dlg):
     """ open a tk dialog and return sth. easily """
-    rt = tk.Tk()
-    rt.withdraw()
-    dlg.master = rt
-    rc = dlg.show()
-    rt.quit()
+    if True:
+        rt = tk.Tk()
+        rt.withdraw()
+        dlg.master = rt
+        rc = dlg.show()
+        #non of quit()/destroy() can kill tk while shown in excel, mainloop() even make it non-reponsible
+        rt.quit()
+        #rt.mainloop()
+        #rt.destroy()
+    else:
+        rc = dlg.show()
     return rc
