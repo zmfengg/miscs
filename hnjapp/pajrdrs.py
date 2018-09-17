@@ -67,6 +67,19 @@ def _removenonascii(s0):
         return "".join([x for x in s0 if ord(x) > 31 and ord(x) < 127 and x != "?"])
     return s0
 
+def _adjwgtneg(wgt):
+    """
+    sometimes PrdWgt.part contains negative value(for not sure), adjust it to pos
+    """
+    if wgt < 0:
+        wgt = -wgt
+        if wgt > 30: wgt /= 100.0
+    return wgt
+
+def _hl(rng, clidx = 3):
+    if not rng: return
+    rng.api.interior.colorindex = clidx
+
 class PajBomHhdlr(object):
     """ methods to read BOMs from PAJ """
 
@@ -257,7 +270,7 @@ class PajBomHhdlr(object):
                 if chlenerr:
                     #in common  case, chain should not have length, when this happen
                     #make the weight negative. Skipped
-                    prdwgt = prdwgt._replace(part = WgtInfo(prdwgt.part.karat, -prdwgt.part.wgt))
+                    prdwgt = prdwgt._replace(part = WgtInfo(prdwgt.part.karat, -prdwgt.part.wgt * 100))
             x[1]["mtlwgt"] = prdwgt
         
         return pmap
@@ -1493,7 +1506,7 @@ class ShpMkr(object):
         """
         dmp, lsts, rcols = {}, [], "lymd,lcod,styn,mmon,mmo2,runn,detl,quan,gwgt,gmas,jobn,ston,descn,desc,rem1,rem2,rem3,rem4,rem5,rem6,rem7,rem8".split(",")
         refjo, refpo, refodma = aliased(JOhk), aliased(POItem), aliased(Orderma)
-        rems, nl =[999,0], NamedList(list2dict(rcols))
+        rems, nl, hls =[999,0], NamedList(list2dict(rcols)), []
         for x in nl._colnames:
             if x.find("rem") == 0:
                 idx = int(x[len("rem"):])
@@ -1527,7 +1540,7 @@ class ShpMkr(object):
         bcmp, dmp, lymd = dmp, {}, invdate.strftime("%Y%m%d %H:%M%S")
 
         lsts.append(rcols)
-        shplst = sorted(shplst, key = lambda mpx: "A%06d%s" % (mpx["running"], mpx["jono"]) if mpx["running"] > 0 else "B%06d%s" % (0, mpx["jono"]))
+        shplst = sorted(shplst, key = lambda mpx: "A%06d%s" % (mpx["running"], mpx["jono"]) if mpx["running"] else "B%06d%s" % (0, mpx["jono"]))
         for it in shplst:
             jn = it["jono"]
             if jn in dmp: continue
@@ -1551,7 +1564,7 @@ class ShpMkr(object):
                 flag = True
             nl.setdata([None]*len(rcols))
             nl.lymd, nl.lcod, nl.styn, nl.mmon = lymd, styno, styno, "'" + lymd[2:4]
-            nl.mmo2, nl.runn, nl.detl = lymd[4:6], "'%d" % it["running"], it["cstname"]
+            nl.mmo2, nl.runn, nl.detl = lymd[4:6], "'%d" % it["running"] if it["running"] else NA, it["cstname"]
             nl.quan, nl.jobn = it["qty"], "'" + jn
             nl.descn = pfx + ("---" if flag else "") + it["description"]
             prdwgt = it["mtlwgt"]
@@ -1563,7 +1576,16 @@ class ShpMkr(object):
                 rmks = [x for x in [getattr(bc,"rem%d" % y).strip() for y in range(*rems)] if x]
             nrmks = []
             for x in ((prdwgt.aux,"*%s %4.2f"),(prdwgt.part,"*%sPTS %4.2f")):
-                if x[0]: nrmks.append(x[1] % (karatsvc.getkarat(x[0].karat).name,x[0].wgt))                
+                if x[0]: nrmks.append(x[1] % (karatsvc.getkarat(x[0].karat).name, _adjwgtneg(x[0].wgt)))
+            if prdwgt.part:
+                wgt = prdwgt.part.wgt
+                if wgt < 0:
+                    hls.append((len(lsts), nl.getcol("rem%d" % len(nrmks))))
+                else:
+                    if prdwgt.part.karat == 925:
+                        if wgt < 1.0 or wgt > 2.0: hls.append((len(lsts), nl.getcol("rem%d" % len(nrmks))))                            
+                    else:
+                        if wgt < 0.3 or wgt > 1.0: hls.append((len(lsts), nl.getcol("rem%d" % len(nrmks))))
             cn = len(nrmks) + len(rmks) - rems[1] + 1
             if cn > 0:
                 rmks[-cn-1] = ";".join(rmks[-cn-1:])
@@ -1575,6 +1597,10 @@ class ShpMkr(object):
             lsts.append(nl.data)
         sht = ShpSns.get(wb, ShpSns._snbc)
         sht.range(1,1).value = lsts
+        if hls:
+            rng = sht.range(1,1)
+            for x in hls:
+                _hl(rng.offset(x[0],x[1]),6)
         sht.autofit()
 
     @property
@@ -1631,7 +1657,7 @@ class ShpMkr(object):
         
         s0 = sts.get("shipment.hdrs." + self._vdrname)
         if not s0: s0 = sts.get("shipment.hdrs")
-        ttl, ns = [], {}
+        ttl, ns, hls = [], {}, []
         for x in s0.value.replace("\\n","\n").split(";"):
             y = x.split("=")
             y1 = y[1].split(",")
@@ -1642,7 +1668,7 @@ class ShpMkr(object):
         ns["thisleft"] = "此次,"
         nl, maxr, lenttl = NamedList(list2dict(ttl,ns)), iorst["maxrun#"], len(ttl)
         lsts, ns, hls = [ttl], "jono,running,qty,cstname,styno,description,qtyleft,errmsg".split(","), []
-        shplst = sorted(shplst, key = lambda mpx: "A%06d%s" % (mpx["running"], mpx["jono"]) if mpx["running"] > 0 else "B%06d%s" % (0, mpx["jono"]))
+        shplst = sorted(shplst, key = lambda mpx: "A%06d%s" % (mpx["running"], mpx["jono"]) if mpx["running"] else "B%06d%s" % (0, mpx["jono"]))
         for it in shplst:
             ttl = [""] * lenttl
             nl.setdata(ttl)
@@ -1650,8 +1676,11 @@ class ShpMkr(object):
                 if it["jono"] not in newrunmp:
                     maxr += 1
                     it["running"], nl["running"] = maxr, maxr
-                    hls.append(len(lsts) + 1)
+                    hls.append((len(lsts) + 1,nl.getcol("running")))
                     newrunmp[it["jono"]] = maxr
+                else:
+                    #some it's a zero, just don't show it
+                    if not it["running"]: it["running"] = None
             for col in ns:
                 nl[col] = it[col]
             nl.jono = "'" + nl.jono
@@ -1663,16 +1692,24 @@ class ShpMkr(object):
                 else:
                     karats[wi.karat] += wi.wgt
             karats = [(x[0],x[1]) for x in karats.items()]
-            nl.karat1, nl.wgt1 = karats[0][0], karats[0][1]
+            nl.karat1, nl.wgt1 = karats[0][0], karats[0][1]            
             lsts.append(ttl)
+            if nl.wgt1 < 0:
+                hls.append((len(lsts),nl.getcol("wgt1")))
             if len(karats) > 1:
                 jn = nl.jono
                 for idx in range(1,len(karats)):
                     nl.setdata([""] * lenttl)
                     nl.jono = jn
                     nl.karat1, nl.wgt1 = karats[idx][0], karats[idx][1]
-                lsts.append(nl.data)
+                    lsts.append(nl.data)
+                    if nl.wgt1 < 0:
+                        hls.append((len(lsts),nl.getcol("wgt1")))
         sht.range(1,1).value = lsts
+        if hls:
+            rng = sht.range(1,1)
+            for x in hls:
+                _hl(rng.offset(x[0] - 1,x[1]), 6)
         #the qtyleft formula
         s0, s1, s2 = col_name(nl.getcol("qty") + 1), col_name(nl.getcol("qtyleft") + 1), col_name(nl.getcol("thisleft") + 1)
         for idx in range(2,len(lsts) + 1):
@@ -1698,11 +1735,6 @@ class ShpMkr(object):
         rng.VerticalAlignment = Constants. xlCenter
         rng.font.name = "tahoma"
         rng.font.size = 10
-        if hls:
-            s0 = nl.getcol("running") + 1
-            for idx in hls:
-                sht.range(idx,s0).api.interior.colorindex = 6
-                sht.range(idx,s0).api.interior.pattern = 1
 
         #write IOs back
         iorst["maxrun#"] = maxr
@@ -1718,6 +1750,7 @@ class ShpMkr(object):
             if not data[idx]: continue
             sht = ShpSns.get(wb, sns[idx])
             if idx == 0:
+                #errors
                 nls = xwu.NamedRanges(sht.range(1,1))
                 if nls:
                     ttl= None
@@ -1736,16 +1769,17 @@ class ShpMkr(object):
                 vvs.insert(0,ttl)
                 sht.range(1,1).value = vvs
             else:
-                #you can write with array with various length
+                #warnings
+                #you can't write with array with various length
                 ridx, ttl = 1, "cstname,jono,styno,location,type,msg".split(",")
-                #send customer to data[idx]
-                jns = set(mp.get("jono")[1:] for mp in data[idx])
+                rmpfx = lambda x: (x[1:] if x[0] == "'" else x) if isinstance(x,str) else x
+                jns = set(rmpfx(mp.get("jono")) for mp in data[idx])
                 with self._cnsvc.sessionctx():
                     jomp = self._cnsvc.getjos(jns)[0]
                     jomp = {x.name.value:x for x in jomp}
                     sht.range(ridx,1).value = ttl
                     for mp in data[idx]:
-                        jn = mp.get("jono")
+                        jn = rmpfx(mp.get("jono"))
                         if jn in jomp:
                             jn = jomp[jn]
                             mp["cstname"], mp["styno"] = jn.customer.name.strip(),jn.style.name.value
@@ -1757,20 +1791,21 @@ class ShpMkr(object):
                         if wt == ShpSns._wc_wgt:
                             wgts, flag = (objs[0].wgts, objs[1].wgts), False
                             for idx1 in range(len(objs[0])):
-                                if wgts[0][idx1] and wgts[1][idx1] and wgts[0][idx1].wgt and wgts[1][idx1].wgt:
-                                    wdf = (wgts[1][idx1].wgt - wgts[0][idx1].wgt) / wgts[0][idx1].wgt
-                                    if abs(wdf) <= 0.05:
-                                        vvs.append("'-")
+                                wgtact, wgtexp = round(_adjwgtneg(wgts[1][idx1].wgt),2) if wgts[1][idx1] else 0 , round(wgts[0][idx1].wgt,2) if wgts[0][idx1] else 0
+                                if wgtact or wgtexp:
+                                    wdf = (wgtact - wgtexp) / wgtexp if wgtexp else NA
+                                    pfx = "%4.2f-%4.2f" % (wgtact, wgtexp)
+                                    if wgtexp:                                    
+                                        if abs(wdf) <= 0.05:
+                                            vvs.append(pfx + "(-)")
+                                        else:
+                                            if not flag and wdf > 0.05: flag = True
+                                            vvs.append(pfx + "(%s%%)" % ("%4.2f" % (wdf * 100.0)))
                                     else:
-                                        if wdf > 0.05: flag = True
-                                        vvs.append("%4.2f" % wgts[1][idx1].wgt + "(%s%%)" % ("%4.2f" % (((wgts[1][idx1].wgt - wgts[0][idx1].wgt) / wgts[0][idx1].wgt * 100.0))) if wgts[0][idx1].wgt else NA)
-                                elif bool(wgts[0][idx1]) ^ bool(wgts[1][idx1]):
-                                    vvs.append("%4.2f" % wgts[1][idx1].wgt + "(%s)" % NA if wgts[1][idx1] else "0(%4.2f)" % wgts[0][idx1].wgt)
-                                    if not wgts[0][idx1] or not wgts[0][idx1].wgt: flag = True
+                                        if not flag: flag = True
+                                        vvs.append(pfx + "(%s)" % NA)
                                 else:
                                     vvs.append("'-")
-                            if not flag:
-                                flag = not wgts[0][0] or not wgts[0][0].wgt
                             if flag: vvs.append("?金控有误")
                         elif wt == ShpSns._wc_ack:
                             vvs.append(objs[1] - objs[0])
@@ -1794,7 +1829,7 @@ class ShpMkr(object):
         rfs = [getrf(sts[x].value) for x in "shp.template,shpc1.template".split(",")]
 
         if not fldr:
-            fldr = easydialog(filedialog.Open("Choose a file to create shipment"))
+            fldr = easydialog(filedialog.Open("Choose a file to create shipment", initialdir = path.dirname(path.dirname(sts["shp.template"].value))))
         if not path.exists(fldr): return
         if not path.isdir(fldr):
             #if the file's parent folder not in rfs, treate it as pajraw files
@@ -1866,12 +1901,12 @@ class ShpMkr(object):
             if not flag:
                 logger.debug("sheet(%s) does not contain any valid data" % sht.name)
         if shplst:
-            self._shpcheck(shplst, invmp, errlst)            
             newrunmp, haserr = {}, False
+            self._shpcheck(shplst, invmp, errlst)
             self._writeerrs(wb, errlst)
             if errlst:
                 haserr = bool(self._errandwarn(errlst)[0])
-            self._writerpts(wb, shplst, newrunmp, ivd)            
+            self._writerpts(wb, shplst, newrunmp, ivd)
             self._writebc(wb, shplst, newrunmp, ivd)
             if haserr: return None
         return wb
@@ -1900,12 +1935,12 @@ class ShpImptr():
         verbose, ttl, errs = options.get("verbose"), None, []
         if not wb:
             xwu.appswitch(_appmgr.acq()[0], True)
-            ttl = ("文件错误","%s\n有错误或不存在" % fn)
+            ttl = ("文件错误","文件有误或不存在")
         else:
             sht = wb.sheets[ShpSns._snrpt]
             hdrs = self.exacthdr(sht)
             nlhdr =  NamedList(list2dict("date,jmpno,iono".split(",")),hdrs)
-
+            xwu.appswitch(wb.app, True)
             if self.isimported(nlhdr.jmpno):
                 s0 = "JMP#(%s)已导入" % nlhdr.jmpno
                 errs.append(ShpSns._newerr("_记录重复_","_all_", ShpSns._ec_jmp,s0))
@@ -1932,8 +1967,7 @@ class ShpImptr():
                         ttlqty += nl.qty
                         lqty = nl.qty
                     ttlwgt += nl.wgt * (nl.qty if nl.qty else lqty)
-                    jns.add(nl.jono)
-                xwu.appswitch(wb.app, True)
+                    jns.add(nl.jono)                
                 if not errs:            
                     sht.activate()
                     sht.range(xwu.usedrange(sht).last_cell.row, cidxqty + 1).select()
@@ -1954,39 +1988,41 @@ class ShpImptr():
                                 if not jn: break
                                 jn = JOElement(nl.jono).value
                                 nl.jono = jn
-                                karat, jo = nl.karat, jos.get(jn)
-                                if karat not in maMap:
-                                    if jn not in updjos and nl.running > 0 and jo.running != nl.running:
+                                karat, jo, running = int(nl.karat), jos.get(jn), nl.running
+                                nl.karat = karat
+                                if running:
+                                    if jn not in updjos and jo.running != running:
                                         updjos[jn] = jo
-                                        jo.running = nl.running
+                                        jo.running = running
                                         jo.lastupdate = datetime.today()
-                                    if not refid:
-                                        refid, refno, mmid = self.lastrefid(), self.nextrefno(), self.lastmmid()
-                                    ma = MMMa()
-                                    maMap[karat] = ma
-                                    refid += 1
-                                    ma.id, ma.name, ma.karat, ma.refdate, ma.tag = refid, refno, karat, datetime.today(), 0
-                                ma = maMap.get(karat)
-                                mmmapid = jo.id if self._groupsampjo else random.randint(0,9999999)
-                                if nl.qty:
-                                    if mmmapid not in mmMap:
-                                        mm = MM()
-                                        mmMap[mmmapid] = mm
-                                        mmid += 1
-                                        mm.id, mm.jsid, mm.name, mm.refid, mm.qty = mmid, jo.id, nlhdr.jmpno, refid, 0
-                                    mm = mmMap[mmmapid]
-                                    mm.qty += nl.qty
-                                    #don't change the jo.qtyleft directly because this might cause a double-substract by both me and mm.insert trigger
-                                    ql = joqls[jn]
-                                    ql -= nl.qty
-                                    if ql > 0:
-                                        mm.tag = 0
-                                    elif ql == 0:
-                                        mm.tag = 4
-                                    else:
-                                        errs.append(ShpSns._newerr(nl.jono, nl.jono, ShpSns._ec_qty, "数量不足"))
-                                    joqls[jn] = ql
-                                key = "%d/%d" % (mm.id, nl.karat)
+                                    if karat not in maMap:
+                                        if not refid:
+                                            refid, refno, mmid = self.lastrefid(), self.nextrefno(), self.lastmmid()
+                                        ma = MMMa()
+                                        maMap[karat] = ma
+                                        refid += 1
+                                        ma.id, ma.name, ma.karat, ma.refdate, ma.tag = refid, refno, karat, datetime.today(), 0
+                                    ma = maMap.get(karat)
+                                    mmmapid = jo.id if self._groupsampjo else random.randint(0,9999999)
+                                    if nl.qty:
+                                        if mmmapid not in mmMap:
+                                            mm = MM()
+                                            mmMap[mmmapid] = mm
+                                            mmid += 1
+                                            mm.id, mm.jsid, mm.name, mm.refid, mm.qty = mmid, jo.id, nlhdr.jmpno, refid, 0
+                                        mm = mmMap[mmmapid]
+                                        mm.qty += nl.qty
+                                        #don't change the jo.qtyleft directly because this might cause a double-substract by both me and mm.insert trigger
+                                        ql = joqls[jn]
+                                        ql -= nl.qty
+                                        if ql > 0:
+                                            mm.tag = 0
+                                        elif ql == 0:
+                                            mm.tag = 4
+                                        else:
+                                            errs.append(ShpSns._newerr(nl.jono, nl.jono, ShpSns._ec_qty, "数量不足"))
+                                        joqls[jn] = ql
+                                key = "%d/%d" % (mm.id, karat)
                                 if key not in gdMap:
                                     gd = MMgd()
                                     gd.id, gd.karat, gd.wgt = mm.id, nl.karat, 0
@@ -2006,11 +2042,11 @@ class ShpImptr():
                                 cncmds.extend([tuple(y) for y in (maMap.values(), mmMap.values(), gdMap.values(), updjos.values()) if y])
                                 hkjos, hkcmds = self._hksvc.getjos(jns, JOhk.running == 0)[0], []
                                 for jo in hkjos:
-                                    if not jo.running:
-                                        x = jos[jo.name.value]
-                                        if x and x.running:
-                                            jo.running = x.running
-                                            hkcmds.append(jo)
+                                    if jo.running: continue
+                                    x = jos.get(jo.name.value)
+                                    if not (x and x.running): continue
+                                    jo.running = x.running
+                                    hkcmds.append(jo)
                                 if cncmds:            
                                     for x in cncmds:
                                         for y in x:
@@ -2036,7 +2072,15 @@ class ShpImptr():
             else:
                 ttl = ("落货资料导入","导入成功！")
         if ttl and verbose:
-            messagebox.showinfo(ttl[0], ttl[1])
+            import tkinter as tk
+            rt = tk.Tk()
+            rt.withdraw()
+            messagebox.showinfo(ttl[0], ttl[1], master = rt)
+            rt.quit()
+            del tk
+            #TODO::messagebox.showinfo(ttl[0], ttl[1])
+            pass
+        if wb: del wb
         return ttl or wb
     
     def isimported(self, jn):
