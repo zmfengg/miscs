@@ -175,11 +175,14 @@ class NamedList(object):
         elif isinstance(nmap,str):
             nmap = list2dict(nmap.split(","))
         elif isinstance(nmap,dict):
-            nmap = dict([(triml(x[0]),x[1]) for x in nmap.items()])
+            nmap = dict([(self._nrl(x[0]),x[1]) for x in nmap.items()])
         self._nmap, self._idmap = nmap, None
         self._dtype = 0
         if data:
             self.setdata(data)
+    
+    def _nrl(self, name):
+        return triml(name)
 
     def clone(self, data = None):
         """ create a clone with the same definination as me, but not the same data set """
@@ -225,7 +228,7 @@ class NamedList(object):
             raise AttributeError("no attribute(%s) found or data not set" % name)
 
     def __getattr__(self, name):
-        name = triml(name)
+        name = self._nrl(name)
         if self._dtype == 1:
             return self._data[self._nmap[name]]
         elif name in self._nmap:
@@ -237,7 +240,7 @@ class NamedList(object):
         if name.startswith("_"):            
             object.__setattr__(self, name, val)
         else:
-            name = triml(name)
+            name = self._nrl(name)
             self._checkarg(name)
             if self._dtype == 1:
                 self._data[self._nmap[name]] = val
@@ -263,6 +266,9 @@ class NamedList(object):
     def _mkidmap(self):
         if not self._idmap:
             self._idmap = dict([x[1],x[0]] for x in self._nmap.items())
+    
+    def __contains__(self, key):
+        return key in self._idmap or key in self._nmap
 
     def get(self,kon,default = None):
         """ simulate the dict's get function, for easy life only """
@@ -278,7 +284,8 @@ class NamedList(object):
         return colname ->  colid or colid -> colname
         """
         if isinstance(nameorid,str):
-            rc = self._nmap.get(triml(nameorid),None)
+            rc = self._nmap.get(self._nrm
+            (nameorid),None)
         else:
             self._mkidmap()
             rc = self._idmap.get(nameorid,None)
