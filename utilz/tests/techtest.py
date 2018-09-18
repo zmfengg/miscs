@@ -13,7 +13,9 @@ import re
 from os import path
 import os
 import shutil
-from utilz import getfiles
+from utilz import getfiles, imagesize
+import pytesseract as pt
+from PIL import Image, ImageFile
 
 class TechTests(TestCase):
     def testRE(self):
@@ -57,4 +59,17 @@ class TechTests(TestCase):
         #a full-blow
         arr = sth3(5,20, nice = "to")
         self.assertTupleEqual((5,(20,),{"nice":"to"}), arr)
-        
+
+class TesseractSuite(TestCase):
+    def testCrop_Gray(self):
+        from PIL.Image import Image as Img
+        for fn in getfiles(r"p:\aa\x\org\jophotos",".jpg"):
+            orgsz = imagesize(fn)
+            img = Image.open(fn)
+            box = (orgsz[0] * 4/5, orgsz[1] * 0.1, orgsz[0], orgsz[1] * 0.5)
+            img = img.load().crop(*box)
+            #TODO::
+            img.save('')
+
+    def testParse(self):
+        pass

@@ -19,6 +19,7 @@ from functools import cmp_to_key
 
 from .main import logger, thispath
 from utilz import karatsvc
+from utilz import imagesize
 import datetime
 from utilz._jewelry import RingSizeSvc
 from sqlalchemy.ext.declarative import declarative_base
@@ -96,6 +97,7 @@ class KeySuite(TestCase):
         self.assertTrue(hasattr(nl,"name"),"response to hasattr")
         self.assertEqual(lsts[1], nl.data,"title off, first row of data")
         self.assertEqual(lsts[1][0], nl[0],"access by index")
+        self.assertTrue("name" in nl,"supports the in operation")
         sl = slice(1,None)
         self.assertEqual(lsts[1][sl], nl[sl],"access by slice")
 
@@ -112,8 +114,8 @@ class KeySuite(TestCase):
         self.assertEqual(0,nl.getcol("name "))
         self.assertEqual(2,nl.getcol("age"))
         self.assertTrue(nl.getcol("age_") is None)
-        self.assertEqual(tuple("name,group,age".split(",")),nl._colnames)
-        self.assertEqual((0,1,2),nl._colids)
+        self.assertEqual(tuple("name,group,age".split(",")),nl.colnames)
+        self.assertEqual((0,1,2),nl.colids)
 
         #a smatter usage, use the nl to wrap a list
         nl.setdata(lsts[3])
@@ -154,7 +156,7 @@ class KeySuite(TestCase):
         nl = nl._replace({"idx":"id,","age":"agex"})
         self.assertEqual(1,nl.idx)
         self.assertEqual(30,nl.age)
-        self.assertTrue("id" not in nl._colnames)
+        self.assertTrue("id" not in nl.colnames)
         self.assertEqual(2,nl.getcol("age"))
 
     def testAppathSep(self):
@@ -203,7 +205,13 @@ class KeySuite(TestCase):
         self.assertEqual("4 1/4",rgsvc.convert("EU","47","US"),"EU#47 = US#4 1/4")
         self.assertTrue(rgsvc.convert("EU","A","US") is None,"EU#A does not exist")
         self.assertAlmostEqual(47.0,rgsvc.getcirc("US","4 1/4"),"the circumference of US#4 1/4 is 47.0mm")
-    
+
+    def testImagesize(self):
+        fns = getfiles(path.join(thispath,"res"),"65x27")
+        for fn in fns:
+            self.assertEqual((65, 27), imagesize(fn), "the size of %s" % fn)
+        #one special, the SOF C4 is used        
+        self.assertEqual((849, 826), imagesize(path.join(thispath,r"res\579616.jpg")))
 
 #@unittest.skip("no excel")
 class XwuSuite(TestCase):
@@ -299,7 +307,7 @@ class XwuSuite(TestCase):
             t0 = time.clock()
             rng = xwu.find(sht,name)
             nls = [x for x in xwu.NamedRanges(rng, True, nmap)]            
-            #print("%s colnames are:(%s)" % (name, list(nls[0]._colnames)))
+            #print("%s colnames are:(%s)" % (name, list(nls[0].colnames)))
             self.assertEqual(3, len(nls), "result count of %s" % name)
             self.assertEqual(2, nls[0]["9k"], "9K result of %s" % name)
             self.assertEqual(16,nls[2].s950, "S950 of %s" % name)

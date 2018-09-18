@@ -13,15 +13,19 @@ from numbers import Integral
 from os import listdir, path
 from random import random
 import re
+import imghdr
+import struct
 from sys import getfilesystemencoding, version_info
 
 from sqlalchemy.orm import Session
 import tkinter as tk
 from .common import _logger as logger
 
-__all__ = ["NamedList", "NamedLists", "appathsep", "daterange", "deepget", "getfiles", "isnumeric", "list2dict", "na", "splitarray", "triml", "trimu", "removews", "easydialog"]
+__all__ = ["NamedList", "NamedLists", "appathsep", "daterange", "deepget", "getfiles", "isnumeric", "imagesize", "list2dict", "na", "splitarray", "triml", "trimu", "removews", "easydialog"]
 
 na = "N/A"
+
+_jpgsof = {192, 193, 194, 195, 197, 198, 199, 201, 202, 203, 205, 206, 207}
 
 def splitarray(arr, logsize=100):
     """split an array into arrays whose len is less or equal than logsize
@@ -104,6 +108,54 @@ def deepget(obj, names):
         rc = gtr(rc,k)
     return rc
 
+def imagesize(fn):
+    '''detemine jpeg/png/gif/bmp's dimension
+    code from https://stackoverflow.com/questions/8032642/how-to-obtain-image-size-using-standard-python-class-without-using-external-lib'''
+    with open(fn, 'rb') as fhandle:
+        head = fhandle.read(26)
+        if len(head) != 26:
+            return
+        itp = imghdr.what(fn)
+        if not itp: return
+        if itp == 'png':
+            check = struct.unpack('>i', head[4:8])[0]
+            if check != 0x0d0a1a0a:
+                return
+            width, height = struct.unpack('>ii', head[16:24])
+        elif itp == 'gif':
+            width, height = struct.unpack('<HH', head[6:10])
+        elif itp == 'bmp':
+            sig = head[:2].decode("ascii")
+            if sig == "BM":#Microsoft
+                width, height = struct.unpack("<II",head[18:26])
+            else:#IBM
+                width, height = struct.unpack("<HH",head[18:22])
+        elif itp == 'jpeg':
+            """
+            https://en.wikibooks.org/wiki/JPEG_-_Idea_and_Practice/The_header_part
+            """
+            try:
+                ftype = 0
+                global _jpgsof
+                fhandle.seek(0,0)
+                trunksz = 4096
+                brs, ptr, offset = fhandle.read(trunksz), 0, 2
+                while ftype not in _jpgsof:
+                    ptr += offset
+                    offset = ptr - len(brs)
+                    if offset >= 0:                            
+                        fhandle.seek(offset, 1)
+                        brs, ptr = fhandle.read(trunksz), 0
+                    while brs[ptr] == 0xff:
+                        ptr += 1
+                    ftype = brs[ptr]
+                    offset = struct.unpack('>H', brs[ptr + 1:ptr + 3])[0] + 1
+                height, width = struct.unpack('>HH', brs[ptr+4: ptr+8])
+            except Exception: #IGNORE:W0703
+                return
+        else:
+            return
+        return width, height
 
 def getfiles(fldr, part=None, nameonly=False):
     """ return files under given folder """
@@ -255,20 +307,20 @@ class NamedList(object):
     def __getitem__(self, key):
         if isinstance(key, slice) or isinstance(key, Integral):
             return self._data[key]
-        return self.__getattr__(key)
+        return getattr(self, key)
 
     def __setitem__(self, key, val):
         if isinstance(key, Integral):
             self._data[key] = val
         else:
-            self.__setattr__(key, val)
+            setattr(self, key, val)
 
     def _mkidmap(self):
         if not self._idmap:
             self._idmap = dict([x[1],x[0]] for x in self._nmap.items())
     
     def __contains__(self, key):
-        return key in self._idmap or key in self._nmap
+        return self.getcol(key) is not None
 
     def get(self,kon,default = None):
         """ simulate the dict's get function, for easy life only """
@@ -284,19 +336,18 @@ class NamedList(object):
         return colname ->  colid or colid -> colname
         """
         if isinstance(nameorid,str):
-            rc = self._nmap.get(self._nrm
-            (nameorid),None)
+            rc = self._nmap.get(self._nrl(nameorid))
         else:
             self._mkidmap()
             rc = self._idmap.get(nameorid,None)
         return rc
 
     @property
-    def _colnames(self):
+    def colnames(self):
         return tuple(self._nmap.keys())
 
     @property
-    def _colids(self):
+    def colids(self):
         self._mkidmap()
         return tuple(self._idmap.keys())
 
@@ -309,7 +360,7 @@ class NamedList(object):
         
     def __repr__(self):
         if not self._data: return None
-        return repr(dict(zip(self._colnames,self._data)))
+        return repr(dict(zip(self.colnames,self._data)))
 
 
 class NamedLists(Iterator):

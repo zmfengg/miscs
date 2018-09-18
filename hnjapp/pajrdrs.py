@@ -1507,7 +1507,7 @@ class ShpMkr(object):
         dmp, lsts, rcols = {}, [], "lymd,lcod,styn,mmon,mmo2,runn,detl,quan,gwgt,gmas,jobn,ston,descn,desc,rem1,rem2,rem3,rem4,rem5,rem6,rem7,rem8".split(",")
         refjo, refpo, refodma = aliased(JOhk), aliased(POItem), aliased(Orderma)
         rems, nl, hls =[999,0], NamedList(list2dict(rcols)), []
-        for x in nl._colnames:
+        for x in nl.colnames:
             if x.find("rem") == 0:
                 idx = int(x[len("rem"):])
                 if idx < rems[0]: rems[0] = idx
@@ -1719,7 +1719,7 @@ class ShpMkr(object):
             rng.api.formatconditions.add(FormatConditionType.xlCellValue , FormatConditionOperator.xlLess, "0")
             rng.api.formatconditions(1).interior.colorindex = 3
         
-        rng = sht.range(sht.range(1,1),sht.range(len(lsts),len(nl._colnames)))
+        rng = sht.range(sht.range(1,1),sht.range(len(lsts),len(nl.colnames)))
         rng.api.borders.linestyle = LineStyle.xlContinuous
         rng.api.borders.weight = BorderWeight.xlThin
 
@@ -1756,7 +1756,7 @@ class ShpMkr(object):
                     ttl= None
                     for nl in nls:
                         if not ttl:
-                            ttl = nl._colnames
+                            ttl = nl.colnames
                             vvs = []
                         vvs.append(nl.data)
                 else:
