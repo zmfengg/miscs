@@ -14,7 +14,7 @@ from os import path
 import os
 import shutil
 from utilz import getfiles, imagesize
-import pytesseract as pt
+import pytesseract as tesseract
 from PIL import Image, ImageFile
 
 class TechTests(TestCase):
@@ -61,15 +61,42 @@ class TechTests(TestCase):
         self.assertTupleEqual((5,(20,),{"nice":"to"}), arr)
 
 class TesseractSuite(TestCase):
+    #_srcfldr = r"p:\aa\x\org\jophotos"
+    _srcfldr = r"p:\aa\x\org1\Smp"
+    _cropfldr = r'd:\temp\crop'
+    _ordbrd = (0.75, 0.1, 1, 0.2)
+    _smpbrd = (0.75, 0.2, 1, 0.45)
     def testCrop_Gray(self):
-        from PIL.Image import Image as Img
-        for fn in getfiles(r"p:\aa\x\org\jophotos",".jpg"):
+        brd = self._smpbrd if self._srcfldr.lower().find("smp") >= 0 else self._ordbrd
+        cnt = 0
+        for fn in getfiles(self._srcfldr,".jpg"):
+            cnt += 1
+            if cnt > 1E5: break
             orgsz = imagesize(fn)
             img = Image.open(fn)
-            box = (orgsz[0] * 4/5, orgsz[1] * 0.1, orgsz[0], orgsz[1] * 0.5)
-            img = img.load().crop(*box)
-            #TODO::
-            img.save('')
+            box = (orgsz[0] * brd[0], orgsz[1] * brd[1], orgsz[0]*brd[2], orgsz[1] * brd[3])
+            img.load()
+            dpi = img.__getstate__()[0].get("dpi")
+            img = img.crop(box)                
+            tfn = path.join(self._cropfldr,path.basename(fn))
+            if dpi:
+                img.save(tfn, dpi = dpi)
+            else:
+                img.save(tfn)
+
+    def testOCR(self):
+        ptn = re.compile(r"N.\s?(\w*)")
+        with open(path.join(self._cropfldr,"log.dat"),"wt",encoding="utf-8") as fh:
+            for fn in getfiles(self._cropfldr,".jpg"):
+                img = Image.open(fn)
+                s0 = tesseract.image_to_string(img, "eng")
+                mt = ptn.search(s0)
+                if not mt:
+                    s0 = "JO#%s:%s" % (path.basename(fn),s0)
+                else:
+                    s0 = "JO#%s:%s" % (path.basename(fn),mt.group())
+                fh.writelines(s0 + "\r\n")
+
 
     def testParse(self):
         pass

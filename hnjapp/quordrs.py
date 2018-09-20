@@ -1147,7 +1147,10 @@ class AckPriceCheck(object):
                 tar = pajcc.PajCalc.calctarget(cn,mps)                     
                 pfx = self.LBL_RFH
             else:
-                cds = hksvc.findsimilarjo(jes[jn]["jo"],level = 1) if smlookup else None                    
+                try:
+                    cds = hksvc.findsimilarjo(jes[jn]["jo"],level = 1) if smlookup else None
+                except:
+                    cds = None
                 if cds:
                     for x in cds:
                         jo1 = jo.copy()
@@ -1195,15 +1198,8 @@ class AckPriceCheck(object):
         if not data: return
         hksvc, rsts = self._hksvc, {}
         with hksvc.sessionctx():
-            if True:
-                jos = data.values()
-                jes = [JOElement(x["jono"]) for x in jos]
-            else:
-                #this PO.description of this jo has big5 encoding error
-                #462323 -> BG, 462324 -> BG + 9K
-                jn = set(("462323,462324".split(",")))
-                jos = [x for x in data.values() if x["jono"] in jn]
-                jes = [JOElement(x["jono"]) for x in jos if x["jono"] in jn]
+            jos = data.values()
+            jes = [JOElement(x["jono"]) for x in jos]
             logger.debug("begin to fetch jo data for analyse, JO count to fetch  is %d" % len(jes))
             ts = time.time()
             jes = hksvc.getjos(jes)[0]

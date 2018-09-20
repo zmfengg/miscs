@@ -551,7 +551,7 @@ class PajShpHdlr(object):
         PajShpItem = namedtuple("PajShpItem", "fn,orderno,jono,qty,pcode,invno,invdate" +
                                 ",mtlwgt,stwgt,shpdate,lastmodified,filldate")
         def _extring(x):
-            return x[:9] + x[11:]
+            return x[:8] + x[10:]
         items, td0, qmap = {}, datetime.today(), None
         nls = tuple(NamedLists(vvs,{"odx": u"订单号", "invdate": u"发票日期", "odseq": u"订单序号","stwgt": u"平均单件石头,XXX", "invno": u"发票号", "orderno": u"订单号序号", "pcode": u"十七位,十七,物料","mtlwgt": u"平均单件金,XX", "jono": u"工单,job", "qty": u"数量", "cost": u"cost"}))
         th = nls[0]
@@ -2001,27 +2001,27 @@ class ShpImptr():
                                         ma = MMMa()
                                         maMap[karat] = ma
                                         refid += 1
-                                        ma.id, ma.name, ma.karat, ma.refdate, ma.tag = refid, refno, karat, datetime.today(), 0
-                                    ma = maMap.get(karat)
-                                    mmmapid = jo.id if self._groupsampjo else random.randint(0,9999999)
-                                    if nl.qty:
-                                        if mmmapid not in mmMap:
-                                            mm = MM()
-                                            mmMap[mmmapid] = mm
-                                            mmid += 1
-                                            mm.id, mm.jsid, mm.name, mm.refid, mm.qty = mmid, jo.id, nlhdr.jmpno, refid, 0
-                                        mm = mmMap[mmmapid]
-                                        mm.qty += nl.qty
-                                        #don't change the jo.qtyleft directly because this might cause a double-substract by both me and mm.insert trigger
-                                        ql = joqls[jn]
-                                        ql -= nl.qty
-                                        if ql > 0:
-                                            mm.tag = 0
-                                        elif ql == 0:
-                                            mm.tag = 4
-                                        else:
-                                            errs.append(ShpSns._newerr(nl.jono, nl.jono, ShpSns._ec_qty, "数量不足"))
-                                        joqls[jn] = ql
+                                        ma.id, ma.name, ma.karat, ma.refdate, ma.tag = refid, refno, karat, nlhdr.date, 0
+                                ma = maMap.get(karat)
+                                mmmapid = jo.id if self._groupsampjo else random.randint(0,9999999)
+                                if nl.qty:
+                                    if mmmapid not in mmMap:
+                                        mm = MM()
+                                        mmMap[mmmapid] = mm
+                                        mmid += 1
+                                        mm.id, mm.jsid, mm.name, mm.refid, mm.qty = mmid, jo.id, nlhdr.jmpno, refid, 0
+                                    mm = mmMap[mmmapid]
+                                    mm.qty += nl.qty
+                                    #don't change the jo.qtyleft directly because this might cause a double-substract by both me and mm.insert trigger
+                                    ql = joqls[jn]
+                                    ql -= nl.qty
+                                    if ql > 0:
+                                        mm.tag = 0
+                                    elif ql == 0:
+                                        mm.tag = 4
+                                    else:
+                                        errs.append(ShpSns._newerr(nl.jono, nl.jono, ShpSns._ec_qty, "数量不足"))
+                                    joqls[jn] = ql
                                 key = "%d/%d" % (mm.id, karat)
                                 if key not in gdMap:
                                     gd = MMgd()
@@ -2091,9 +2091,10 @@ class ShpImptr():
     def nextrefno(self):
         pf, pl = "J", 7
         with self._cnsvc.sessionctx() as cur:
-            name = cur.query(func.max(MMMa.name)).filter(MMMa.tag == 0, MMMa.name.like('%0%')).first()
-            if not name:
-                name = cur.query(func.max(MMMa.name)).filter(MMMa.tag == Query(func.max(MMMa.tag).subquery()), MMMa.name.like('%0%')).first()
+            name = cur.query(func.max(MMMa.name)).filter(MMMa.tag == 0).first()
+            if not name[0]:
+                mtag = cur.query(func.max(MMMa.tag)).first()[0]
+                name = cur.query(func.max(MMMa.name)).filter(MMMa.tag == mtag).first()
         name = name[0] if name else pf & "0"
         je = JOElement(name)
         je.digit += 1

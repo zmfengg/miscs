@@ -90,8 +90,8 @@ def getXBase(fldr, exclusive=False):
     cs = cs % (fldr, "YES" if exclusive else "NO")
     return pyodbc.connect(cs)
 
-def newSybEngine(cnnfunc):
+def newSybEngine(cnnfunc, **kwds):
     """ create a alchemy enginge based on sybase + existing connection
         @param cnnfunc: the function that will return a pyodbc connection to sybase
     """
-    return create_engine("sybase+pyodbc://?driver=xx", creator=cnnfunc)
+    return create_engine("sybase+pyodbc://?driver=xx", creator=cnnfunc, **kwds)
