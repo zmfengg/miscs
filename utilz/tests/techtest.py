@@ -83,6 +83,46 @@ class TesseractSuite(TestCase):
                 img.save(tfn, dpi = dpi)
             else:
                 img.save(tfn)
+    
+    def testCV2(self):
+        import cv2
+        from cv2 import GaussianBlur
+
+        dpi = None
+        srcfn = r'd:\temp\CV2\0003.jpg'
+        for fn in getfiles(r"d:\temp\cv2",".jpg"):
+            if fn.find("_") >= 0: continue
+            if not dpi:
+                img = Image.open(fn)
+                img.load()
+                dpi = img.__getstate__()[0].get("dpi")
+                img.close()
+            img = cv2.imread(fn,0)            
+            if False:
+                #medianBlur = 3 is good enough 5 or 7 is too blur
+                img = cv2.medianBlur(img,3)
+                #127,255 is good
+                ret,th1 = cv2.threshold(img,127,255,cv2.THRESH_BINARY)
+                #150,255 is better than 127,150
+
+                #the final for B style JO# is
+                #GaussianBlur(img, (5,5), 0) -> cv2.threshold(img,127,255,cv2.THRESH_BINARY)
+                #or GaussianBlur(img, (5,5), 0) -> cv2.threshold(img,100,255,cv2.THRESH_BINARY)
+            else:
+                img = GaussianBlur(img, (5,5), 0)
+                ret,th1 = cv2.threshold(img,160,255,cv2.THRESH_BINARY)
+            fldr, bn, cnt = path.dirname(srcfn), path.splitext(path.basename(fn)), 0
+            if False:
+                th2 = cv2.adaptiveThreshold(img,255,cv2.ADAPTIVE_THRESH_MEAN_C,cv2.THRESH_BINARY,11,2)
+                th3 = cv2.adaptiveThreshold(img,255,cv2.ADAPTIVE_THRESH_GAUSSIAN_C,cv2.THRESH_BINARY,11,2)                
+            for x in (th1,):
+                fn0 = path.join(fldr, "%s_%d%s" % (bn[0], cnt, bn[1]))
+                cv2.imwrite(fn0,x)
+                #because CV2 does not save metadata, while dpi is very important
+                #use PIL's image to process it
+                img = Image.open(fn0, mode = "r")
+                img.save(fn0, dpi = dpi)
+                cnt += 1
 
     def testOCR(self):
         ptn = re.compile(r"N.\s?(\w*)")
@@ -96,7 +136,6 @@ class TesseractSuite(TestCase):
                 else:
                     s0 = "JO#%s:%s" % (path.basename(fn),mt.group())
                 fh.writelines(s0 + "\r\n")
-
 
     def testParse(self):
         pass
