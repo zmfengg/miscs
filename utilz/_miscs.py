@@ -80,9 +80,10 @@ def list2dict(lst, trmap=None, dupdiv="", bname=None):
             ctr[x] += 1
             if dupdiv is None:
                 dupdiv = ""
-            if not x:
-                x = ""
-            x += dupdiv + str(ctr[x])
+            if x:
+                x += dupdiv + str(ctr[x])
+            else:
+                x = dupdiv + str(ctr[x])
         else:
             ctr[x] = 0
         lstl.append(x)
@@ -155,6 +156,7 @@ def imagesize(fn):
                     ftype = brs[ptr]
                     offset = struct.unpack('>H', brs[ptr + 1:ptr + 3])[0] + 1
                 rc = struct.unpack('>HH', brs[ptr+4: ptr+8])
+                rc = (rc[1], rc[0])
             except:  # IGNORE:W0703
                 pass
         return rc
@@ -274,10 +276,6 @@ class NamedList(object):
                         break
         return NamedList(dict(zip(*th)), data if data else self._data)
 
-    @data.setter
-    def x(self, val):
-        self.setdata(val)
-
     def setdata(self, val):
         """
         set the internal data(should be of tuple/list)
@@ -380,6 +378,7 @@ class NamedList(object):
         return the internal list/tuple
         """
         return self._data
+
 
     def __str__(self):
         return self.__repr__()

@@ -9,7 +9,7 @@ for python's language/basic facility test, a practice farm
 
 import re
 from os import path
-from unittest import TestCase
+from unittest import TestCase, skip
 
 import pytesseract as tesseract
 from PIL import Image, ImageFile
@@ -76,6 +76,7 @@ class TechTests(TestCase):
         self.assertTupleEqual((5, (20,), {"nice": "to"}), arr)
 
 
+@skip("TODO::")
 class TesseractSuite(TestCase):
     #_srcfldr = r"p:\aa\x\org\jophotos"
     _srcfldr = r"p:\aa\x\org1\Smp"

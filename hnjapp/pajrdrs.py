@@ -188,6 +188,8 @@ class PajBomHhdlr(object):
                 nl = nls[0]
                 ridx = len(nls) + 1
                 for bg in bgs:
+                    if not bg.pcode:
+                        break
                     mstr_sht[ridx, nl.getcol("pcode")].value = bg.pcode
                     mstr_sht[ridx, nl.getcol("mat")].value = "BondedGold($0/OZ)"
                     mstr_sht[ridx, nl.getcol("mtlwgt")].value = bg.mtlwgt
