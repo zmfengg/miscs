@@ -1,9 +1,9 @@
 #! coding=utf-8
 '''
-* @Author: zmFeng 
-* @Date: 2018-06-16 15:44:32 
-* @Last Modified by:   zmFeng 
-* @Last Modified time: 2018-06-16 15:44:32 
+* @Author: zmFeng
+* @Date: 2018-06-16 15:44:32
+* @Last Modified by:   zmFeng
+* @Last Modified time: 2018-06-16 15:44:32
 '''
 
 from collections import OrderedDict
@@ -17,29 +17,34 @@ import imghdr
 import struct
 from sys import getfilesystemencoding, version_info
 
-from sqlalchemy.orm import Session
 import tkinter as tk
-from .common import _logger as logger
 
-__all__ = ["NamedList", "NamedLists", "appathsep", "daterange", "deepget", "getfiles", "isnumeric", "imagesize", "list2dict", "na", "splitarray", "triml", "trimu", "removews", "easydialog"]
+__all__ = ["NamedList", "NamedLists", "appathsep", "daterange", "deepget", "getfiles", "isnumeric",
+           "imagesize", "list2dict", "na", "splitarray", "triml", "trimu", "removews", "easydialog"]
 
 na = "N/A"
 
 _jpgsof = {192, 193, 194, 195, 197, 198, 199, 201, 202, 203, 205, 206, 207}
 
+
 def splitarray(arr, logsize=100):
     """split an array into arrays whose len is less or equal than logsize
     @param arr: the sequence object that need to split
-    @param logsize: len of each sub-array's size  
+    @param logsize: len of each sub-array's size
     """
-    if not arr: return
-    if not (isinstance(arr,tuple) or isinstance(arr,list) or isinstance(arr,str)):arr = tuple(arr)
+    if not arr:
+        return None
+    if not isinstance(arr, (tuple, list, str)):
+        arr = tuple(arr)
     if not logsize:
         logsize = 100
     return [arr[x * logsize:(x + 1) * logsize] for x in range(int(ceil(1.0 * len(arr) / logsize)))]
 
 
 def isnumeric(val):
+    """
+    check if given val is a numeric
+    """
     flag = True
     try:
         float(val)
@@ -49,50 +54,49 @@ def isnumeric(val):
 
 
 def appathsep(fldr):
-    """append a path sep into given path if there is not"""
+    """
+    append a path sep into given path if there is not
+    """
     return fldr + path.sep if fldr[len(fldr) - 1:] != path.sep else fldr
 
 
 def list2dict(lst, trmap=None, dupdiv="", bname=None):
-    """ turn a list into zero-id based, name -> id lookup map 
+    """ turn a list into zero-id based, name -> id lookup map
     @param lst: the list or one-dim array containing the strings that need to do the name-> pos map
     @param trmap: An translation map, make the description -> name translation, if ommitted, description become name
                   if the description is not sure, split them with candidates, for example, "jono":"Job,JS"
     @param dupdiv: when duplicated item found, a count will be generated, dupdiv will be
         placed between the original and count
     @param bname: default name for the blank item
-    @return: a dict with name -> id map   
+    @return: a dict with name -> id map
     """
     if not lst:
         return None, None
 
-    lstl = [triml(x) for x in lst]
-    ctr = {}
-    for ii in range(len(lstl)):
-        x = lstl[ii]
-        if not x and bname:
-            lstl[ii] = bname
+    lstl, ctr = [], {}
+    for x in [triml(x) for x in lst]:
+        x = x or bname
         if x in ctr:
             ctr[x] += 1
             if dupdiv is None:
                 dupdiv = ""
-            if lstl[ii]:
-                lstl[ii] += dupdiv + str(ctr[x])
-            else:
-                lstl[ii] = dupdiv + str(ctr[x])
+            if not x:
+                x = ""
+            x += dupdiv + str(ctr[x])
         else:
             ctr[x] = 0
+        lstl.append(x)
     if not trmap:
         trmap = {}
     else:
-        trmap = dict([(triml(x[1]),x[0]) for x in trmap.items()])
-        for x in [x for x in trmap.keys() if(x.find(",") >= 0)]:
+        trmap = dict([(triml(x[1]), x[0]) for x in trmap.items()])
+        for x in [x for x in trmap.keys() if x.find(",") >= 0]:
             for y in x.split(","):
                 if not y:
                     continue
                 y = y.lower()
                 cnds = [x0 for x0 in range(len(lstl)) if lstl[x0] and lstl[x0].find(y) >= 0]
-                if(len(cnds) > 0):
+                if cnds:
                     s0 = str(random())
                     lstl[cnds[0]] = s0
                     trmap[s0] = triml(trmap[x])
@@ -103,10 +107,11 @@ def list2dict(lst, trmap=None, dupdiv="", bname=None):
 def deepget(obj, names):
     """ get deeply from the object """
     #gtr, rc = object.__getattribute__ if version_info.major >= 3 else object.__getattr__, obj
-    gtr, rc =  getattr, obj
+    gtr, rc = getattr, obj
     for k in names.split("."):
-        rc = gtr(rc,k)
+        rc = gtr(rc, k)
     return rc
+
 
 def imagesize(fn):
     '''detemine jpeg/png/gif/bmp's dimension
@@ -114,52 +119,52 @@ def imagesize(fn):
     with open(fn, 'rb') as fhandle:
         head = fhandle.read(26)
         if len(head) != 26:
-            return
+            return None
         itp = imghdr.what(fn)
-        if not itp: return
+        if not itp:
+            return None
+        rc = None
         if itp == 'png':
             check = struct.unpack('>i', head[4:8])[0]
-            if check != 0x0d0a1a0a:
-                return
-            width, height = struct.unpack('>ii', head[16:24])
+            if check == 0x0d0a1a0a:
+                rc = struct.unpack('>ii', head[16:24])
         elif itp == 'gif':
-            width, height = struct.unpack('<HH', head[6:10])
+            rc = struct.unpack('<HH', head[6:10])
         elif itp == 'bmp':
             sig = head[:2].decode("ascii")
-            if sig == "BM":#Microsoft
-                width, height = struct.unpack("<II",head[18:26])
-            else:#IBM
-                width, height = struct.unpack("<HH",head[18:22])
+            if sig == "BM":  # Microsoft
+                rc = struct.unpack("<II", head[18:26])
+            else:  # IBM
+                rc = struct.unpack("<HH", head[18:22])
         elif itp == 'jpeg':
-            """
-            https://en.wikibooks.org/wiki/JPEG_-_Idea_and_Practice/The_header_part
-            """
+            #https://en.wikibooks.org/wiki/JPEG_-_Idea_and_Practice/The_header_part
             try:
                 ftype = 0
-                global _jpgsof
-                fhandle.seek(0,0)
+                #global _jpgsof
+                fhandle.seek(0, 0)
                 trunksz = 4096
                 brs, ptr, offset = fhandle.read(trunksz), 0, 2
                 while ftype not in _jpgsof:
                     ptr += offset
                     offset = ptr - len(brs)
-                    if offset >= 0:                            
+                    if offset >= 0:
                         fhandle.seek(offset, 1)
                         brs, ptr = fhandle.read(trunksz), 0
                     while brs[ptr] == 0xff:
                         ptr += 1
                     ftype = brs[ptr]
                     offset = struct.unpack('>H', brs[ptr + 1:ptr + 3])[0] + 1
-                height, width = struct.unpack('>HH', brs[ptr+4: ptr+8])
-            except Exception: #IGNORE:W0703
-                return
-        else:
-            return
-        return width, height
+                rc = struct.unpack('>HH', brs[ptr+4: ptr+8])
+            except:  # IGNORE:W0703
+                pass
+        return rc
+
 
 def getfiles(fldr, part=None, nameonly=False):
-    """ return files under given folder """
-    """ @param nameonly : don't return the full-path """
+    """
+    return files under given folder
+    @param nameonly : don't return the full-path
+    """
 
     if fldr:
         fldr = appathsep(fldr)
@@ -187,25 +192,29 @@ def daterange(year, month, day=1):
     del dtm
     return df, dt
 
+
 def removews(s0):
-    """ remove the invalid white space """
-    if not s0: return
-    return re.sub(r"\s{2,}", " ", s0.strip())
+    """
+    remove the white space
+    """
+    return re.sub(r"\s{2,}", " ", s0.strip()) if s0 else None
 
 
-def trimu(s0, removewsps = True):
+def trimu(s0, removewsps=True):
     """ trim/strip and upper case """
     if s0 and isinstance(s0, str):
         s0 = s0.strip().upper()
-        if removewsps: s0 = removews(s0)
+        if removewsps:
+            s0 = removews(s0)
     return s0
 
 
-def triml(s0, removewsps = True):
+def triml(s0, removewsps=True):
     """ trim and lower case """
     if s0 and isinstance(s0, str):
         s0 = s0.strip().lower()
-        if removewsps: s0 = removews(s0)
+        if removewsps:
+            s0 = removews(s0)
     return s0
 
 
@@ -220,32 +229,32 @@ class NamedList(object):
         ... your turn to extend me
     """
 
-
     def __init__(self, nmap, data=None):
-        if isinstance(nmap,tuple) or isinstance(nmap,list):
+        if isinstance(nmap, (tuple, list)):
             nmap = list2dict(nmap)
-        elif isinstance(nmap,str):
+        elif isinstance(nmap, str):
             nmap = list2dict(nmap.split(","))
-        elif isinstance(nmap,dict):
-            nmap = dict([(self._nrl(x[0]),x[1]) for x in nmap.items()])
+        elif isinstance(nmap, dict):
+            nmap = dict([(self._nrl(x[0]), x[1]) for x in nmap.items()])
         self._nmap, self._idmap = nmap, None
         self._dtype = 0
         if data:
             self.setdata(data)
-    
-    def _nrl(self, name):
+
+    @staticmethod
+    def _nrl(name):
         return triml(name)
 
-    def clone(self, data = None):
+    def clone(self, data=None):
         """ create a clone with the same definination as me, but not the same data set """
         return NamedList(self._nmap, data)
-    
-    def _replace(self, trmap, data = None):
+
+    def _replace(self, trmap, data=None):
         """ do name replacing, return a new instance
         trmap has the same meaning of list2dict
         """
-        th = tuple(zip(*[(x[0],x[1]) for x in self._nmap.items()]))
-        th = (list(th[0]),th[1])
+        th = tuple(zip(*[(x[0], x[1]) for x in self._nmap.items()]))
+        th = (list(th[0]), th[1])
         for x in trmap.items():
             ss = x[1].split(",")
             if len(ss) > 1:
@@ -256,7 +265,8 @@ class NamedList(object):
                             th[0][ii] = x[0]
                             hit = True
                             break
-                    if hit: break
+                    if hit:
+                        break
             else:
                 for ii in range(len(th[0])):
                     if th[0][ii] == x[1]:
@@ -264,15 +274,22 @@ class NamedList(object):
                         break
         return NamedList(dict(zip(*th)), data if data else self._data)
 
-    def setdata(self, data):
-        if data:
-            if isinstance(data, Sequence) and len(self._nmap) != len(data):
-                data = None
-        if not data:
+    @data.setter
+    def x(self, val):
+        self.setdata(val)
+
+    def setdata(self, val):
+        """
+        set the internal data(should be of tuple/list)
+        """
+        if val:
+            if isinstance(val, Sequence) and len(self._nmap) != len(val):
+                val = None
+        if not val:
             self._dtype = 0
         else:
-            self._dtype = 1 if isinstance(data, Sequence) else 2 if isinstance(data, dict) else 10
-        self._data = data
+            self._dtype = 1 if isinstance(val, Sequence) else 2 if isinstance(val, dict) else 10
+        self._data = val
         return self
 
     def _checkarg(self, name):
@@ -286,10 +303,10 @@ class NamedList(object):
         elif name in self._nmap:
             name = self._nmap[name]
         return self._data[name] if self._dtype == 2 else getattr(self._data, name)
-    
+
     def __setattr__(self, name, val):
-        #self._checkarg(name)
-        if name.startswith("_"):            
+        # self._checkarg(name)
+        if name.startswith("_"):
             object.__setattr__(self, name, val)
         else:
             name = self._nrl(name)
@@ -305,7 +322,7 @@ class NamedList(object):
                     setattr(self._data, name, val)
 
     def __getitem__(self, key):
-        if isinstance(key, slice) or isinstance(key, Integral):
+        if isinstance(key, (slice, Integral)):
             return self._data[key]
         return getattr(self, key)
 
@@ -317,12 +334,12 @@ class NamedList(object):
 
     def _mkidmap(self):
         if not self._idmap:
-            self._idmap = dict([x[1],x[0]] for x in self._nmap.items())
-    
+            self._idmap = dict([x[1], x[0]] for x in self._nmap.items())
+
     def __contains__(self, key):
         return self.getcol(key) is not None
 
-    def get(self,kon,default = None):
+    def get(self, kon, default=None):
         """ simulate the dict's get function, for easy life only """
         rc = default
         try:
@@ -335,40 +352,50 @@ class NamedList(object):
         """
         return colname ->  colid or colid -> colname
         """
-        if isinstance(nameorid,str):
+        if isinstance(nameorid, str):
             rc = self._nmap.get(self._nrl(nameorid))
         else:
             self._mkidmap()
-            rc = self._idmap.get(nameorid,None)
+            rc = self._idmap.get(nameorid, None)
         return rc
 
     @property
     def colnames(self):
+        """
+        return the column names(that you can use it to access me)
+        """
         return tuple(self._nmap.keys())
 
     @property
     def colids(self):
+        """
+        return a tuple if int:column ids(that you can use to access me)
+        """
         self._mkidmap()
         return tuple(self._idmap.keys())
 
     @property
     def data(self):
+        """
+        return the internal list/tuple
+        """
         return self._data
-    
+
     def __str__(self):
         return self.__repr__()
-        
+
     def __repr__(self):
-        if not self._data: return None
-        return repr(dict(zip(self.colnames,self._data)))
+        if not self._data:
+            return None
+        return repr(dict(zip(self.colnames, self._data)))
 
 
 class NamedLists(Iterator):
-    """ 
+    """
     make a list of list(2d array) accessable by name, for example, you read data from a csv
     lsts = (("id","name","price"),(1,"Jan",23.45),(2,"Pet",30.25)), you don't want to get id by
-        lsts[0][0] 
-        or 
+        lsts[0][0]
+        or
         nmap = dict([(lsts[0][idx],idx) for x in range(len(lsts[0]))])
         lsts[0][nmap["id"]]
 
@@ -380,7 +407,7 @@ class NamedLists(Iterator):
     """
 
     def __init__(self, lsts, trmap=None, newinst=True):
-        """ 
+        """
         init one named list instance
         @param lsts: the list(or tuple) of a list(or tuple, but when it's a tuple, you can not assigned value)
             always send the title rows to the first item
@@ -407,12 +434,14 @@ class NamedLists(Iterator):
             raise StopIteration()
         if self._newinst:
             return NamedList(self._nmap, self._lsts[self._ptr])
-        else:
-            self._wrpr.setdata(self._lsts[self._ptr])
-            return self._wrpr
+        self._wrpr.setdata(self._lsts[self._ptr])
+        return self._wrpr
 
     @property
     def namemap(self):
+        """
+        return the translate naming map
+        """
         return self._nmap
 
     def __str__(self):
@@ -421,17 +450,19 @@ class NamedLists(Iterator):
     def __repr__(self):
         return self._lsts.__repr__() if self._lsts else None
 
+
 def easydialog(dlg):
-    """ open a tk dialog and return sth. easily """
-    if True:
-        rt = tk.Tk()
-        rt.withdraw()
-        dlg.master = rt
-        rc = dlg.show()
-        #non of quit()/destroy() can kill tk while shown in excel, mainloop() even make it non-reponsible
-        rt.quit()
-        #rt.mainloop()
-        #rt.destroy()
-    else:
-        rc = dlg.show()
+    """
+    open a tk dialog and return sth. easily
+    use dlg.show() works, but sometimes there is a background windows there
+    so, use for better looking
+    """
+    rt = tk.Tk()
+    rt.withdraw()
+    dlg.master = rt
+    rc = dlg.show()
+    # non of quit()/destroy() can kill tk while shown in excel, mainloop() even make it non-reponsible
+    rt.quit()
+    # rt.mainloop()
+    # rt.destroy()
     return rc

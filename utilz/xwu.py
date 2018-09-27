@@ -159,6 +159,8 @@ def NamedRanges(rng, skipfirstrow = False, nmap = None, scolcnt = 0):
     @param scolcnt: the count of columns to search, default is unlimited
     """
     if not rng: return
+    if rng.size > 1:
+        rng = rng[0]
     if skipfirstrow: rng = rng.offset(1,0)
     sht, cr, orgcord = rng.sheet, rng.current_region, (rng.row, rng.column)
     ecol = orgcord[1] + scolcnt if scolcnt > 0 else cr.last_cell.column

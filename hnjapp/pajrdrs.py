@@ -56,6 +56,7 @@ from .pajcc import (MPS, PAJCHINAMPS, P17Decoder, PajCalc, PrdWgt, WgtInfo,
 _accdfmt = "%Y-%m-%d %H:%M:%S"
 _appmgr = xwu.appmgr
 
+
 def _accdstr(dt):
     """ make a date into an access date """
     return dt.strftime(_accdfmt) if dt and isinstance(dt, date) else dt
@@ -76,7 +77,7 @@ def _adjwgtneg(wgt):
         if wgt > 30: wgt /= 100.0
     return wgt
 
-def _hl(rng, clidx = 3):
+def _hl(rng, clidx=3):
     if not rng: return
     rng.api.interior.colorindex = clidx
 
@@ -84,7 +85,7 @@ class PajBomHhdlr(object):
     """ methods to read BOMs from PAJ """
 
     @classmethod
-    def readbom(self,fldr):
+    def readbom(self, fldr):
         """ read BOM from given folder
         @param fldr: the folder contains the BOM file(s)
         return a dict with "pcode" as key and dict as items
@@ -93,7 +94,8 @@ class PajBomHhdlr(object):
         _ptnoz = re.compile(r"\(\$\d*/OZ\)")
         _ptnsil = re.compile(r"(925)|(银)")
         _ptncop = re.compile(r"(BRONZE)|(铜)")
-        _ptngol = re.compile(r"^(\d*)K")    
+        _ptnbg = re.compile(r"BONDED", re.I)
+        _ptngol = re.compile(r"^(\d*)K")
         _ptdst = re.compile(r"[\(（](\d*)[\)）]")
         _ptfrcchain = re.compile(r"(弹簧扣)|(龙虾扣)|(狗仔头扣)")
         #the parts must have karat, if not, follow the parent
@@ -112,6 +114,8 @@ class PajBomHhdlr(object):
                 kt = 925
             elif _ptncop.search(mat):
                 kt = 200
+            elif _ptnbg.search(mat):
+                kt = 9925
             else:
                 mt = _ptngol.search(mat)
                 if mt:
@@ -158,7 +162,7 @@ class PajBomHhdlr(object):
         def _readwb(wb, pmap):
             """ read bom in the given wb to pmap
             """
-            shts = [[],[]]
+            shts, bg_sht = [[],[]], None
             for sht in wb.sheets:
                 rng = xwu.find(sht, u"十七位")
                 if not rng: continue
@@ -166,12 +170,29 @@ class PajBomHhdlr(object):
                     shts[0] = (sht,rng)
                 elif xwu.find(sht, u"物料特征"):
                     shts[1] = (sht,rng)
-                if all(shts): break
+                else:
+                    if xwu.find(sht, "录入日期"):
+                        bg_sht = sht
+                #if all(shts): break
             if not all(shts): return
             #duplicated item detection
             mstrs, pts = set(), set()
             shts[0][0].name, shts[1][0].name = "BOM_mstr", "BOM_part"
-            nmps = {0:{u"pcode":"十七位,","mat":u"材质,","mtlwgt":u"抛光,","up":"单价","fwgt":"成品重"},1:{"pcode":u"十七位,","matid":"物料ID,","name":u"物料名称", "spec":u"物料特征","qty":u"数量","wgt":u"重量","unit":u"单位","length":u"长度"}}
+            nmps = {0:{u"pcode":"十七位,", "mat":u"材质,", "mtlwgt":u"抛光,", "up":"单价", "fwgt":"成品重"},1:{"pcode":u"十七位,", "matid":"物料ID,", "name":u"物料名称", "spec":u"物料特征", "qty":u"数量", "wgt":u"重量", "unit":u"单位", "length":u"长度"}}
+            #bonded gold item, merge to mstr
+            if bg_sht:
+                bg_sht.name = "BG.Wgt"
+                bgs = xwu.NamedRanges(xwu.usedrange(bg_sht), nmap={"pcode":"十七,", "mtlwgt":"金银重,", "stwgt":"石头,"})
+                mstr_sht = shts[0][0]
+                nls = [x for x in xwu.NamedRanges(xwu.usedrange(mstr_sht), nmap=nmps[0])]
+                nl = nls[0]
+                ridx = len(nls) + 1
+                for bg in bgs:
+                    mstr_sht[ridx, nl.getcol("pcode")].value = bg.pcode
+                    mstr_sht[ridx, nl.getcol("mat")].value = "BondedGold($0/OZ)"
+                    mstr_sht[ridx, nl.getcol("mtlwgt")].value = bg.mtlwgt
+                    mstr_sht[ridx, nl.getcol("fwgt")].value = bg.mtlwgt + bg.stwgt
+                    ridx += 1
             nis0 = lambda x: x if x else 0
             for jj in range(len(shts)):
                 vvs = shts[jj][1].end("left").expand("table").value
@@ -1334,17 +1355,19 @@ class ShpMkr(object):
         
         app, kxl = _appmgr.acq()
         wb = app.books.add()
-        nshts = [x for x in wb.sheets]
-        bfsht = wb.sheets[0]
+        new_shts = [x for x in wb.sheets]
+        before_sht, bg_sn = wb.sheets[0], None
         for fn in fns:
+            if fn.find("对帐单") >= 0:
+                continue
             wbx = xwu.safeopen(app, fn)
             try:
                 for sht in wbx.sheets:
-                    if sht.api.visible == -1:
-                        sht.api.Copy(Before = bfsht.api)
+                    if sht.api.visible == -1 and xwu.usedrange(sht).size > 1:
+                        sht.api.Copy(Before = before_sht.api)
             finally:
                 wbx.close()
-        for x in nshts:
+        for x in new_shts:
             x.delete()
         if tarfn:
             wb.save(path.join(tarfldr,tarfn))
@@ -1973,9 +1996,10 @@ class ShpImptr():
                     sht.range(xwu.usedrange(sht).last_cell.row, cidxqty + 1).select()
                     msg = "文件=%s,\n日期=%s，落货纸号=%s\n总件数=%s，总重量=%s" % (wb.name, 
                     nlhdr.date.strftime("%Y-%m-%d"), nlhdr.jmpno, ttlqty, str(round(ttlwgt,2)))
-                    msg = messagebox.askyesno("确定要将以下资料导入落货系统?", msg)        
+                    msg = messagebox.askyesno("确定要将以下资料导入落货系统?", msg)                    
                     if not msg:
                         return
+                    xwu.appswitch(_appmgr.acq()[0], {"visible": False})
                     refid, refno = (None,) * 2
                     maMap, mmMap, gdMap, updjos, dbErr = {}, {}, {}, {}, False
                     try:
@@ -2061,21 +2085,21 @@ class ShpImptr():
                         dbErr = exp
                     if not dbErr:
                         sht = ShpSns.get(wb, "mmimptr")
-                        sht.range(1,1).value = ((nlhdr.iono, nlhdr.jmpno, nlhdr.date))
+                        sht.range(1, 1).value = ((nlhdr.iono, nlhdr.jmpno, nlhdr.date))
         if not ttl:
             if errs:
                 sm._writeerrs(wb, errs)
                 ShpSns.get(wb, ShpSns._snerr).activate()
-                ttl = ("检测到错误","详情请参考Excel")                
+                ttl = ("检测到错误", "详情请参考Excel")
             elif dbErr:
-                ttl = ("数据库错误","发生了以下数据库错误:\n%s" % dbErr)
+                ttl = ("数据库错误", "发生了以下数据库错误:\n%s" % dbErr)
             else:
-                ttl = ("落货资料导入","导入成功！")
+                ttl = ("落货资料导入", "导入成功！")
         if ttl and verbose:
             import tkinter as tk
             rt = tk.Tk()
             rt.withdraw()
-            messagebox.showinfo(ttl[0], ttl[1], master = rt)
+            messagebox.showinfo(ttl[0], ttl[1], master=rt)
             rt.quit()
             del tk
             #TODO::messagebox.showinfo(ttl[0], ttl[1])
