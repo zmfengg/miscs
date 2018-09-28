@@ -12,7 +12,7 @@ import xlwings
 import xlwings.constants as const
 from xlwings import Range, xlplatform
 
-from ._miscs import NamedLists, list2dict
+from ._miscs import NamedLists, list2dict, updateopts
 from .resourcemgr import ResourceMgr
 
 __all__ = ["app", "appmgr", "find", "fromtemplate", "list2dict", "usedrange", "safeopen"]
@@ -85,13 +85,11 @@ def appswitch(app0, sws=None):
     for knv in sws.items():
         if knv[0] not in _validappsws:
             continue
-        #ov = getattr(app0.api, knv[0])()
-        ov = eval("app0.api.%s" % knv[0])
+        ov = getattr(app0.api, knv[0]) #ov = eval("app0.api.%s" % knv[0])
         if ov == bool(knv[1]):
             continue
         mp[knv[0]] = ov
-        #getattr(app0.api, knv[0]) = bool(knv[1])
-        exec("app0.api.%s = %s" % (knv[0], bool(knv[1])))
+        setattr(app0.api, knv[0], bool(knv[1])) #exec("app0.api.%s = %s" % (knv[0], bool(knv[1])))
     return mp
 
 
@@ -115,27 +113,30 @@ def usedrange(sh):
     return apirange(sh.api.UsedRange)
 
 
-def find(sh, val, aftr=None, matchCase=False, lookat=const.LookAt.xlPart,
-         lookin=const.FindLookIn.xlValues, so=const.SearchOrder.xlByRows,
-         sd=const.SearchDirection.xlNext,):
+def find(sht, val, **kwds):
     """
     return a range match the find criteria
     the original API does not provide the find function, here is one from the web
     https://gist.github.com/Elijas/2430813d3ad71aebcc0c83dd1f130e33
     respect the author for this
-    @param sh: the sheet you want to perform the find on
+    @param sht: the sheet you want to perform the find on
+    @param after: Range, after which to perform the search, default is None
+    @param match_case(or matchcase): boolean, search case-sensitive, default is False
+    @param look_at(or lookat): xlwings.const.LookAt, default is xlPart
+    @param look_in(or lookin): xlwings.const.FindLookIn, default is xlValues
+    @param order(or searchorder): const.SearchOrder, default is xlByRows
+    @param direction: const.SearchDirection.xlNext, default is xlNext
     """
-    if not sh:
+    if not sht:
         return None
     if not val:
         val = "*"
-    aftr = sh.api.Cells(1, 1) if(not aftr) else \
-        sh.api.Cells(aftr.row, aftr.column)
-    return apirange(sh.api.Cells.Find(What=val, After=aftr,
-                                      LookAt=lookat, LookIn=lookin,
-                                      SearchOrder=so, SearchDirection=sd,
-                                      MatchCase=matchCase))
+    after = kwds.get("after")
+    after = sht.api.Cells(1, 1) if(not after) else sht.api.Cells(after.row, after.column)
 
+    d1 = updateopts({"What": ("LookAt,look_at", const.LookAt.xlPart), "LookIn": ("lookin,look_in", const.FindLookIn.xlValues), "SearchOrder": ("searchorder,search_order,order", const.SearchOrder.xlByRows), "SearchDirection": ("direction", const.SearchDirection.xlNext), "MatchCase": ("match_case,matchcase,case", False)}, kwds)
+    d1["What"], d1["After"] = val, after
+    return apirange(sht.api.Cells.Find(**d1))
 
 def contains(sht, vals):
     """ check if the sheet contains all the value in the vals tuple
@@ -194,53 +195,60 @@ def safeopen(appx, fn, updlnk=False, readonly=True):
     return appx.books[-1] if flag else None
 
 
-def NamedRanges(rng, skipfirstrow=False, nmap=None, scolcnt=0):
+def NamedRanges(rng, **kwds):
     """ return the data under or include the range as namedlist list
-    @param scolcnt: the count of columns to search, default is unlimited
+    @param skip_first_row: boolean, don't process the first row, default is False
+    @param name_map: the name->title mapping, see @list2dict FMI, default is None
+    @param col_cnt: the count of columns to search, default is 0, that is unlimited
     """
     if not rng:
         return None
     if rng.size > 1:
         rng = rng[0]
-    if skipfirstrow:
+    if kwds.get("skip_first_row"):
         rng = rng.offset(1, 0)
-    sht, cr, orgcord = rng.sheet, rng.current_region, (rng.row, rng.column)
-    ecol = orgcord[1] + scolcnt if scolcnt > 0 else cr.last_cell.column
-    tr, rr, mg = sht.range(rng, sht.range(rng.row, ecol)), (65000, 0), False
-    for cell in tr.columns:
-        if cell.api.mergecells:
-            if not mg:
-                mg = True
+    sht, cur_region, org_pt = rng.sheet, rng.current_region, (rng.row, rng.column)
+    var = kwds.get("col_cnt", kwds.get("colcnt")) or 0
+    e_colidx = org_pt[1] + var if var > 0 else cur_region.last_cell.column
+    tt_rows, var = (65000, 0), False
+
+    var = [x for x in sht.range(rng, sht.range(org_pt[0], e_colidx)).columns if x.api.mergecells]
+    if var:
+        for cell in var:
             mr = apirange(cell.api.mergearea)
-            rr = (min(rr[0], mr.row), max(rr[1], mr.last_cell.row))
-    if not mg:
-        rr = (orgcord[0],)*2
-    th = sht.range(sht.range(rr[0], orgcord[1]), sht.range(rr[1], ecol))
-    if mg:
-        if rr[0] == rr[1]:
-            ttl = []
+            tt_rows = (min(tt_rows[0], mr.row), max(tt_rows[1], mr.last_cell.row))
+    else:
+        tt_rows = (org_pt[0],)*2
+    th = sht.range(sht.range(tt_rows[0], org_pt[1]), sht.range(tt_rows[1], e_colidx))
+    if var:
+        if tt_rows[0] == tt_rows[1]:
+            var = []
             for val in th.value:
-                if not val and ttl:
-                    val = ttl[-1]
-                ttl.append(val)
+                if not val and var:
+                    val = var[-1]
+                var.append(val)
         else:
             vals = []
-            for lst in [tuple(x) for x in th.value]:
+            for var in [tuple(x) for x in th.value]:
                 vals.append([])
-                for val in lst:
+                for val in var:
                     if not val and vals[-1]:
                         val = vals[-1][-1]
                     if not val and len(vals) > 1:
                         val = vals[-2][len(vals[-1])]
                     vals[-1].append(val)
-            ttl = [".".join(x) for x in zip(*vals)]
+            var = [".".join(x) for x in zip(*vals)]
     else:
-        ttl = ["%s" % x for x in th.value] if th.value else None
-    if not ttl:
+        var = ["%s" % x for x in th.value] if th.value else None
+    if not var:
         return None
-    lst = sht.range(sht.range(rr[1]+1, orgcord[1]), sht.range(cr.last_cell.row, ecol)).value
-    lst.insert(0, ttl)
-    return NamedLists(lst, nmap)
+    rng = sht.range(sht.range(tt_rows[1]+1, org_pt[1]), sht.range(cur_region.last_cell.row, e_colidx))
+    th = rng.value
+    #one row case, xlwings return a 1-dim array only, make it 2D
+    if rng.rows.count == 1:
+        th = [th]
+    th.insert(0, var)
+    return NamedLists(th, kwds.get("name_map"))
 
 
 def _newappmgr(sws=None):

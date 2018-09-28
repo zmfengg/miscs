@@ -20,7 +20,7 @@ from sys import getfilesystemencoding, version_info
 import tkinter as tk
 
 __all__ = ["NamedList", "NamedLists", "appathsep", "daterange", "deepget", "getfiles", "isnumeric",
-           "imagesize", "list2dict", "na", "splitarray", "triml", "trimu", "removews", "easydialog"]
+           "imagesize", "list2dict", "na", "splitarray", "triml", "trimu", "updateopts", "removews", "easydialog"]
 
 na = "N/A"
 
@@ -59,8 +59,34 @@ def appathsep(fldr):
     """
     return fldr + path.sep if fldr[len(fldr) - 1:] != path.sep else fldr
 
+def updateopts(defaults, kwds):
+    """
+    return a dict which merge kwds and defaults's value, if neither, the item value is None
+    @param defaults: dict, an example, {"name": ("alias1,alias2", SomeValue)}
+    @param kwds: dict, always put the one you accepted from your function
+    """
+    if not any((defaults, kwds)):
+        return None
+    if not defaults:
+        return kwds
+    if not kwds:
+        kwds = {}
+    mp = {}
+    for knw in defaults.items():
+        y0, flag = None, False
+        for x in knw[1][0].split(","):
+            flag = x in kwds
+            if not flag:
+                continue
+            y0 = kwds.get(x)
+            break
+        if not flag:
+            y0 = knw[1][1]
+        mp[knw[0]] = y0
+    return mp
 
-def list2dict(lst, trmap=None, dupdiv="", bname=None):
+
+def list2dict(lst, **kwds):
     """ turn a list into zero-id based, name -> id lookup map
     @param lst: the list or one-dim array containing the strings that need to do the name-> pos map
     @param trmap: An translation map, make the description -> name translation, if ommitted, description become name
@@ -71,38 +97,34 @@ def list2dict(lst, trmap=None, dupdiv="", bname=None):
     @return: a dict with name -> id map
     """
     if not lst:
-        return None, None
-
-    lstl, ctr = [], {}
-    for x in [triml(x) for x in lst]:
-        x = x or bname
+        return None
+    if isinstance(lst, str):
+        lst = lst.split(",")
+    mp = updateopts({"dupdiv": ("dupdiv,div,dup_div", ""), "trmap": ("name_map,trmap,alias", None), "bname": ("bname,blank_name", None)}, kwds)
+    dupdiv, bname, trmap = mp.get("dupdiv"), mp.get("bname"), mp.get("trmap")
+    if dupdiv is None:
+        dupdiv = ""
+    lst_lower, ctr = [], {}
+    for x in (triml(x) or bname or "" for x in lst):
         if x in ctr:
             ctr[x] += 1
-            if dupdiv is None:
-                dupdiv = ""
-            if x:
-                x += dupdiv + str(ctr[x])
-            else:
-                x = dupdiv + str(ctr[x])
+            x += dupdiv + str(ctr[x])
         else:
             ctr[x] = 0
-        lstl.append(x)
-    if not trmap:
-        trmap = {}
-    else:
-        trmap = dict([(triml(x[1]), x[0]) for x in trmap.items()])
-        for x in [x for x in trmap.keys() if x.find(",") >= 0]:
-            for y in x.split(","):
-                if not y:
+        lst_lower.append(x)
+    trmap = {triml(x[1]): triml(x[0]) for x in trmap.items()} if trmap else {}
+    ctr = list(range(len(lst_lower)))
+    if trmap:
+        for x in [x for x in trmap.keys() if x.find(",") > 0]:
+            for y in [x1 for x1 in x.split(",") if x1]:
+                cnds = [x for x in ctr if lst_lower[x].find(y) >= 0]
+                if not cnds:
                     continue
-                y = y.lower()
-                cnds = [x0 for x0 in range(len(lstl)) if lstl[x0] and lstl[x0].find(y) >= 0]
-                if cnds:
-                    s0 = str(random())
-                    lstl[cnds[0]] = s0
-                    trmap[s0] = triml(trmap[x])
-                    break
-    return OrderedDict(zip([trmap[x] if(x in trmap) else x for x in lstl], range(len(lstl))))
+                s0 = str(random())
+                lst_lower[cnds[0]] = s0
+                trmap[s0] = trmap[x]
+                break
+    return OrderedDict(zip([trmap.get(x, x) for x in lst_lower], ctr))
 
 
 def deepget(obj, names):
@@ -141,7 +163,6 @@ def imagesize(fn):
             #https://en.wikibooks.org/wiki/JPEG_-_Idea_and_Practice/The_header_part
             try:
                 ftype = 0
-                #global _jpgsof
                 fhandle.seek(0, 0)
                 trunksz = 4096
                 brs, ptr, offset = fhandle.read(trunksz), 0, 2
@@ -417,7 +438,7 @@ class NamedLists(Iterator):
             for safe reason, it's True by default
         """
         super(NamedLists, self).__init__()
-        nmap = list2dict(lsts[0], trmap)
+        nmap = list2dict(lsts[0], alias=trmap)
         lsts = lsts[1:]
         self._lsts, self._nmap, self._ptr, self._ubnd, self._newinst = lsts, nmap, \
             -1, len(lsts), newinst

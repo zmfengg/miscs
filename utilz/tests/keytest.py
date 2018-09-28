@@ -13,7 +13,7 @@ from unittest import TestCase
 import logging
 
 from utilz import xwu, stsizefmt
-from utilz._miscs import (NamedList, NamedLists, appathsep, getfiles,NamedList,list2dict)
+from utilz._miscs import (NamedList, NamedLists, appathsep, getfiles, list2dict)
 from utilz.resourcemgr import ResourceCtx, ResourceMgr, SessionMgr
 from functools import cmp_to_key
 
@@ -77,6 +77,23 @@ class KeySuite(TestCase):
         self.assertEqual("5X4X3",stsizefmt("0500X0400X0300", True) ,"Size format")
         self.assertEqual("5X4X3",stsizefmt("0300X0500X0400", True) ,"Size format")
     
+    def testList2Dict(self):
+        lst, alias = ("A", None, "", "bam", "bam1"), {"namE": "A", "description": "b,am"}
+        mp = list2dict(lst, alias=alias)
+        self.assertEqual(0, mp.get("name"))
+        self.assertEqual(3, mp.get("description"))
+        self.assertEqual(1, mp.get(""))
+        self.assertEqual(2, mp.get("1"))
+        mp = list2dict(lst)
+        self.assertEqual(0, mp.get("a"))
+        self.assertEqual(1, mp.get(""))
+        self.assertEqual(2, mp.get("1"))
+        mp = list2dict(lst, alias=alias, div="_")
+        self.assertEqual(0, mp.get("name"))
+        self.assertEqual(1, mp.get(""))
+        self.assertEqual(2, mp.get("_1"))
+
+
     def testNamedList(self):
         lsts = (["Name","group","age"],
             ["Peter","Admin",30],
@@ -306,7 +323,7 @@ class XwuSuite(TestCase):
         for name in s0.split(","):
             t0 = time.clock()
             rng = xwu.find(sht,name)
-            nls = [x for x in xwu.NamedRanges(rng, True, nmap)]            
+            nls = [x for x in xwu.NamedRanges(rng, skip_first_row=True, name_map=nmap)]
             #print("%s colnames are:(%s)" % (name, list(nls[0].colnames)))
             self.assertEqual(3, len(nls), "result count of %s" % name)
             self.assertEqual(2, nls[0]["9k"], "9K result of %s" % name)

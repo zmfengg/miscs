@@ -182,18 +182,18 @@ class PajBomHhdlr(object):
             #bonded gold item, merge to mstr
             if bg_sht:
                 bg_sht.name = "BG.Wgt"
-                bgs = xwu.NamedRanges(xwu.usedrange(bg_sht), nmap={"pcode":"十七,", "mtlwgt":"金银重,", "stwgt":"石头,"})
+                bgs = xwu.NamedRanges(xwu.usedrange(bg_sht), name_map={"pcode":"十七,", "mtlwgt":"金银重,", "stwgt":"石头,"})
                 mstr_sht = shts[0][0]
-                nls = [x for x in xwu.NamedRanges(xwu.usedrange(mstr_sht), nmap=nmps[0])]
+                nls = [x for x in xwu.NamedRanges(xwu.usedrange(mstr_sht), name_map=nmps[0])]
                 nl = nls[0]
                 ridx = len(nls) + 1
                 for bg in bgs:
                     if not bg.pcode:
                         break
-                    mstr_sht[ridx, nl.getcol("pcode")].value = bg.pcode
-                    mstr_sht[ridx, nl.getcol("mat")].value = "BondedGold($0/OZ)"
-                    mstr_sht[ridx, nl.getcol("mtlwgt")].value = bg.mtlwgt
-                    mstr_sht[ridx, nl.getcol("fwgt")].value = bg.mtlwgt + bg.stwgt
+                    vals = (bg.pcode, "BondedGold($0/OZ)", bg.mtlwgt or 0, (bg.mtlwgt or 0) + (bg.stwgt or 0))
+                    vals = zip("pcode,mat,mtlwgt,fwgt".split(","),vals)
+                    for x in vals:
+                        mstr_sht[ridx, nl.getcol(x[0])].value = x[1]              
                     ridx += 1
             nis0 = lambda x: x if x else 0
             for jj in range(len(shts)):
@@ -1443,7 +1443,7 @@ class ShpMkr(object):
                 q = q.with_session(cur).all()
                 logger.debug("using %fs to fetch %d JOs for above action" % (time.clock() - t0, len(jns)))
                 acks = dict([(x[0].name.value,(x[1].uprice,x[1].mps,x[1].ackdate,x[1].docno,x[1].mps, x[1].pcode))for x in q]) if q else {}
-                if acks: nlack = NamedList(list2dict("uprice,mps,date,docno,mps,pcode".split(",")))
+                if acks: nlack = NamedList(list2dict("uprice,mps,date,docno,mps,pcode"))
             tmp = {}
             for x in invmp.values():
                 tmp1 = tmp.setdefault(x.jono,{"jono":x.jono})
@@ -1557,7 +1557,7 @@ class ShpMkr(object):
         
         stynos = set([x.get("styno") for x in shplst if x["jono"] not in joskubcs])
         bcs = self._bcsvc.getbcs(stynos, True)
-        if not bcs:
+        if bcs:
             for it in bcs:
                 dmp.setdefault(it.styn,[]).append(it)
         for x in dmp.keys():
@@ -1691,7 +1691,7 @@ class ShpMkr(object):
                 ns[y1[0]] = y[0]
             sht.range(1,len(ttl)).column_width = float(y1[len(y1) - 1])
         ns["thisleft"] = "此次,"
-        nl, maxr, lenttl = NamedList(list2dict(ttl,ns)), iorst["maxrun#"], len(ttl)
+        nl, maxr, lenttl = NamedList(list2dict(ttl, alias=ns)), iorst["maxrun#"], len(ttl)
         lsts, ns, hls = [ttl], "jono,running,qty,cstname,styno,description,qtyleft,errmsg".split(","), []
         shplst = sorted(shplst, key = lambda mpx: "A%06d%s" % (mpx["running"], mpx["jono"]) if mpx["running"] else "B%06d%s" % (0, mpx["jono"]))
         for it in shplst:
@@ -1964,8 +1964,8 @@ class ShpImptr():
         else:
             sht = wb.sheets[ShpSns._snrpt]
             hdrs = self.exacthdr(sht)
-            nlhdr =  NamedList(list2dict("date,jmpno,iono".split(",")),hdrs)
-            xwu.appswitch(wb.app, True)
+            nlhdr =  NamedList(list2dict("date,jmpno,iono"),hdrs)
+            xwu.appswitch(wb.app, {"visible": True})
             if self.isimported(nlhdr.jmpno):
                 s0 = "JMP#(%s)已导入" % nlhdr.jmpno
                 errs.append(ShpSns._newerr("_记录重复_","_all_", ShpSns._ec_jmp,s0))
@@ -1978,7 +1978,7 @@ class ShpImptr():
                 if df.days < 0 or df.days > 20:
                     s0 = ("来至未来(%s)的资料" if df.days < 0 else "太早以前(%s)的资料") % nlhdr.date.strftime("%Y-%m-%d")
                     errs.append(ShpSns._newerr("_日期错误_","_all_", ShpSns._ec_date,s0))
-                nls = [x for x in xwu.NamedRanges(sht.range(1,1), nmap = {"jono":"工单","qty":"件数", "qtyleft":"此次,","running":"run#","karat":"成色"})]
+                nls = [x for x in xwu.NamedRanges(sht.range(1,1), name_map={"jono":"工单","qty":"件数", "qtyleft":"此次,","running":"run#","karat":"成色"})]
                 ttlqty, ttlwgt, jns, lqty, cidxqty = 0, 0, set(), 0, 0
                 for nl in nls:
                     if not nl.jono: break
@@ -2097,6 +2097,7 @@ class ShpImptr():
                 ttl = ("数据库错误", "发生了以下数据库错误:\n%s" % dbErr)
             else:
                 ttl = ("落货资料导入", "导入成功！")
+        xwu.appswitch(_appmgr.acq()[0], {"visible": True})
         if ttl and verbose:
             import tkinter as tk
             rt = tk.Tk()

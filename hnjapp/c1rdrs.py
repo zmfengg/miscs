@@ -187,7 +187,7 @@ class C1InvRdr():
         C1InvStone = namedtuple("C1InvStone", "stone,qty,wgt,remark")
         km = {"styno":"图片,","jono":u"工单,", "setting":u"镶工,", "labor":u"胚底,", "remark":u"备注,", "joqty": u"数量,", "stname": u"石名,", "stqty": "粒数,", "stwgt": u"石重,","karat":"成色,","swgt":"净银重,","gwgt":"净金重,","pwgt":"配件重,"}
 
-        nls = [x for x in xwu.NamedRanges(rng,nmap = km)]
+        nls = [x for x in xwu.NamedRanges(rng, name_map=km)]
         if not nls: return
         nl = nls[0]
         kns = [1 if nl.getcol(x) else 0 for x in "jono,gwgt,swgt".split(",")]

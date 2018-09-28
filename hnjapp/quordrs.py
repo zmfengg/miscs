@@ -1041,7 +1041,7 @@ class AckPriceCheck(object):
                         rng = sht.range(sht.range(rng.row,1), \
                             sht.range(rng0.row + rng0.rows.count -1 ,rng0.column + rng0.columns.count - 1))
                         vvs = rng.value
-                        cmap = xwu.list2dict(vvs[0],{"jono":"Job,","pcode":"item,item ", "styno":"Style,","qty":"Quant,Qty"})
+                        cmap = xwu.list2dict(vvs[0], alias={"jono":"Job,","pcode":"item,item ", "styno":"Style,","qty":"Quant,Qty"})
                         for idx in range(1,len(vvs)):
                             jono = vvs[idx][cmap["jono"]]
                             if not jono: break
