@@ -19,7 +19,7 @@ from sys import getfilesystemencoding, version_info
 
 import tkinter as tk
 
-__all__ = ["NamedList", "NamedLists", "appathsep", "daterange", "deepget", "getfiles", "isnumeric",
+__all__ = ["NamedList", "NamedLists", "appathsep", "daterange", "deepget", "getfiles", "getvalue", "isnumeric",
            "imagesize", "list2dict", "na", "splitarray", "triml", "trimu", "updateopts", "removews", "easydialog"]
 
 na = "N/A"
@@ -41,19 +41,21 @@ def splitarray(arr, logsize=100):
     return [arr[x * logsize:(x + 1) * logsize] for x in range(int(ceil(1.0 * len(arr) / logsize)))]
 
 
-def getvalue(dct, key):
+def getvalue(dct, key, def_val=None):
     """
+    @param key: the keyname you want to get from the dict, can not contain ,. When , is found, will be treated as 2 keywords
     get the dict value by below seq:
         normal -> trimu -> triml
     """
     #[dct.get(x) for x in (key, trimu(key), triml(key))][0]
-    i = 0
-    while i < 3:        
-        if key in dct:
-            return dct.get(key)
-        i += 1
-        key = trimu(key) if i == 1 else triml(key)
-    return None
+    for kw in key.split(","):
+        i = 0
+        while i < 3:        
+            if key in dct:
+                return dct.get(key)
+            i += 1
+            key = trimu(key) if i == 1 else triml(key)
+    return def_val
 
 def isnumeric(val):
     """
