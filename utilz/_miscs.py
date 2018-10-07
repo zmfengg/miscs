@@ -41,6 +41,20 @@ def splitarray(arr, logsize=100):
     return [arr[x * logsize:(x + 1) * logsize] for x in range(int(ceil(1.0 * len(arr) / logsize)))]
 
 
+def getvalue(dct, key):
+    """
+    get the dict value by below seq:
+        normal -> trimu -> triml
+    """
+    #[dct.get(x) for x in (key, trimu(key), triml(key))][0]
+    i = 0
+    while i < 3:        
+        if key in dct:
+            return dct.get(key)
+        i += 1
+        key = trimu(key) if i == 1 else triml(key)
+    return None
+
 def isnumeric(val):
     """
     check if given val is a numeric
