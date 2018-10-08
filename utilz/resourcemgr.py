@@ -167,7 +167,8 @@ class ResourceCtx(object):
         self._closes, self._ress, ii = [], [], 0
         for res in self._src:
             self._closes.append(True)
-            self._ress.append((*res.acq(), ii))
+            r = res.acq() #(*res.acq(), ii) only works in 3.5+
+            self._ress.append((r[0], r[1], ii))
             ii += 1
         return self._ress[0][0] if len(self._ress) == 1 else [x[0] for x in self._ress]
 

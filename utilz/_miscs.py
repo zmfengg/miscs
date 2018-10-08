@@ -50,11 +50,11 @@ def getvalue(dct, key, def_val=None):
     #[dct.get(x) for x in (key, trimu(key), triml(key))][0]
     for kw in key.split(","):
         i = 0
-        while i < 3:        
+        while i < 3:
             if key in dct:
-                return dct.get(key)
+                return dct.get(kw)
             i += 1
-            key = trimu(key) if i == 1 else triml(key)
+            kw = trimu(kw) if i == 1 else triml(kw)
     return def_val
 
 def isnumeric(val):
