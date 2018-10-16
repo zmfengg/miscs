@@ -51,7 +51,7 @@ def getvalue(dct, key, def_val=None):
     for kw in key.split(","):
         i = 0
         while i < 3:
-            if key in dct:
+            if kw in dct:
                 return dct.get(kw)
             i += 1
             kw = trimu(kw) if i == 1 else triml(kw)
@@ -205,8 +205,7 @@ def getfiles(fldr, part=None, nameonly=False):
     @param nameonly : don't return the full-path
     """
 
-    if fldr:
-        fldr = appathsep(fldr)
+    if fldr and path.exists(fldr):
         if part:
             part = part.lower()
             fns = [x if version_info.major >= 3 else str(x, getfilesystemencoding())
@@ -215,8 +214,9 @@ def getfiles(fldr, part=None, nameonly=False):
             fns = [x if version_info.major >= 3 else str(x, getfilesystemencoding())
                    for x in listdir(fldr)]
         if not nameonly:
-            fns = [fldr + x for x in fns]
-    return fns
+            fns = [path.join(fldr, x) for x in fns]
+        return fns
+    return None
 
 
 def daterange(year, month, day=1):
