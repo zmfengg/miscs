@@ -20,7 +20,7 @@ from sys import getfilesystemencoding, version_info
 import tkinter as tk
 
 __all__ = ["NamedList", "NamedLists", "appathsep", "daterange", "deepget", "getfiles", "getvalue", "isnumeric",
-           "imagesize", "list2dict", "na", "splitarray", "triml", "trimu", "updateopts", "removews", "easydialog"]
+           "imagesize", "list2dict", "na", "splitarray", "triml", "trimu", "updateopts", "removews", "easydialog", "easymsgbox"]
 
 na = "N/A"
 
@@ -501,4 +501,18 @@ def easydialog(dlg):
     rt.quit()
     # rt.mainloop()
     # rt.destroy()
+    return rc
+
+def easymsgbox(box, *args):
+    """
+    show a messagebox with provided arguments, common snippets, the only usage is to hide the master window:
+    from tkinter import messagebox as mb
+    rc = easymsgbox(mb.showinfo, "hello", "you")
+    or 
+    rc = easymsgbox(mb.askyesno, "attention", "need to delete sth?")
+    """
+    rt = tk.Tk()
+    rt.withdraw()
+    rc = box(*args, master=rt)
+    rt.quit()
     return rc
