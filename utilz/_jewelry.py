@@ -38,6 +38,8 @@ def stsizefmt(sz, shortform=False):
         return len(segs) - 1
 
     def _fmtpart(s0, shortform):
+        if not s0:
+            return None
         ln = len(s0)
         if ln < 4 or s0.find(".") >= 0:
             s0 = "%04d" % (float(s0) * 100)
@@ -50,7 +52,10 @@ def stsizefmt(sz, shortform=False):
                     s0[ii] = "%d" % (int(s0[ii]) / 100)
         return s0
 
-    sz = sz.strip().upper()
+    if not isinstance(sz, str):
+        sz = str(sz)
+    else:
+        sz = trimu(sz)
     segs, parts, idx, rng = [""], [], 0, False
     for x in sz:
         if x.isdigit() or x == ".":
@@ -64,14 +69,16 @@ def stsizefmt(sz, shortform=False):
                 break
         elif rng:
             break
-    for x in segs:
+    if not any(segs):
+        return sz
+    for x in [x for x in segs if x]:
         x = _fmtpart(x, shortform)
         if isinstance(x, str):
             parts.append(x)
         else:
             parts.extend(x)
     return ("-" if rng else "X").join(sorted(parts, reverse=True))
-  
+
 Karat = namedtuple("Karat","karat,name,fineness,category,color")
 
 class KaratSvc(object):

@@ -64,6 +64,9 @@ class KeySuite(TestCase):
             r[1].run()
 
     def testStsize(self):
+        self.assertEqual("N/A", stsizefmt("N/A"), "Not a valid stone size")
+        self.assertEqual("N/A", stsizefmt("n/a"), "Not a valid stone size")
+        self.assertEqual("0300", stsizefmt("3tk"), "Not a valid stone size")
         self.assertEqual("0500X0400X0300",stsizefmt("3x4x5mm") ,"Size format")
         self.assertEqual("0500X0400X0300",stsizefmt("3x4x5") ,"Size format")
         self.assertEqual("0530X0400X0350",stsizefmt("3.5x4.0x5.3") ,"Size format")

@@ -20,7 +20,7 @@ from sys import getfilesystemencoding, version_info
 import tkinter as tk
 
 __all__ = ["NamedList", "NamedLists", "appathsep", "daterange", "deepget", "getfiles", "getvalue", "isnumeric",
-           "imagesize", "list2dict", "na", "splitarray", "triml", "trimu", "updateopts", "removews", "easydialog"]
+           "imagesize", "list2dict", "na", "splitarray", "triml", "trimu", "updateopts", "removews", "easydialog", "easymsgbox"]
 
 na = "N/A"
 
@@ -205,8 +205,7 @@ def getfiles(fldr, part=None, nameonly=False):
     @param nameonly : don't return the full-path
     """
 
-    if fldr:
-        fldr = appathsep(fldr)
+    if fldr and path.exists(fldr):
         if part:
             part = part.lower()
             fns = [x if version_info.major >= 3 else str(x, getfilesystemencoding())
@@ -215,8 +214,9 @@ def getfiles(fldr, part=None, nameonly=False):
             fns = [x if version_info.major >= 3 else str(x, getfilesystemencoding())
                    for x in listdir(fldr)]
         if not nameonly:
-            fns = [fldr + x for x in fns]
-    return fns
+            fns = [path.join(fldr, x) for x in fns]
+        return fns
+    return None
 
 
 def daterange(year, month, day=1):
@@ -501,4 +501,18 @@ def easydialog(dlg):
     rt.quit()
     # rt.mainloop()
     # rt.destroy()
+    return rc
+
+def easymsgbox(box, *args):
+    """
+    show a messagebox with provided arguments, common snippets, the only usage is to hide the master window:
+    from tkinter import messagebox as mb
+    rc = easymsgbox(mb.showinfo, "hello", "you")
+    or 
+    rc = easymsgbox(mb.askyesno, "attention", "need to delete sth?")
+    """
+    rt = tk.Tk()
+    rt.withdraw()
+    rc = box(*args, master=rt)
+    rt.quit()
     return rc
