@@ -576,7 +576,7 @@ class PajShpHdlr(object):
         def _extring(x):
             return x[:8] + x[10:]
         items, td0, qmap = {}, datetime.today(), None
-        nls = tuple(NamedLists(vvs,{"odx": u"订单号", "invdate": u"发票日期", "odseq": u"订单序号","stwgt": u"平均单件石头,XXX", "invno": u"发票号", "orderno": u"订单号序号", "pcode": u"十七位,十七,物料","mtlwgt": u"平均单件金,XX", "jono": u"工单,job", "qty": u"数量", "cost": u"cost"}))
+        nls = tuple(NamedLists(vvs,{"odx": u"订单号", "invdate": u"发票日期", "odseq": u"订单,序号","stwgt": u"平均单件石头,XXX", "invno": u"发票号", "orderno": u"订单号序号", "pcode": u"十七位,十七,物料","mtlwgt": u"平均单件金,XX", "jono": u"工单,job", "qty": u"数量", "cost": u"cost"}))
         th = nls[0]
         x = [x for x in "invno,pcode,jono,qty,invdate".split(
             ",") if th.getcol(x) is None]
@@ -617,6 +617,9 @@ class PajShpHdlr(object):
             for tr in nls:
                 if not tr.pcode:
                     break
+                if not tr.odseq or tr.odseq[:2] == "CR":
+                    logger.debug("repairing(%s) item found, skipped",tr.pcode)
+                    continue
                 jono = tr.jono
                 mwgt = _getbomwgt(bomwgts, bomwgtsrng, tr.pcode)
                 if not mwgt:

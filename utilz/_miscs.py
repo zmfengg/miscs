@@ -51,7 +51,7 @@ def getvalue(dct, key, def_val=None):
     for kw in key.split(","):
         i = 0
         while i < 3:
-            if key in dct:
+            if kw in dct:
                 return dct.get(kw)
             i += 1
             kw = trimu(kw) if i == 1 else triml(kw)

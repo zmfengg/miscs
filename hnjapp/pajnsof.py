@@ -7,34 +7,199 @@
 classes help to do to JO -> PAJ NSOF actions
 '''
 
-import os
-from os import path
+import io
+from os import (path, remove, rename, listdir, makedirs)
+import re
+import struct
+from datetime import date
 from tempfile import gettempdir
-import pytesseract as tess
 
-import cv2
 import numpy as np
-from cv2 import GaussianBlur
-from PIL import Image, ImageFilter
+import PyPDF2
+import pytesseract as tess
+from cv2 import (COLOR_BGR2GRAY, GaussianBlur, THRESH_BINARY, TM_CCOEFF_NORMED, TM_SQDIFF, TM_SQDIFF_NORMED,
+                 cvtColor, imread, imshow, imwrite, matchTemplate, minMaxLoc, rectangle, threshold, waitKey)
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
+from hnjcore import JOElement
 from utilz import getfiles
 
+from .common import _logger as logger
 from .common import thispath
 
 
 class JOImgOcr(object):
-    """ class to do OCR
+    """
+    class to do OCR
     """
 
     #_ordbrd = (0.7, 0.1, 1, 0.4); _smpbrd = (0.7, 0.2, 1, 0.45)
     _jn_brds = (0.7, 0.1, 1, 0.45)
     _imgtpls, _tpl_h_w, _imgwss = (None,) * 3
-    _mt = cv2.TM_CCOEFF_NORMED
+    _mt = TM_CCOEFF_NORMED
     _jn_invalid = set([x for x in "(Cc. |J%“¢<£"])
     _jn_rpl = dict([x.split(",") for x in "b,6;E,8;),1".split(";")])
+    _dpi = (200, 200)
+    _rsz_height = 1170
+    _ocr_using_tiff = False
+
+    def rename(self, pdf_fldr, tar_fldr):
+        """
+        extract image(jpg) from given pdf_fldr, rename them to JO#
+        @param pdf_fldr: the folder contains the pdf files, I will choose the
+        file with the most-updated date to rename
+        @param tar_fldr: the folder to save the files to
+        @return: None if everyting is OK. else A list with 2 list as element,
+            first contains the un-renamed files(str),
+            second contains the master JOs not found(str).
+        """
+        if True:
+            # slow, in debug mode, don't do this again and again
+            fns = self.pdff2img(pdf_fldr, tar_fldr)
+        else:
+            fns = getfiles(tar_fldr, ".jpg")
+        pdfs, f0, d0, wrongs = {}, set(), {}, []
+        import socket
+        td = (date.today().strftime("%Y-%m-%d"), socket.gethostname())
+        del socket
+        for fn in fns:  # the first one is the cover sheet, won't extract anything
+            var = self.img2jn(fn)
+            if var is None:
+                f0 = f0.union(self._buildjnlist(fn))
+                logger.debug("%d master JO#s extracted", len(f0))
+            else:
+                img = Image.open(fn)
+                img.load()
+                o_sz = img.size
+                o_sz = (int(o_sz[0] * self._rsz_height / o_sz[1]), self._rsz_height)
+                img.thumbnail(o_sz)
+                img.save(fn, dpi=self._dpi)
+                pdfs[fn] = var
+                d0[var[0]] = fn
+        if not f0:
+            f0 = set()
+        for fn in pdfs.items():
+            if fn[1] not in f0:
+                wrongs.append(fn)
+            else:
+                f0.remove(fn[1])
+        # perform a familiar match or just return
+        d0, f0 = None, sorted([x for x in pdfs.values()])
+        #f0 = {f0[x]: x for x in range(len(f0))}
+        f0 = dict(zip(f0, range(len(f0))))
+        for fn in pdfs.items():
+            if not d0:
+                d0 = path.splitext(fn[0])[1]
+                fns = path.dirname(fn[0])
+            img = Image.open(fn[0])
+            img.load()
+            self._chop(img, "%s, %d of %d, by %s" % (td[0], f0[fn[1]] + 1, len(pdfs), td[1]))
+            img.save(fn[0])
+            rename(fn[0], path.join(fns, fn[1] + d0))
+        return (tuple(x[0] for x in wrongs), tuple(f0)) if (wrongs or f0) else None
+
+    def pdff2img(self, pdf_fldr, tar_fldr):
+        """
+        extract the images from folder contains pdf
+        """
+        pdfs, d0, fn = getfiles(pdf_fldr, "pdf"), 0, None
+        var = {x: path.getmtime(x) for x in pdfs}
+        for fd in var.items():
+            if fd[1] > d0:
+                d0, fn = fd[1], fd[0]
+        fn = path.splitext(path.basename(fn))[0]
+        fn = fn[:(fn.find("(") - 1)].strip()
+        logger.debug("Begin to extract image, PDF family detected as %s", fn)
+        pdfs, fns = sorted([x for x in pdfs if path.basename(x).find(fn) == 0]), []
+        for d0 in pdfs:
+            fns.extend(self.pdf2img(d0, tar_fldr, len(fns)))
+        logger.debug("Totally %d images extracted from pdf family(%s)" % (len(fns), fn))
+        return fns
+
+    def crop_pdff(self, pdf_fldr, tar_fldr):
+        """
+        crop the pdf in the folder
+        """
+        fns = self.pdff2img(pdf_fldr, tar_fldr)
+        if not fns:
+            return
+        lst = []
+        for fn in fns:
+            fn = self._crop(fn)
+            if fn:
+                lst.append(fn)
+        return lst
+
+    def crop_imgs(self, fldr):
+        fns = getfiles(fldr, ".jpg")
+        if not fns:
+            return
+        lst = []
+        for fn in fns:
+            fn = self._crop(fn)
+            if fn:
+                lst.append(fn)
+        return lst
+
+
+    def _buildjnlist(self, list_fn):
+        """
+        return a set of JO#s from the provided image file
+        """
+
+        img = imread(list_fn)
+        img = cvtColor(img, COLOR_BGR2GRAY)
+        try:
+            img = self._sharpen(img)
+            list_fn = path.join(gettempdir(), path.basename(list_fn))
+            self._savecv2img(img, self._dpi, list_fn)
+            txt = tess.image_to_string(list_fn, lang="eng")
+        finally:
+            remove(list_fn)
+        # method1, the ocr recognizes it as one column
+        lsts, stage = [[], []], re.compile(r"[0-9A-Z]\d{4,8}")
+        for x in txt.split("\n"):
+            paused = stage.findall(x)
+            if len(paused) < 2:
+                continue
+            # only at the first 2 columns
+            paused = x.split(" ")
+            if not stage.search(paused[0]) and stage.search(paused[1]):
+                continue
+            for y in range(2):
+                lsts[y].append(paused[y])
+        if not (lsts[0] and len(lsts[0]) == len(lsts[1])):
+            lsts, stage, paused = [[], []], -1, True
+            for x in txt.split("\n"):
+                if not x:
+                    continue
+                if stage == -1 and x.find("F)") > 0:
+                    stage, paused = 0, False
+                    continue
+                elif stage == 0 and x.find("T)") > 0:
+                    stage, paused = 1, False
+                    continue
+                if stage == -1:
+                    continue
+                if len(x) < 5:
+                    if stage == 1:
+                        break
+                    paused = True
+                    continue
+                if paused:
+                    continue
+                lsts[stage].append(self._parsejo(x))
+        txt = set()
+        for x in zip(lsts[0], lsts[1]):
+            if x[0] == x[1]:
+                txt.add(x[0])
+            for stage in range(JOElement(x[0]).digit, JOElement(x[1]).digit + 1):
+                txt.add(JOElement("%s%d" % (x[0][0], stage)).value)
+        return txt
 
     def sharpen(self, fldr, newfile=True):
-        """ generate a blur->thread image from the existing one, saved as oldfn_0.jpg, only the dpi meta data is kept.
+        """
+        generate a blur->thread image from the existing one, saved as oldfn_0.jpg, only the dpi meta data is kept.
         """
         dpi = None
         if path.isdir(fldr):
@@ -49,16 +214,16 @@ class JOImgOcr(object):
             if not dpi:
                 img = Image.open(fn)
                 img.load()
-                dpi = img.__getstate__()[0].get("dpi")
+                dpi = img.info.get('dpi')
                 img.close()
-            img = cv2.imread(fn, 0)
+            img = imread(fn, 0)
             img = self._sharpen(img)
             if newfile:
                 bn = path.splitext(path.basename(fn))
                 fn0 = path.join(root, "%s_0%s" % (bn[0], bn[1]))
             else:
                 fn0 = fn
-            cv2.imwrite(fn0, img)
+            imwrite(fn0, img)
             # CV2 does not save metadata, while dpi is very important for OCR
             # So use PIL's image to append the DPI
             img = Image.open(fn0, mode="r")
@@ -67,54 +232,72 @@ class JOImgOcr(object):
         return zip(fns, rst)
 
     @staticmethod
-    def _sharpen(cv2img):
-        return cv2.threshold(GaussianBlur(cv2img, (5, 5), 0), 160, 255, cv2.THRESH_BINARY)[1]
+    def _sharpen(cv2img, mode="normal"):
+        if mode == "normal":
+            gr, th = (5, 5), (160, 255)
+        elif mode == "bad":
+            gr, th = (5, 5), (160, 255)
+        else:
+            gr, th = (5, 5), (140, 255)
+        return threshold(GaussianBlur(cv2img, gr, 0), th[0], th[1], THRESH_BINARY)[1]
 
-    @staticmethod
-    def _getdpi(pilimg):
+    def _getdpi(self, pilimg):
         """ get dpi from a PIL image, not cv2 image """
         # img.load()
         try:
-            dpi = pilimg.__getstate__()[0].get("dpi")
+            pilimg.info.get("dpi")
+            #dpi = pilimg.__getstate__()[0].get("dpi")
         except:
-            dpi = (200, 200)
+            dpi = self._dpi
         return dpi
 
     @staticmethod
     def _findtpl(imgsrc, imgtpl, method):
-        res = cv2.matchTemplate(imgsrc, imgtpl, method)
-        maxv, min_loc, max_loc = cv2.minMaxLoc(res)[1:]
+        res = matchTemplate(imgsrc, imgtpl, method)
+        maxv, min_loc, max_loc = minMaxLoc(res)[1:]
         if maxv < 0.5:
             return None
-        return min_loc if method in (cv2.TM_SQDIFF, cv2.TM_SQDIFF_NORMED) else max_loc
+        return min_loc if method in (TM_SQDIFF, TM_SQDIFF_NORMED) else max_loc
 
     @staticmethod
     def _savecv2img(img, dpi, tarfn):
-        cv2.imwrite(tarfn, img)
+        imwrite(tarfn, img)
         if dpi:
             img = Image.open(tarfn, mode="r")
             img.save(tarfn, dpi=dpi)
         return tarfn
 
-    def extract(self, jofn, tarfn=None, showframe=False):
+    def img2jn(self, jofn, tarfn=None):
         """
         provide the raw jophoto, return the JO# candidiates(as tuple) of it
         if tarfn is provided, the result image will be saved to that file
         @param: 
         """
+        flag = tarfn is None
+        try:
+            tarfn = self._crop(jofn, tarfn)
+            if not tarfn:
+                return None
+            return self._parsejo(tess.image_to_string(tarfn, lang="eng"))  # lang="hnj"
+        finally:
+            if flag and tarfn and path.exists(tarfn):
+                remove(tarfn)
+
+    def _crop(self, srcfn, tarfn=None, showui=False):
+        """
+        crop the JO# part out from the JO image, return tuple(tar_fn:str, smpFlag:bool)        
+        """
         if not self._imgtpls:
             imgsrc = path.join(thispath, "res")
-            self._imgtpls = [cv2.imread(path.join(imgsrc, jofn)) for jofn in ("JOTpl.jpg", "SmpTpl.jpg")]
+            self._imgtpls = [imread(path.join(imgsrc, fn)) for fn in ("JOTpl.jpg", "SmpTpl.jpg")]
             self._tpl_h_w = [x.shape[:-1] for x in self._imgtpls]
-            self._imgwss = [cv2.cvtColor(cv2.imread(path.join(imgsrc, jofn)), cv2.COLOR_BGR2GRAY)
-                            for jofn in ("JOWs.jpg", "SmpWs.jpg")]
-        imgsrc = cv2.imread(jofn)
+            self._imgwss = [cvtColor(imread(path.join(imgsrc, fn)), COLOR_BGR2GRAY)
+                            for fn in ("JOWs.jpg", "SmpWs.jpg")]
+        imgsrc = imread(srcfn)
         # crop it to the JO# area
         brds = self._jn_brds
         hw0 = imgsrc.shape[:-1]
         imgsrc = imgsrc[int(brds[1]*hw0[0]):int(brds[3]*hw0[0]), int(brds[0]*hw0[1]):int(brds[2]*hw0[1])]
-        # TODO::read dpi from cv2 instead of image
-        dpi = (200, 200)
         hw0, img, idx = imgsrc.shape[:-1], None, 0
         for idx in range(len(self._imgtpls)):
             top_left = JOImgOcr._findtpl(imgsrc, self._imgtpls[idx], self._mt)
@@ -135,32 +318,27 @@ class JOImgOcr(object):
                     img[:self._tpl_h_w[idx][0], ttlw:w + ttlw] = it[1]
                     ttlw += w
             else:
-                img = imgs[0]
-            if showframe:
-                for y in brds:
-                    cv2.rectangle(imgsrc, y[0], y[1], 255, 2)
-                cv2.imshow("tempRst", imgsrc)
-                cv2.waitKey()
-        top_left = None
-        if img is not None:
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            img = self._sharpen(img)
-            if False and self._imgwss[idx] is not None:
-                # can not find a good template, always return (0,0)
-                top_left = JOImgOcr._findtpl(img, self._imgwss[idx], self._mt)
-                if top_left and any(top_left):
-                    img = img[0:top_left[1], 0: top_left[0]]
-            bottom_right = bool(tarfn)
-            try:
-                if not tarfn:
-                    brds = path.splitext(path.basename(jofn))
-                    tarfn = path.join(gettempdir(), brds[0] + "_cropped" + brds[1])
-                self._savecv2img(img, dpi, tarfn)
-                top_left = self._parsejo(tess.image_to_string(tarfn, lang="eng"))#lang="hnj"
-            finally:
-                if not bottom_right and tarfn:
-                    os.remove(tarfn)
-        return top_left
+                img = imgs[0]            
+        if img is None:
+            return None
+        if showui:
+            for y in brds:
+                rectangle(imgsrc, y[0], y[1], 255, 2)
+            imshow("tempRst", imgsrc)
+            waitKey()
+        img = cvtColor(img, COLOR_BGR2GRAY)
+        img = self._sharpen(img)
+        if False and self._imgwss[idx] is not None:
+            # can not find a good template, always return (0,0)
+            top_left = JOImgOcr._findtpl(img, self._imgwss[idx], self._mt)
+            if top_left and any(top_left):
+                img = img[0:top_left[1], 0: top_left[0]]
+        if not tarfn:
+            brds = path.splitext(path.basename(srcfn))
+            tarfn = path.join(gettempdir(), brds[0] + "_cropped" + brds[1])
+        # read dpi from cv2 instead of image?
+        self._savecv2img(img, self._dpi, tarfn)
+        return tarfn
 
     def _parsejo(self, txt):
         lst, idx, s0 = [], 0, [self._jn_rpl.get(x, x) for x in txt if x not in self._jn_invalid]
@@ -168,7 +346,7 @@ class JOImgOcr(object):
             if not ('A' <= ch <= 'Z' or '0' <= ch <= '9'):
                 continue
             if idx == 0:
-                if ch in ('S', 'M', 'C'):
+                if ch in ('S', 'C'):
                     continue
                 elif ch in ('2', '3', '8'):
                     ch = "B"
@@ -176,8 +354,9 @@ class JOImgOcr(object):
                 continue
             lst.append(ch)
             idx += 1
-        return ("".join(lst), txt)
+        return "".join(lst)
 
+    """
     def _optbyPIL(self, img):
         # this don't work, at least I can not get prefered result, use cv2
         return img
@@ -185,3 +364,78 @@ class JOImgOcr(object):
         for fltr in gfs:
             img.filter(fltr)
         return img
+    """
+
+    def pdf2img(self, fn, tar_fldr, start=0):
+        r"""
+        Thanks to https://stackoverflow.com/questions/2641770/extracting-image-from-pdf-with-ccittfaxdecode-filter
+        Links:
+        PDF format: http://www.adobe.com/content/dam/Adobe/en/devnet/acrobat/pdfs/pdf_reference_1-7.pdf
+        CCITT Group 4: https://www.itu.int/rec/dologin_pub.asp?lang=e&id=T-REC-T.6-198811-I!!PDF-E&type=items
+        Extract images from pdf: http://stackoverflow.com/questions/2693820/extract-images-from-pdf-without-resampling-in-python
+        Extract images coded with CCITTFaxDecode in .net: http://stackoverflow.com/questions/2641770/extracting-image-from-pdf-with-ccittfaxdecode-filter
+        TIFF format and tags: http://www.awaresystems.be/imaging/tiff/faq.html
+        """
+        def tiff_header_for_CCITT(width, height, img_size, CCITT_group=4):
+            tiff_header_struct = '<' + '2s' + 'h' + 'l' + 'h' + 'hhll' * 8 + 'h'
+            return struct.pack(tiff_header_struct,
+                               b'II',  # Byte order indication: Little indian
+                               42,  # Version number (always 42)
+                               8,  # Offset to first IFD
+                               8,  # Number of tags in IFD
+                               256, 4, 1, width,  # ImageWidth, LONG, 1, width
+                               257, 4, 1, height,  # ImageLength, LONG, 1, lenght
+                               258, 3, 1, 1,  # BitsPerSample, SHORT, 1, 1
+                               259, 3, 1, CCITT_group,  # Compression, SHORT, 1, 4 = CCITT Group 4 fax encoding
+                               262, 3, 1, 0,  # Threshholding, SHORT, 1, 0 = WhiteIsZero
+                               273, 4, 1, struct.calcsize(tiff_header_struct),  # StripOffsets, LONG, 1, len of header
+                               278, 4, 1, height,  # RowsPerStrip, LONG, 1, lenght
+                               279, 4, 1, img_size,  # StripByteCounts, LONG, 1, size of image
+                               0  # last IFD
+                               )
+        fns = []
+        with open(fn, 'rb') as fh:
+            rdr = PyPDF2.PdfFileReader(fh)
+            for page in rdr.pages:
+                xobjs = page['/Resources']['/XObject'].getObject()
+                for obj in [xobjs[x] for x in xobjs if xobjs[x]['/Subtype'] == '/Image']:
+                    data, img_name = None, None
+                    if obj['/Filter'] == '/CCITTFaxDecode':
+                        data, o_sz = obj._data, (obj['/Width'], obj['/Height'])# getData() does not work for CCITTFaxDecode
+                        data = tiff_header_for_CCITT(o_sz[0], o_sz[1], len(
+                            data), (4 if obj['/DecodeParms']['/K'] == -1 else 3)) + data
+                        if self._ocr_using_tiff:
+                            img_name = '.tiff'                            
+                        else:
+                            img_name = '.jpg'
+                    elif obj["/Filter"] == '/DCTDecode':
+                        #jpeg directly
+                        img_name = ".jpg"
+                        data = obj._data
+                    if not img_name:
+                        continue
+                    start, o_sz, img_name = start + 1, img_name, path.join(tar_fldr, "%04d" % start) + img_name
+                    if not path.exists(path.dirname(img_name)):
+                        makedirs(path.dirname(img_name))
+                    if o_sz == ".tiff":
+                        with open(img_name, 'wb') as img:
+                            img.write(data)
+                    elif o_sz == ".jpg":
+                        img = Image.open(io.BytesIO(data)).convert("RGB")
+                        img.save(img_name, dpi=self._dpi)
+                    fns.append(img_name)
+        return fns
+
+    def _chop(self, img, txt):
+        ref_sz = 1654, 2340
+        org_pt = 80, 120  # upper-right corner of the textbox, under ref_sz
+        iz = img.size
+
+        def _scale(val, direct=None):
+            idx = 0 if direct == 'x' else 1
+            return int(1.0 * val / ref_sz[idx] * iz[idx])
+        cav = ImageDraw.Draw(img)
+        fnt = ImageFont.truetype("arial.ttf", _scale(35, "y"))
+        tz = cav.textsize(txt, fnt)
+        tz = (iz[0] - tz[0] - _scale(org_pt[0], "x"), int(iz[1] - 0.5 * _scale(org_pt[1]) - 0.5 * tz[1]))
+        cav.text(tz, txt, fill="black", font=fnt)
