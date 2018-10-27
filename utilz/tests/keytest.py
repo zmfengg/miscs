@@ -235,34 +235,36 @@ class KeySuite(TestCase):
 
 #@unittest.skip("no excel")
 class XwuSuite(TestCase):
+    _hasxls = None
 
-    @classmethod
-    def setUpClass(self):        
+    def setUp(self):        
+        if self._hasxls is not None:
+            return
         try:
             self.app, self.tk = xwu.appmgr.acq()
-            self.hasxls = True
+            self._hasxls = True
         except:
             self.app, self.tk = (None,) * 2
-            self.hasxls = False
-        if not self.hasxls:
+            self._hasxls = False
+        if not self._hasxls:
             logger.debug("No excel is available")
         
     @classmethod
     def tearDownClass(self):
-        if self.hasxls:
+        if self._hasxls:
             xwu.appmgr.ret(self.tk)
 
     def fail_noexcel(self):
         self.fail("no excel was available, Pls. install one")
 
     def testappmgr(self):
-        if not self.hasxls:
+        if not self._hasxls:
             self.fail_noexcel()
             return            
         #xlwings.apps.count is not reliable, don't need to test
 
     def testxwuappswitch(self):
-        if not self.hasxls:
+        if not self._hasxls:
             self.fail_noexcel()
             return        
         app = self.app
@@ -290,7 +292,7 @@ class XwuSuite(TestCase):
         #now test a very often use ability, read data from (excel) and handle it
         #now think of use NamedRanges, better ability to detect even if there is merged range
         #without NamedList(s), I have to use tr[map[name]] to get the value
-        if not self.hasxls:
+        if not self._hasxls:
             self.fail_noexcel()
             return
         fn = getfiles(resfldr,"NamedList")[0]
@@ -311,14 +313,27 @@ class XwuSuite(TestCase):
         emp = nl.__next__()
         self.assertEqual(datetime.datetime(1998,1,3,0,0), emp["edate"],"get date use translated name")        
 
+    def testDetectBorder(self):
+        if not self._hasxls:
+            self.fail_noexcel()
+            return
+        app = self.app
+        wb = app.books.open(path.join(thispath,"res","getTableData.xlsx"))
+        sht = wb.sheets["borderdect"]
+        rng = xwu.find(sht, 1)
+        rng = xwu.detectborder(rng)
+        self.assertEqual("$B$2:$F$8", rng.address, "very regular region")
+        rng = xwu.detectborder(xwu.find(sht, 2))
+        self.assertEqual("$B$12:$G$19", rng.address, "mal-form shape")
+
     def testGetTableData(self):
-        if not self.hasxls:
+        if not self._hasxls:
             self.fail_noexcel()
             return
         app = self.app
         wb = app.books.open(path.join(thispath,"res","getTableData.xlsx"))
         nmap = {"id":"id,","9k":"9k,","S950":"S950,"}
-        sht = wb.sheets[0]
+        sht = wb.sheets["gettabledata"]
         
         s0 = "No Merge,FirstMerge,NonFirstmerge,3Rows"
         #s0 = "FirstMerge,NonFirstmerge,3Rows"
