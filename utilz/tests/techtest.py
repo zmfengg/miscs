@@ -15,6 +15,7 @@ import pytesseract as tesseract
 from PIL import Image, ImageFile
 
 from utilz import getfiles, imagesize
+from argparse import ArgumentParser
 
 
 class TechTests(TestCase):
@@ -148,3 +149,24 @@ class TesseractSuite(TestCase):
 
     def testParse(self):
         pass
+
+class ArgParserTest(TestCase):
+    """
+    test for the argument parser
+    After many tests, know 
+    """
+    def testSingle(self):
+        ap = ArgumentParser("testPrg") #, "usage of what?", "program try the argument parser", add_help=True)
+        ap.add_argument("-w", "--date1[,date2]", default="def_x")
+        ap.parse_args(["-h"])
+        return
+        #ap.add_argument("kill", default="def_bill")
+        print(ap.parse_args(["-w", "kk"]))
+        #print(ap.parse_args(["-xxx", "kk"]))
+        #print(ap.parse_args(["-h"]))
+        """
+        print(ap.parse_args(["kill"]))
+        print(ap.parse_args(["-w", "what what"]))
+        print(ap.parse_args(["-w"]))
+        print(ap.parse_args(["-w", "kill"]))
+        """

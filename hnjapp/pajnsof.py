@@ -8,7 +8,7 @@ classes help to do to JO -> PAJ NSOF actions
 '''
 
 import io
-from os import (path, remove, rename, listdir, makedirs)
+from os import (path, remove, rename, makedirs)
 import re
 import struct
 from datetime import date
@@ -19,13 +19,12 @@ import PyPDF2
 import pytesseract as tess
 from cv2 import (COLOR_BGR2GRAY, GaussianBlur, THRESH_BINARY, TM_CCOEFF_NORMED, TM_SQDIFF, TM_SQDIFF_NORMED,
                  cvtColor, imread, imshow, imwrite, matchTemplate, minMaxLoc, rectangle, threshold, waitKey)
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageDraw, ImageFont
 
 from hnjcore import JOElement
-from utilz import getfiles
+from utilz import (getfiles, lvst_dist)
 
-from .common import _logger as logger
-from .common import thispath
+from .common import (_logger as logger, thispath)
 
 
 class JOImgOcr(object):
@@ -35,7 +34,7 @@ class JOImgOcr(object):
 
     #_ordbrd = (0.7, 0.1, 1, 0.4); _smpbrd = (0.7, 0.2, 1, 0.45)
     _jn_brds = (0.7, 0.1, 1, 0.45)
-    _imgtpls, _tpl_h_w, _imgwss = (None,) * 3
+    _imgtpls, _tpl_h_w, _imgwss, _tpl_b = (None,) * 4
     _mt = TM_CCOEFF_NORMED
     _jn_invalid = set([x for x in "(Cc. |J%“¢<£"])
     _jn_rpl = dict([x.split(",") for x in "b,6;E,8;),1".split(";")])
@@ -75,17 +74,26 @@ class JOImgOcr(object):
                 img.thumbnail(o_sz)
                 img.save(fn, dpi=self._dpi)
                 pdfs[fn] = var
-                d0[var[0]] = fn
+                d0[var] = fn
         if not f0:
             f0 = set()
+        else:
+            logger.debug("JO#s are: %s" % ",".join(f0))
         for fn in pdfs.items():
-            if fn[1] not in f0:
-                wrongs.append(fn)
-            else:
+            if fn[1] in f0:
                 f0.remove(fn[1])
-        # perform a familiar match or just return
+                del d0[fn[1]]
+        if d0:
+            #logger.debug("JOs(%s) in list were not found" % d0)
+            #logger.debug("while file namings(%s)" % f0)
+            # find the best-match missing JO# and try the renaming
+            var = {}
+            for fn in d0.items():
+                o_sz = sorted([(lvst_dist(fn[0], x), x) for x in f0], key=lambda x: x[0])[0]
+                var.setdefault(o_sz[1], []).append((fn[1], o_sz[1]))  # (fn, dist_jo)
+                f0.remove(o_sz[1])
+                logger.debug("candidate naming is %s(%s) -> %s" % (fn[1], fn[0], o_sz[1]))
         d0, f0 = None, sorted([x for x in pdfs.values()])
-        #f0 = {f0[x]: x for x in range(len(f0))}
         f0 = dict(zip(f0, range(len(f0))))
         for fn in pdfs.items():
             if not d0:
@@ -95,6 +103,7 @@ class JOImgOcr(object):
             img.load()
             self._chop(img, "%s, %d of %d, by %s" % (td[0], f0[fn[1]] + 1, len(pdfs), td[1]))
             img.save(fn[0])
+            logger.debug("file(%s) renamed to %s" % (path.basename(fn[0]), fn[1] + d0))
             rename(fn[0], path.join(fns, fn[1] + d0))
         return (tuple(x[0] for x in wrongs), tuple(f0)) if (wrongs or f0) else None
 
@@ -102,8 +111,8 @@ class JOImgOcr(object):
         """
         extract the images from folder contains pdf
         """
-        pdfs, d0, fn = getfiles(pdf_fldr, "pdf"), 0, None
-        var = {x: path.getmtime(x) for x in pdfs}
+        pdfs, d0, fn, ptn = getfiles(pdf_fldr, "pdf"), 0, None, re.compile(r"\d8")
+        var = {x: path.getmtime(x) for x in pdfs if ptn.search(path.basename(x))}
         for fd in var.items():
             if fd[1] > d0:
                 d0, fn = fd[1], fd[0]
@@ -122,7 +131,7 @@ class JOImgOcr(object):
         """
         fns = self.pdff2img(pdf_fldr, tar_fldr)
         if not fns:
-            return
+            return None
         lst = []
         for fn in fns:
             fn = self._crop(fn)
@@ -131,16 +140,18 @@ class JOImgOcr(object):
         return lst
 
     def crop_imgs(self, fldr):
+        """
+        crop the images(jpg) inside fldr
+        """
         fns = getfiles(fldr, ".jpg")
         if not fns:
-            return
+            return None
         lst = []
         for fn in fns:
             fn = self._crop(fn)
             if fn:
                 lst.append(fn)
         return lst
-
 
     def _buildjnlist(self, list_fn):
         """
@@ -152,7 +163,7 @@ class JOImgOcr(object):
         try:
             img = self._sharpen(img)
             list_fn = path.join(gettempdir(), path.basename(list_fn))
-            self._savecv2img(img, self._dpi, list_fn)
+            self._savecv2img(img, list_fn)
             txt = tess.image_to_string(list_fn, lang="eng")
         finally:
             remove(list_fn)
@@ -233,13 +244,15 @@ class JOImgOcr(object):
 
     @staticmethod
     def _sharpen(cv2img, mode="normal"):
-        if mode == "normal":
+        # return cv2img
+        if not mode or mode == "normal":
             gr, th = (5, 5), (160, 255)
-        elif mode == "bad":
+        elif mode == "smpl":
             gr, th = (5, 5), (160, 255)
         else:
             gr, th = (5, 5), (140, 255)
         return threshold(GaussianBlur(cv2img, gr, 0), th[0], th[1], THRESH_BINARY)[1]
+        return threshold(threshold(GaussianBlur(cv2img, gr, 0), th[0], th[1], THRESH_BINARY)[1], 127, 255, THRESH_BINARY)[1]
 
     def _getdpi(self, pilimg):
         """ get dpi from a PIL image, not cv2 image """
@@ -259,37 +272,57 @@ class JOImgOcr(object):
             return None
         return min_loc if method in (TM_SQDIFF, TM_SQDIFF_NORMED) else max_loc
 
-    @staticmethod
-    def _savecv2img(img, dpi, tarfn):
+    def _savecv2img(self, img, tarfn, dpi=None):
         imwrite(tarfn, img)
-        if dpi:
-            img = Image.open(tarfn, mode="r")
-            img.save(tarfn, dpi=dpi)
+        if not dpi:
+            dpi = self._dpi
+        img = Image.open(tarfn, mode="r")
+        img.save(tarfn, dpi=dpi)
         return tarfn
 
     def img2jn(self, jofn, tarfn=None):
         """
         provide the raw jophoto, return the JO# candidiates(as tuple) of it
         if tarfn is provided, the result image will be saved to that file
-        @param: 
+        @param:
         """
         flag = tarfn is None
         try:
-            tarfn = self._crop(jofn, tarfn)
+            # in the case of new sample image, when the size >= 500K, it's a very
+            # bad-quantity image(for example, B71586), I should optimize it first
+            if path.getsize(jofn) > 1024 * 1024:
+                img = imread(jofn)
+                img = cvtColor(img, COLOR_BGR2GRAY)
+                img = self._sharpen(img, "verybad")
+                self._savecv2img(img, jofn)
+            tarfn = self._crop(jofn, tarfn=tarfn)
             if not tarfn:
                 return None
-            return self._parsejo(tess.image_to_string(tarfn, lang="eng"))  # lang="hnj"
+            tarfn, is_smp = tarfn
+            jn = self._parsejo(tess.image_to_string(tarfn, lang="hnx" if is_smp else "eng"))#maybe a --psm 7 should be appended
+            if not jn and is_smp:
+                tarfn = self._crop(jofn, tarfn=tarfn, sharp_mode="verybad")[0]
+                jn = self._parsejo(tess.image_to_string(tarfn, lang="eng"))
+            return jn
         finally:
+            # FIXME::
+            flag = False
             if flag and tarfn and path.exists(tarfn):
                 remove(tarfn)
 
-    def _crop(self, srcfn, tarfn=None, showui=False):
+    def _crop(self, srcfn, **kwds):
         """
-        crop the JO# part out from the JO image, return tuple(tar_fn:str, smpFlag:bool)        
+        @param srcfn: the source image file
+        @param tarfn: the target file to write to
+        @param showui: show the cropping result
+        @param sharp_mode: can be Noe of "normal/smpl/bad", default is normal
+        crop the JO# part out from the JO image, return tuple(tar_fn:str, smpFlag:bool)
         """
+        tarfn, showui, sharp_mode = tuple((kwds.get(x, None) for x in "tarfn,showui,sharp_mode".split(",")))
         if not self._imgtpls:
             imgsrc = path.join(thispath, "res")
             self._imgtpls = [imread(path.join(imgsrc, fn)) for fn in ("JOTpl.jpg", "SmpTpl.jpg")]
+            self._tpl_b = imread(path.join(imgsrc, "B.jpg"))
             self._tpl_h_w = [x.shape[:-1] for x in self._imgtpls]
             self._imgwss = [cvtColor(imread(path.join(imgsrc, fn)), COLOR_BGR2GRAY)
                             for fn in ("JOWs.jpg", "SmpWs.jpg")]
@@ -305,8 +338,13 @@ class JOImgOcr(object):
                 continue
             bottom_right = (hw0[1], top_left[1] + self._tpl_h_w[idx][0])
             if idx == 1:
-                brds = (((top_left[0] - 55, top_left[1]), (top_left[0] - 5, bottom_right[1])),
-                        ((top_left[0] + self._tpl_h_w[idx][1], top_left[1]), bottom_right))
+                x = (top_left[0] - 55, top_left[1]), (top_left[0] - 5, bottom_right[1])
+                # if there is a B, use prefix
+                img = self._sharpen(imgsrc[x[0][1]:x[1][1], x[0][0]:x[1][0]], "smpl")
+                if not JOImgOcr._findtpl(img, self._tpl_b, self._mt):
+                    brds = (((top_left[0] + self._tpl_h_w[idx][1], top_left[1]), bottom_right),)
+                else:
+                    brds = (x, ((top_left[0] + self._tpl_h_w[idx][1], top_left[1]), (bottom_right[0] - 80, bottom_right[1])))
             else:
                 brds = (((top_left[0] + self._tpl_h_w[idx][1], top_left[1]), bottom_right),)
             imgs = [imgsrc[x[0][1]:x[1][1], x[0][0]:x[1][0]] for x in brds]
@@ -318,7 +356,8 @@ class JOImgOcr(object):
                     img[:self._tpl_h_w[idx][0], ttlw:w + ttlw] = it[1]
                     ttlw += w
             else:
-                img = imgs[0]            
+                img = imgs[0]
+            break
         if img is None:
             return None
         if showui:
@@ -327,7 +366,10 @@ class JOImgOcr(object):
             imshow("tempRst", imgsrc)
             waitKey()
         img = cvtColor(img, COLOR_BGR2GRAY)
-        img = self._sharpen(img)
+        if idx > 0 and (not sharp_mode or sharp_mode == "normal"):
+            sharp_mode = 'smpl'
+        #logger.debug("file(%s) sharpen using mode %s" % (srcfn, sharp_mode))
+        img = self._sharpen(img, sharp_mode)
         if False and self._imgwss[idx] is not None:
             # can not find a good template, always return (0,0)
             top_left = JOImgOcr._findtpl(img, self._imgwss[idx], self._mt)
@@ -337,8 +379,8 @@ class JOImgOcr(object):
             brds = path.splitext(path.basename(srcfn))
             tarfn = path.join(gettempdir(), brds[0] + "_cropped" + brds[1])
         # read dpi from cv2 instead of image?
-        self._savecv2img(img, self._dpi, tarfn)
-        return tarfn
+        self._savecv2img(img, tarfn)
+        return tarfn, idx > 0
 
     def _parsejo(self, txt):
         lst, idx, s0 = [], 0, [self._jn_rpl.get(x, x) for x in txt if x not in self._jn_invalid]
@@ -346,9 +388,9 @@ class JOImgOcr(object):
             if not ('A' <= ch <= 'Z' or '0' <= ch <= '9'):
                 continue
             if idx == 0:
-                if ch in ('S', 'C'):
+                if ch in ('S', 'C', 'M'):
                     continue
-                elif ch in ('2', '3', '8'):
+                elif ch in ('2', '3', '8', '6'):
                     ch = "B"
             if not ch:
                 continue
@@ -401,15 +443,15 @@ class JOImgOcr(object):
                 for obj in [xobjs[x] for x in xobjs if xobjs[x]['/Subtype'] == '/Image']:
                     data, img_name = None, None
                     if obj['/Filter'] == '/CCITTFaxDecode':
-                        data, o_sz = obj._data, (obj['/Width'], obj['/Height'])# getData() does not work for CCITTFaxDecode
+                        data, o_sz = obj._data, (obj['/Width'], obj['/Height'])  # getData() does not work for CCITTFaxDecode
                         data = tiff_header_for_CCITT(o_sz[0], o_sz[1], len(
                             data), (4 if obj['/DecodeParms']['/K'] == -1 else 3)) + data
                         if self._ocr_using_tiff:
-                            img_name = '.tiff'                            
+                            img_name = '.tiff'
                         else:
                             img_name = '.jpg'
                     elif obj["/Filter"] == '/DCTDecode':
-                        #jpeg directly
+                        # jpeg directly
                         img_name = ".jpg"
                         data = obj._data
                     if not img_name:

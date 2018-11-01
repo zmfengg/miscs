@@ -658,7 +658,8 @@ class PajShpHdlr(object):
                 wb, qmap = sht.book, {}
                 for x in [xx for xx in wb.sheets if xx.api.Visible == -1 and xx.name.lower().find('dl_quotation') >= 0]:
                     PajShpHdlr._readquodata(x, qmap)
-            if qmap:
+            #if qmap:
+            if True:
                 for tr in nls:
                     # no cost item means repairing
                     if not tr.get("cost"): continue
@@ -1989,8 +1990,8 @@ class ShpImptr():
                         cidxqty = nl.getcol("qty")
                     if nl.qtyleft < 0:
                         errs.append(ShpSns._newerr(nl.jono,nl.jono,ShpSns._ec_qty,"数量不足"))
-                    if not nl.wgt:
-                        errs.append(ShpSns._newerr(nl.jono,nl.jono,ShpSns._ec_wgt,"未有重量"))
+                    if not nl.wgt or nl.wgt < 0:
+                        errs.append(ShpSns._newerr(nl.jono,nl.jono,ShpSns._ec_wgt,"未有重量或重量错误"))
                     if nl.qty:
                         ttlqty += nl.qty
                         lqty = nl.qty
