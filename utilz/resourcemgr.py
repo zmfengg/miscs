@@ -14,6 +14,7 @@ from collections import Iterable
 from sqlalchemy.orm import sessionmaker
 
 from .common import _logger as logger
+from logging import DEBUG
 
 __all__ = ["ResourceMgr", "ResourceCtx"]
 
@@ -120,9 +121,14 @@ class SessionMgr(ResourceMgr):
     def _newsess(self):
         if not self._smkr:
             self._smkr = sessionmaker(bind=self._engine, autoflush=self._autoflush, autocommit=self._autocommit)
-        return self._smkr()
+        rc = self._smkr()
+        if logger.isEnabledFor(DEBUG):
+            logger.debug("session(%s) created by request" % rc)
+        return rc
 
     def _closesess(self, sess):
+        '''
+        it's strange that explicit rollback() fails the outer
         if False:
             # thise will cause sqlalchemy.orm.exc.DetachedInstanceError even you're loading a single object
             # but if you use session.expunge()/expunge_all() before closing, the items is accessable
@@ -131,6 +137,9 @@ class SessionMgr(ResourceMgr):
                 sess.commit()
             else:
                 sess.rollback()
+        '''
+        if logger.isEnabledFor(DEBUG):
+            logger.debug("session(%s) closed", sess)
         sess.close()
 
     @property
