@@ -258,14 +258,9 @@ class KeySuite(TestCase):
 class XwuSuite(TestCase):
     _hasxls = None
 
-<<<<<<< HEAD
-    @classmethod
-    def setUpClass(self):
-=======
     def setUp(self):        
         if self._hasxls is not None:
             return
->>>>>>> 4257558d06adb348f8122d39090c0edbb5cf6c18
         try:
             self.app, self.tk = xwu.appmgr.acq()
             self._hasxls = True
@@ -315,17 +310,10 @@ class XwuSuite(TestCase):
             self.assertEquals(exps[idx], xwu.escapetitle(ttls[idx]), "the title")
 
     def testNamedList(self):
-<<<<<<< HEAD
-        # now test a very often use ability, read data from (excel) and handle it
-        # now think of use NamedRanges, better ability to detect even if there is merged range
-        # without NamedList(s), I have to use tr[map[name]] to get the value
-        if not self.hasxls:
-=======
         #now test a very often use ability, read data from (excel) and handle it
         #now think of use NamedRanges, better ability to detect even if there is merged range
         #without NamedList(s), I have to use tr[map[name]] to get the value
         if not self._hasxls:
->>>>>>> 4257558d06adb348f8122d39090c0edbb5cf6c18
             self.fail_noexcel()
             return
         fn = getfiles(resfldr, "NamedList")[0]
@@ -359,22 +347,28 @@ class XwuSuite(TestCase):
         rng = xwu.detectborder(xwu.find(sht, 2))
         self.assertEqual("$B$12:$G$19", rng.address, "mal-form shape")
 
+    def testDetectBorder(self):
+        if not self._hasxls:
+            self.fail_noexcel()
+            return
+        app = self.app
+        wb = app.books.open(path.join(thispath,"res","getTableData.xlsx"))
+        sht = wb.sheets["borderdect"]
+        rng = xwu.find(sht, 1)
+        rng = xwu.detectborder(rng)
+        self.assertEqual("$B$2:$F$8", rng.address, "very regular region")
+        rng = xwu.detectborder(xwu.find(sht, 2))
+        self.assertEqual("$B$12:$G$19", rng.address, "mal-form shape")
+
     def testGetTableData(self):
         if not self._hasxls:
             self.fail_noexcel()
             return
         app = self.app
-<<<<<<< HEAD
-        wb = app.books.open(path.join(thispath, "res", "getTableData.xlsx"))
-        nmap = {"id": "id,", "9k": "9k,", "S950": "S950,"}
-        sht = wb.sheets[0]
-
-=======
         wb = app.books.open(path.join(thispath,"res","getTableData.xlsx"))
         nmap = {"id":"id,","9k":"9k,","S950":"S950,"}
         sht = wb.sheets["gettabledata"]
         
->>>>>>> 4257558d06adb348f8122d39090c0edbb5cf6c18
         s0 = "No Merge,FirstMerge,NonFirstmerge,3Rows"
         #s0 = "FirstMerge,NonFirstmerge,3Rows"
         import time
