@@ -248,6 +248,11 @@ class XwuSuite(TestCase):
             self._hasxls = False
         if not self._hasxls:
             logger.debug("No excel is available")
+    
+    def tearDown(self):
+        if self._hasxls:
+            xwu.appmgr.ret(self.tk)
+        return super().tearDown()
         
     @classmethod
     def tearDownClass(self):

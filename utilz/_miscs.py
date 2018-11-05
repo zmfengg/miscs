@@ -87,19 +87,10 @@ def updateopts(defaults, kwds):
         return kwds
     if not kwds:
         kwds = {}
-    mp = {}
     for knw in defaults.items():
-        y0, flag = None, False
-        for x in knw[1][0].split(","):
-            flag = x in kwds
-            if not flag:
-                continue
-            y0 = kwds.get(x)
-            break
-        if not flag:
-            y0 = knw[1][1]
-        mp[knw[0]] = y0
-    return mp
+        if not [x for x in knw[1][0].split(",") if x in kwds]:
+            kwds[knw[0]] = knw[1][1]
+    return kwds
 
 
 def list2dict(lst, **kwds):

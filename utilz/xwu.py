@@ -155,7 +155,7 @@ def detectborder(rng0):
     bts = [(getattr(const.BordersIndex,"xlEdge%s" % x[0]), int(x[1]), int(x[2])) for x in [y.split(",") for y in "Top,0,-1;Left,1,-1;Bottom,0,1;Right,1,1".split(";")]]
     sh, maxDtc, orgs, idx, bds = rng0.sheet, 100, [rng0.row, rng0.column], 0, []
     for ptr in bts:
-        idx = 1
+        idx = 0
         while idx < maxDtc:
             nOff = orgs[ptr[1]] + ptr[2] * idx
             if nOff <= 0:
