@@ -134,7 +134,7 @@ def find(sht, val, **kwds):
     after = kwds.get("after")
     after = sht.api.Cells(1, 1) if(not after) else sht.api.Cells(after.row, after.column)
 
-    d1 = updateopts({"LookAt": ("LookAt,look_at,lookat", const.LookAt.xlPart), "LookIn": ("lookin,look_in", const.FindLookIn.xlValues), "SearchOrder": ("searchorder,search_order,order", const.SearchOrder.xlByRows), "SearchDirection": ("direction", const.SearchDirection.xlNext), "MatchCase": ("match_case,matchcase,case", False)}, kwds)
+    d1 = updateopts({"LookAt": ("LookAt,look_at,lookat", const.LookAt.xlPart), "LookIn": ("lookin,look_in", const.FindLookIn.xlValues), "SearchOrder": ("searchorder,search_order,order", const.SearchOrder.xlByRows), "SearchDirection": ("direction", const.SearchDirection.xlNext), "MatchCase": ("match_case,matchcase,case", False), "After": ("after", after)}, kwds)
     d1["What"], d1["After"] = val, after
     return apirange(sht.api.Cells.Find(**d1))
 
