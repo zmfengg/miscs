@@ -60,8 +60,8 @@ def _fmtbtno(btno):
         if btno.find("-") > 0:            
             cnts = (2,2,3,2,2,2)
             ss, pts = btno.split("-"), []
-            for i in range(len(ss)):
-                pts.append(_nf(ss[i],cnts[i]))
+            for i in zip(ss, cnts):
+                pts.append(_nf(i[0], i[1]))
             btno = trimu("".join(pts))
         else:
             mt = _ptnbtno.search(btno)

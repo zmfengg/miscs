@@ -617,7 +617,7 @@ class PajShpHdlr(object):
             for tr in nls:
                 if not tr.pcode:
                     break
-                if not tr.odseq or tr.odseq[:2] == "CR":
+                if not tr.odseq or tr.odseq[:2] == "CR" or not p17u.isvalidp17(tr.pcode):
                     logger.debug("repairing(%s) item found, skipped",tr.pcode)
                     continue
                 jono = tr.jono

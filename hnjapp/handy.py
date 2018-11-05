@@ -19,7 +19,8 @@ from sqlalchemy.orm import Query
 from hnjapp.c1rdrs import _fmtbtno
 from hnjcore.models.hk import JO, Orderma, PajShp, Style
 from utilz import ResourceCtx, getfiles, trimu
-from utilz.xwu import NamedLists, appmgr, find, usedrange
+from utilz.xwu import (NamedLists, appmgr, find, usedrange, NamedRanges)
+from hnjapp.pajcc import PajCalc, PrdWgt, WgtInfo
 
 from .common import _logger as logger
 
@@ -279,3 +280,29 @@ def _format_btchno():
             wb.close()
     finally:
         appmgr.ret(tk)
+
+def mtl_cost_forc1(c1calc_fn):
+    app, tk = appmgr.acq()
+    try:
+        wb = app.books.open(c1calc_fn)
+        sht = wb.sheets["计价资料"]
+        rng = find(sht, "镶石费$")
+        org = [rng.row, 0]
+        nls = NamedRanges(rng, name_map={"jono": "工单,", "styno": "款号,", "karat0": "成色1", "wgt0": "金重1", "karat1": "成色2", "wgt1": "金重2", "karat2": "chainkarat", "wgt2": "ChnWgt"})
+        cc, idx = PajCalc(), 0
+        for nl in nls:
+            idx += 1
+            if not nl.jono:
+                continue
+            if not org[1]:
+               org[1] = rng.column + nl.getcol("mtlcost")
+            wgt = tuple(WgtInfo(getattr(nl, "karat%d" % idx), getattr(nl, "wgt%d" % idx)) for idx in range(3))
+            wgt = PrdWgt(*wgt)
+            wgt = cc.calcmtlcost(wgt, nl.mps, lossrate=1.08, vendor="C1")
+            sht.range(org[0] + idx, org[1]).value = wgt
+        #wb.close()
+    finally:
+        if app:
+            app.visible = True
+            #appmgr.ret(tk)
+
