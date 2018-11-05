@@ -620,5 +620,3 @@ class BCSvc(object):
         finally:
             if cur: cur.close()
         return self._trim(lst)
-        
-        

@@ -89,7 +89,10 @@ def cmpwgt(expected, actual, tor = 5, strictkt = False):
 class WgtInfo(namedtuple("WgtInfo", "karat,wgt")):
 
     def __new__(_cls, karat, wgt, precious = 2):
-        return super(_cls, WgtInfo).__new__(_cls, karat, _tofloat(wgt,precious))
+        if karat and wgt:
+            return super(_cls, WgtInfo).__new__(_cls, karat, _tofloat(wgt,precious))
+        else:
+            return super().__new__(_cls, 0, 0)
 
 
 # mps string and the corresponding silver/gold value
@@ -237,6 +240,8 @@ class PajCalc():
         kws = prdwgt.wgts
         hix = [ii for ii in range(len(kws)) if kws[ii] and kws[ii].wgt > 0]
         lr0 = lossrate if lossrate else self.calclossrate(prdwgt) ; r0 = 0
+        if isinstance(mps, str):
+            mps = MPS(mps)
         for idx in hix:
             x = kws[idx]
             mp = mps.silver if x.karat == 925 else 0 if x.karat == 200 else mps.gold

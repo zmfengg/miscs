@@ -20,12 +20,20 @@ from sys import getfilesystemencoding, version_info
 import tkinter as tk
 
 __all__ = ["NamedList", "NamedLists", "appathsep", "daterange", "deepget", "getfiles", "getvalue", "isnumeric",
-           "imagesize", "list2dict", "na", "splitarray", "triml", "trimu", "updateopts", "removews", "easydialog", "easymsgbox"]
+           "imagesize", "list2dict", "lvst_dist", "na", "splitarray", "triml", "trimu", "updateopts", "removews", "easydialog", "easymsgbox"]
 
 na = "N/A"
 
 _jpgsof = {192, 193, 194, 195, 197, 198, 199, 201, 202, 203, 205, 206, 207}
 
+def _norm_exp(the_mode):
+    if not the_mode:
+        the_mode = lambda x: x.strip() if x is not None else x
+    elif the_mode.lower().find("low") >= 0:
+        the_mode = lambda x: triml(x)
+    else:
+        the_mode = lambda x: trimu(x)
+    return the_mode
 
 def splitarray(arr, logsize=100):
     """split an array into arrays whose len is less or equal than logsize
@@ -47,7 +55,6 @@ def getvalue(dct, key, def_val=None):
     get the dict value by below seq:
         normal -> trimu -> triml
     """
-    #[dct.get(x) for x in (key, trimu(key), triml(key))][0]
     for kw in key.split(","):
         i = 0
         while i < 3:
@@ -98,28 +105,29 @@ def list2dict(lst, **kwds):
     @param lst: the list or one-dim array containing the strings that need to do the name-> pos map
     @param trmap: An translation map, make the description -> name translation, if ommitted, description become name
                   if the description is not sure, split them with candidates, for example, "jono":"Job,JS"
-    @param dupdiv: when duplicated item found, a count will be generated, dupdiv will be
-        placed between the original and count
+    @param dupdiv: when duplicated item found, a count will be generated, dupdiv will be placed between the original and count
     @param bname: default name for the blank item
+    @param normalize: can be one of upper/lower/(blank or None), do keyword normalization using lower/upper or no normalization, default is lower
     @return: a dict with name -> id map
     """
     if not lst:
         return None
     if isinstance(lst, str):
         lst = lst.split(",")
-    mp = updateopts({"dupdiv": ("dupdiv,div,dup_div", ""), "trmap": ("name_map,trmap,alias", None), "bname": ("bname,blank_name", None)}, kwds)
-    dupdiv, bname, trmap = mp.get("dupdiv"), mp.get("bname"), mp.get("trmap")
+    mp = updateopts({"dupdiv": ("dupdiv,div,dup_div", ""), "trmap": ("name_map,trmap,alias", None), "bname": ("bname,blank_name", None), "normalize": ("normalize,", "lower")}, kwds)
+    dupdiv, bname, trmap, _norm = getvalue(mp, "dupdiv,div,dup_div"), mp.get("bname"), getvalue(mp, "trmap,alias"), getvalue(mp, "normalize,norm")
     if dupdiv is None:
         dupdiv = ""
     lst_lower, ctr = [], {}
-    for x in (triml(x) or bname or "" for x in lst):
+    _norm = _norm_exp(_norm)
+    for x in (_norm(x) or bname or "" for x in lst):
         if x in ctr:
             ctr[x] += 1
             x += dupdiv + str(ctr[x])
         else:
             ctr[x] = 0
         lst_lower.append(x)
-    trmap = {triml(x[1]): triml(x[0]) for x in trmap.items()} if trmap else {}
+    trmap = {_norm(x[1]): _norm(x[0]) for x in trmap.items()} if trmap else {}
     ctr = list(range(len(lst_lower)))
     if trmap:
         for x in [x for x in trmap.keys() if x.find(",") > 0]:
@@ -259,21 +267,18 @@ class NamedList(object):
         ... your turn to extend me
     """
 
-    def __init__(self, nmap, data=None):
+    def __init__(self, nmap, data=None, **kwds):
+        mp = updateopts({"normalize": ("normalize,", "lower")}, kwds)
+        self._nrl = _norm_exp(mp.get("normalize"))
         if isinstance(nmap, (tuple, list)):
-            nmap = list2dict(nmap)
+            nmap = list2dict(nmap, **kwds)
         elif isinstance(nmap, str):
-            nmap = list2dict(nmap.split(","))
+            nmap = list2dict(nmap.split(","), **kwds)
         elif isinstance(nmap, dict):
-            nmap = dict([(self._nrl(x[0]), x[1]) for x in nmap.items()])
-        self._nmap, self._idmap = nmap, None
-        self._dtype = 0
+            nmap = {self._nrl(x[0]): x[1] for x in nmap.items()}
+        self._nmap, self._idmap, self._kwds, self._dtype = nmap, None, None, 0
         if data:
             self.setdata(data)
-
-    @staticmethod
-    def _nrl(name):
-        return triml(name)
 
     def clone(self, data=None):
         """ create a clone with the same definination as me, but not the same data set """
@@ -433,7 +438,7 @@ class NamedLists(Iterator):
 
     """
 
-    def __init__(self, lsts, trmap=None, newinst=True):
+    def __init__(self, lsts, trmap=None, newinst=True, **kwds):
         """
         init one named list instance
         @param lsts: the list(or tuple) of a list(or tuple, but when it's a tuple, you can not assigned value)
@@ -445,12 +450,13 @@ class NamedLists(Iterator):
             for safe reason, it's True by default
         """
         super(NamedLists, self).__init__()
-        nmap = list2dict(lsts[0], alias=trmap)
+        nmap = list2dict(lsts[0], alias=trmap, **kwds)
         lsts = lsts[1:]
         self._lsts, self._nmap, self._ptr, self._ubnd, self._newinst = lsts, nmap, \
             -1, len(lsts), newinst
         if not newinst:
-            self._wrpr = NamedList(nmap)
+            self._wrpr = NamedList(nmap, **kwds)
+        self._kwds = kwds
 
     def __iter__(self):
         return self
@@ -460,7 +466,7 @@ class NamedLists(Iterator):
         if not self._lsts or self._ptr >= self._ubnd:
             raise StopIteration()
         if self._newinst:
-            return NamedList(self._nmap, self._lsts[self._ptr])
+            return NamedList(self._nmap, self._lsts[self._ptr], **self._kwds)
         self._wrpr.setdata(self._lsts[self._ptr])
         return self._wrpr
 
@@ -507,3 +513,22 @@ def easymsgbox(box, *args):
     rc = box(*args, master=rt)
     rt.quit()
     return rc
+
+def lvst_dist(s, t):
+    """
+    calculate the minimum movement steps(LevenshteinDistance) from string s to string t
+    """
+    if not s:
+        return t
+    if not t:
+        return s
+    n, m = len(s), len(t)
+    p = [x + 1 for x in range(n + 1)] #'previous' cost array, horizontally
+    d = [0] * (n + 1) # cost array, horizontally
+
+    for j in range(1, m + 1):
+        d[0], t_j = j + 1, t[j - 1]
+        for i in range(1, n + 1):
+            d[i] = min(min(d[i - 1], p[i]) + 1, p[i - 1] + (0 if s[i - 1] == t_j else 1))
+        p, d = d, p
+    return p[n] - 1
