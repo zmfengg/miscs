@@ -97,7 +97,7 @@ def ren_paj_imgs(src_fldr, sm_hk, keep_org=True, shortsz=1500):
     if not pcs:
         return None
     with ResourceCtx(sm_hk) as cur:
-        jns, lst = Query([PajShp.pcode, Style.name.label("styno"), JO.name.label("jono")]).join(JO).join(Orderma).join(Style).filter(PajShp.pcode.in_(pcs)).with_session(cur).all(), set()
+        lst, jns = Query([PajShp.pcode, Style.name.label("styno"), JO.name.label("jono")]).join(JO).join(Orderma).join(Style).filter(PajShp.pcode.in_(pcs)).with_session(cur).all(), set()
         for x in lst:
             fn = x.jono.name
             if fn in jns:
