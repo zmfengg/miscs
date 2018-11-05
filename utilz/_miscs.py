@@ -95,8 +95,12 @@ def updateopts(defaults, kwds):
     if not kwds:
         kwds = {}
     for knw in defaults.items():
-        if not [x for x in knw[1][0].split(",") if x in kwds]:
+        its = [x for x in knw[1][0].split(",") if x in kwds]
+        if not its:
             kwds[knw[0]] = knw[1][1]
+        else:
+            kwds[knw[0]] = kwds[its[0]]
+            del kwds[its[0]]
     return kwds
 
 
