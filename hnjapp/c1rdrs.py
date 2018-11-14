@@ -43,7 +43,7 @@ def _nf(part,cnt):
     except:
         pass
     return part
-    
+
 def _fmtbtno(btno):
     """ in C1's STIO excel file, the batch# is quite malformed
     this method format it to standard ones
@@ -52,12 +52,12 @@ def _fmtbtno(btno):
     flag = False
     if isinstance(btno,numbers.Number):
         btno = "%08d" % int(btno)
-    else:        
+    else:
         if isinstance(btno,datetime.datetime):
             btno = btno.strftime("%d-%b-%y")
             flag = True
         btno = btno.replace("‘","")
-        if btno.find("-") > 0:            
+        if btno.find("-") > 0:
             cnts = (2,2,3,2,2,2)
             ss, pts = btno.split("-"), []
             for i in zip(ss, cnts):
@@ -93,7 +93,7 @@ def _fmtpkno(pkno):
     pkno = pkno[:idx]
     if isnumeric(pkno):
         pkno = ("%0" + str(8 - len(pfx) - len(sfx)) + "d") % (int(float(pkno)))
-        special = False 
+        special = False
     else:
         special =True
         rpm = {"O":"0","*":"X","S":"5"}
@@ -116,7 +116,7 @@ class C1InvRdr():
 
     def read(self, fldr = None):
         """
-        perform the read action 
+        perform the read action
         @param fldr: the folder contains the invoice files
         @return: a list of C1InvItem
         """
@@ -147,7 +147,9 @@ class C1InvRdr():
                         if rng:
                             rngs.append(rng)
                     if len(cnsc1) == len(rngs):
-                        items.extend(self._readc1(sht))
+                        var = self.read_c1(sht)
+                        if var:
+                            items.extend(var[0])
                     else:
                         for s0 in cnscc:
                             rng = xwu.find(
@@ -163,16 +165,18 @@ class C1InvRdr():
         return items
 
     @classmethod
-    def _readc1(self, sht):
+    def read_c1(self, sht):
         """
         read c1 invoice file
         @param   sht: the sheet that is verified to be the C1 format
-        @param hdrow: the row of the header 
+        @param hdrow: the row of the header
         @return: a list of C1InvItem with source = "C1"
         """
-        
+
         sn = sht.name
         nl = sn.find("月")
+        if nl <= 0:
+            return None
         if nl > 0:
             nl = sn[:nl]
             if nl.isnumeric():
@@ -181,24 +185,35 @@ class C1InvRdr():
                     sht.delete
                     return None
         rng = xwu.find(sht, "图片")
-        if not rng: return
+        if not rng:
+            return None
+        #there might be several date, get the biggest one
+        nl = xwu.find(sht, "日期", find_all=True)
+        if not nl:
+            return None
+        nl = [(x, x.offset(0, 1).value) for x in nl]
+        nl = sorted(nl, key=lambda x: x[1], reverse=True)
+        rng = xwu.find(sht, "图片", After=nl[0][0])
+        invdate = nl[0][1]
+
         C1InvItem = namedtuple(
             "C1InvItem", "source,jono,qty,labor,setting,remarks,stones,mtlwgt")
         C1InvStone = namedtuple("C1InvStone", "stone,qty,wgt,remark")
         km = {"styno":"图片,","jono":u"工单,", "setting":u"镶工,", "labor":u"胚底,", "remark":u"备注,", "joqty": u"数量,", "stname": u"石名,", "stqty": "粒数,", "stwgt": u"石重,","karat":"成色,","swgt":"净银重,","gwgt":"净金重,","pwgt":"配件重,"}
 
         nls = [x for x in xwu.NamedRanges(rng, name_map=km)]
-        if not nls: return
+        if not nls:
+            return None
         nl = nls[0]
         kns = [1 if nl.getcol(x) else 0 for x in "jono,gwgt,swgt".split(",")]
         if sum(kns) != 3:
             logger.debug("sheet(%s) does not contain necessary key columns" % sht.name)
-            return        
+            return None
         items, c1 = list(), None
         _cnstqnw = "stqty,stwgt".split(",")
         _cnsnl = "setting,labor".split(",")
         ispd = lambda styno: styno and styno[:2].upper().find("P") >= 0
-        for nl in nls: 
+        for nl in nls:
             s0 = nl.jono
             if s0:
                 je = JOElement(s0)
@@ -232,17 +247,18 @@ class C1InvRdr():
             joqty = c1.qty
             if not joqty:
                 logger.debug("JO(%s) without qty, skipped" % nl.jono)
-                continue                
+                continue
             kt, wgt = self._tokarat(kt), gw if gw else sw
             #only pendant's pwgt is pwgt, else to mainpart
             if pwgt and not ispd(styno):
-                wgt += pwgt; pwgt = 0            
+                wgt += pwgt; pwgt = 0
             c1 = c1._replace(mtlwgt = addwgt(c1.mtlwgt,WgtInfo(kt, wgt/joqty, 4)))
             if pwgt:
                 c1 = c1._replace(mtlwgt = addwgt(c1.mtlwgt, WgtInfo(kt, pwgt/joqty, 4), True))
-        if c1: items.append(c1)
-        return items
-    
+        if c1:
+            items.append(c1)
+        return items, invdate
+
     @classmethod
     def _tokarat(self, kt):
         if kt < 1: kt = int(kt * 1000)
@@ -283,13 +299,13 @@ class C1JCMkr(object):
         r"""
         @param cnsvc: the CNSvc instance
         @param dbsvc: the BCSvc instance
-        @param invfldr: folder contains C1's invoices, one example is 
+        @param invfldr: folder contains C1's invoices, one example is
             \\172.16.8.46\pb\dptfile\quotation\2017外发工单工费明细\CostForPatrick\AIO_F.xlsx
         """
         self._cnsvc = cnsvc
         self._bcsvc = bcsvc
         self._invfldr = invfldr
-    
+
     #return refid by running, from existing list or db#
     def _getrefid(self, runn, mpss):
         refid = None
@@ -320,7 +336,7 @@ class C1JCMkr(object):
         return the stone costs by map, running as key and cost as value
         """
         return self._cnsvc.getjostcosts(runns)
- 
+
     def _getjostone(self,runns):
         ttl = "jobn,styno,running,package_id,quantity,weight,pricen,unit,is_out,bill_id,fill_date,check_date".split(",")
         lst = []
@@ -349,7 +365,7 @@ class C1JCMkr(object):
             StoneOutMaster.isout,StoneOutMaster.name.label("billid"),StoneOut.idx,StoneOutMaster.filldate,\
             StoneOut.checkdate]).join(Style).join(StoneOutMaster).join(StoneOut).\
             join(StoneIn).join(StonePk).filter(and_(StoneOutMaster.filldate >= df,StoneOutMaster.filldate< dt)).\
-            filter(and_(StoneOutMaster.isout >= -10,StoneOutMaster.isout <= 10))            
+            filter(and_(StoneOutMaster.isout >= -10,StoneOutMaster.isout <= 10))
             lst = q.with_session(cur).all()
         if not lst:return
         ttl = "jobn,styno,running,package_id,quantity,weight,pricen,unit,is_out,bill_id,idx,fill_date,check_date".split(",")
@@ -401,7 +417,7 @@ class C1JCMkr(object):
             bcs = self._bcsvc.getbcsforjc(runns)
             if not bcs or len(bcs) < len(runns):
                 logger.debug("%s:Not all records found in BCSystem" % actname)
-            bcs = dict([(x.runn, (x.desc, x.ston)) for x in bcs])            
+            bcs = dict([(x.runn, (x.desc, x.ston)) for x in bcs])
             stcosts = self._getstcosts(runns)
             if not stcosts or len(stcosts) < len(runns) / 2:
                 logger.debug("%s:No stone or less than 1/2 has stone, make sure you've prepared stone data with C1STIOData" % actname)
@@ -411,7 +427,7 @@ class C1JCMkr(object):
                     "%s:No or not enough C1 invoice data from file(%s)" % (actname,self._invfldr))
             invs = dict([(x.jono, x) for x in invs]) if invs else {}
             cstlst = "goldcost,extgoldcost,stonecost,laborcost,extlaborcost,extcost,extgoldcost2".split(",")
-            for x in vvs.values():                
+            for x in vvs.values():
                 nl.setdata(x)
                 runn = nl.running
                 if runn in stcosts:
@@ -483,7 +499,7 @@ class C1STHdlr(object):
             """ check if the given usage record(stone_out) has been imported """
             ipt = False
             try:
-                if u.type in ionmap:                
+                if u.type in ionmap:
                     lst = q0.filter(and_(JO.name == u.jono,StoneOutMaster.isout == ionmap[u.type][0][0])).with_session(cur).all()
                 else:
                     lst = Query([StoneBck.qty,StoneBck.wgt]).join(StoneIn).filter(StoneIn.name == u.btchno).with_session(cur).all()
@@ -506,13 +522,13 @@ class C1STHdlr(object):
                         if not _ckript(cur,q0,usgs[ub],ionmap):
                             idx = ub
                         elif ub < len(usgs):
-                            idx = ub + 1                            
+                            idx = ub + 1
                     break
                 ipt = _ckript(cur,q0,usgs[ptr],ionmap)
                 if ipt:
                     lb = ptr + 1
                 else:
-                    ub = ptr - 1                
+                    ub = ptr - 1
                 ptr = (lb+ub)//2
                 pfcnt += 1
         logger.debug("use %d seconds and %d loops to find the new usage in %d items" % (int(time.time() - pfts), pfcnt, pflen))
@@ -534,7 +550,7 @@ class C1STHdlr(object):
         if not path.exists(fn): return
         fns = [fn]
         kxl, app = xwu.app(False)
-        
+
         btmap, pkfmted , usgs = {},[], []
         pkmap  =  {}
         try:
@@ -549,7 +565,7 @@ class C1STHdlr(object):
                 nls = NamedLists(vvs,km)
                 if len(nls.namemap) < len(km):
                     logger.debug("not enough key column provided")
-                    break 
+                    break
                 for nl in nls:
                     if nl.karat: continue
                     if not nl.btchno: break
@@ -577,7 +593,7 @@ class C1STHdlr(object):
                     skipcnt = 0
                     #has batch, but qty is empty, sth. blank, but not so blank as above criteria
                     if not nl.qty: continue
-                    btchno = _fmtbtno(btchno)                    
+                    btchno = _fmtbtno(btchno)
                     if btchno not in btmap:
                         continue
                     je = JOElement(nl.jono)
@@ -585,7 +601,7 @@ class C1STHdlr(object):
                         #logger.debug("invalid JO#(%s) found in usage seqid(%d),batch(%s)" % (nl.jono,int(nl.id),nl.btchno))
                         continue
                     nl.btchno, nl.jono = btchno, je
-                    usgs.append(nl) 
+                    usgs.append(nl)
                 wb.close()
         finally:
             if kxl: app.quit()
@@ -606,7 +622,7 @@ class C1STHdlr(object):
                 except:
                     pass
         return dict([(x[0],x[1]) for x in d0])
-            
+
     def _buildrst(self, pkmap,btmap,usgs,pkfmted):
         with self._cnsvc.sessionctx() as cur:
             lst = cur.query(Codetable.codec0,Codetable.coden0).filter(and_(Codetable.tblname == "stone_out_master",Codetable.colname == "is_out")).all()
@@ -643,7 +659,7 @@ class C1STHdlr(object):
                 print("use hnj_hk", file = fh)
                 print("select package, unit_price, case when unit = 1 then 'PC' when unit = 2 then 'PC' when unit = 3 then 'CT' when unit = 4 then 'GM' when unit = 5 then 'PR' when unit = 6 then 'TL' end from package_ma where package in ('%s')" % "','".join([x[1] for x in lst]), file = fh)
                 crterr = True
-            if btnos[1]:                
+            if btnos[1]:
                 print("Below BT# does not exists, Pls. get confirm from Kary",file = fh)
                 for x in sorted([(btmap[x].id,x,btmap[x].pkno) for x in btnos[1]]):
                     print("%d,%s,%s" % x,file = fh)
@@ -651,7 +667,7 @@ class C1STHdlr(object):
                 print("Below JO(s) does not exist",file = fh)
                 for x in jonos[1]:
                     print(x.name,file  = fh)
-                crterr = True                    
+                crterr = True
             if pkfmted:
                 print("---the converted PK#---",file = fh)
                 for x in pkfmted:
@@ -661,7 +677,7 @@ class C1STHdlr(object):
                 for y in sorted([(int(x.id),x.type,x.btchno,x.jono.value,x.qty,x.wgt) for x in usgs]):
                     print("%d,%s,%s,%s,%d,%f" % y,file=fh)
 
-        logger.info("log were saved to %s" % fn)            
+        logger.info("log were saved to %s" % fn)
         if crterr:
             logger.critical("There are Package or JO does not exist, Pls. correct them first")
             return
@@ -705,13 +721,13 @@ class C1STHdlr(object):
                 else:
                     for iof in ionmap[s0]:
                         key = x.jono.value + "," + str(iof[0])
-                        somso = sos.setdefault(key,{})                        
+                        somso = sos.setdefault(key,{})
                         if len(somso) == 0:
                             som = StoneOutMaster()
-                            som.joid = jobyns[x.jono].id 
+                            som.joid = jobyns[x.jono].id
                             somso["som"] = som
                             msomid += 1
-                            iof[1] += 1                            
+                            iof[1] += 1
                             som.id, som.isout, som.name = msomid, iof[0], iof[1]
                             som.packed, som.qty, som.subcnt, som.workerid = 0,0,0,1393
                             som.filldate, som.lastupdate, som.lastuserid = joshd.get(x.jono,td), td,1
@@ -722,7 +738,7 @@ class C1STHdlr(object):
                         lst1.append(so)
                         so.id, so.idx, so.joqty,so.lastupdate,so.lastuserid  = som.id,len(lst1),0,td,1
                         so.printid,so.qty,so.wgt, so.workerid = 0,x.qty,x.wgt,1393
-                        so.checkerid, so.checkdate = 0, som.filldate 
+                        so.checkerid, so.checkdate = 0, som.filldate
                         if x.btchno in btbyns:
                             so.btchid = btbyns[x.btchno].id
                         else:
@@ -801,7 +817,7 @@ class C1STHdlr(object):
             for x in fns:
                 d0 = datetime.datetime.fromtimestamp(path.getmtime(x))
                 if maxd < d0:
-                    fx = x 
+                    fx = x
                     maxd = d0
             logger.debug("%d files in folder(%s), most-updated file(%s) is selected" % (len(fns),fn,path.basename(fx)))
             fn = fx

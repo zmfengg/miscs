@@ -20,7 +20,8 @@ from hnjapp.c1rdrs import _fmtbtno
 from hnjcore.models.hk import JO, Orderma, PajShp, Style
 from utilz import ResourceCtx, getfiles, trimu
 from utilz.xwu import (NamedLists, appmgr, find, usedrange, NamedRanges)
-from hnjapp.pajcc import PajCalc, PrdWgt, WgtInfo
+from hnjapp.pajcc import PajCalc, PrdWgt, WgtInfo, karatsvc, MPS
+from xlwings.constants import LookAt
 
 from .common import _logger as logger
 
@@ -282,27 +283,44 @@ def _format_btchno():
         appmgr.ret(tk)
 
 def mtl_cost_forc1(c1calc_fn):
+    """
+    don't use pajcc's calculator method because I can not adjust the loss rate
+    """
     app, tk = appmgr.acq()
     try:
         wb = app.books.open(c1calc_fn)
+        version = find(wb.sheets["背景资料"], "Version", lookat=LookAt.xlWhole).offset(1,0).value
         sht = wb.sheets["计价资料"]
         rng = find(sht, "镶石费$")
+        lossrates = {"GOLD": 1.08, "SILVER": 1.09} if version else {"GOLD": 1.07, "SILVER": 1.08}
+        oz2gm = 31.1035
         org = [rng.row, 0]
-        nls = NamedRanges(rng, name_map={"jono": "工单,", "styno": "款号,", "karat0": "成色1", "wgt0": "金重1", "karat1": "成色2", "wgt1": "金重2", "karat2": "chainkarat", "wgt2": "ChnWgt"})
+        nls = NamedRanges(rng, name_map={"jono": "工单,", "styno": "款号,", "karat0": "成色1", "wgt0": "金重1", "karat1": "成色2", "wgt1": "金重2", "karat2": "成色3", "wgt2": "金重3", "mtlcost": "金费", "mps": "金价"})
         cc, idx = PajCalc(), 0
         for nl in nls:
             idx += 1
             if not nl.jono:
                 continue
             if not org[1]:
-               org[1] = rng.column + nl.getcol("mtlcost")
+                org[1] = rng.column + nl.getcol("mtlcost")
             wgt = tuple(WgtInfo(getattr(nl, "karat%d" % idx), getattr(nl, "wgt%d" % idx)) for idx in range(3))
-            wgt = PrdWgt(*wgt)
-            wgt = cc.calcmtlcost(wgt, nl.mps, lossrate=1.08, vendor="C1")
-            sht.range(org[0] + idx, org[1]).value = wgt
+            if True:
+                rc, mps = 0, MPS(nl.mps)
+                for x in wgt:
+                    if not x.karat:
+                        continue
+                    kt = karatsvc.getkarat(x.karat)
+                    mp = mps.silver if x.karat == 925 else 0 if x.karat == 200 else mps.gold
+                    if not mp and x.karat != 200:
+                        rc = -1
+                        break
+                    rc += (x.wgt * kt.fineness * lossrates[kt.category] * mp / oz2gm)
+                wgt = rc
+            else:
+                wgt = cc.calcmtlcost(PrdWgt(*wgt), nl.mps, lossrate=1.08, vendor="C1")
+            sht.range(org[0] + idx, org[1]).formula = "= round(%f * if($C$4>1,1,6.5),2)" % wgt
         #wb.close()
     finally:
         if app:
             app.visible = True
             #appmgr.ret(tk)
-

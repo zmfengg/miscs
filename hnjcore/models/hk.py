@@ -1,14 +1,15 @@
 # coding=utf-8
 """
- * @Author: zmFeng 
- * @Date: 2018-05-24 14:36:46 
- * @Last Modified by:   zmFeng 
- * @Last Modified time: 2018-05-24 14:36:46 
+ * @Author: zmFeng
+ * @Date: 2018-05-24 14:36:46
+ * @Last Modified by:   zmFeng
+ * @Last Modified time: 2018-05-24 14:36:46
  """
 from sqlalchemy.ext.declarative.api import declarative_base
-from sqlalchemy.sql.sqltypes import Integer, VARCHAR, Float, DateTime, DECIMAL, Numeric
-from sqlalchemy.sql.schema import Column, UniqueConstraint, ForeignKey
 from sqlalchemy.orm import composite, relationship
+from sqlalchemy.sql.schema import Column, ForeignKey, UniqueConstraint
+from sqlalchemy.sql.sqltypes import (DECIMAL, VARCHAR, DateTime, Float, Integer)
+
 from .utils import JOElement, StyElement
 
 HKBase = declarative_base()
@@ -45,8 +46,7 @@ class Style(HKBase):
 
 class Orderma(HKBase):
     __tablename__ = "orderma"
-    id = Column(Integer, name="orderid",
-                     primary_key=True, autoincrement=False)
+    id = Column(Integer, name="orderid", primary_key=True, autoincrement=False)
     orderno = Column(VARCHAR(50), name="orderno")
 
     cstid = Column(Integer, ForeignKey("cstinfo.cstid"), name="cstid")
@@ -139,23 +139,27 @@ class JO(HKBase):
     @property
     def customer(self):
         return None if not self.orderma else self.orderma.customer
-    
+
     @property
     def karat(self):
         return self.orderma.karat if self.orderma else None
 
     @property
     def styid(self):
-        return self.orderma.styid if self.orderma else None        
+        return self.orderma.styid if self.orderma else None
 
 
 class JOItem(HKBase):
     __tablename__ = "cstdtl"
     # TODO this table's primary key is malform
-    joid = Column(Integer, ForeignKey("jo.joid"), name="jsid",
-                  primary_key=True, autoincrement=False)
+    joid = Column(
+        Integer,
+        ForeignKey("jo.joid"),
+        name="jsid",
+        primary_key=True,
+        autoincrement=False)
     jo = relationship("JO")
-    #stname = Column(VARCHAR(4), name="sttype", primary_key=True)
+    # stname = Column(VARCHAR(4), name="sttype", primary_key=True)
     stname = Column(VARCHAR(4), name="sttype")
     stsize = Column(VARCHAR(10), name="stsize")
     unitwgt = Column(DECIMAL, name="wgt")
@@ -207,11 +211,12 @@ class PajCnRev(HKBase):
     filldate = Column(DateTime, name="filldate")
     tag = Column(Integer, name="tag")
 
+
 class PajAck(HKBase):
     __tablename__ = "pajack"
-    id = Column(Integer, name="id", primary_key=True, autoincrement = True)
-    joid = Column(ForeignKey("jo.joid"),nullable = False,index = True)
-    pcode = Column(VARCHAR(30), name="pcode", index = True)
+    id = Column(Integer, name="id", primary_key=True, autoincrement=True)
+    joid = Column(ForeignKey("jo.joid"), nullable=False, index=True)
+    pcode = Column(VARCHAR(30), name="pcode", index=True)
     docno = Column(VARCHAR(50))
     uprice = Column(DECIMAL, name="uprice")
     mps = Column(VARCHAR(50), name="mps")
@@ -221,6 +226,7 @@ class PajAck(HKBase):
     tag = Column(Integer, name="tag")
 
     jo = relationship("JO")
+
 """
 create table pajack
 (
@@ -239,6 +245,7 @@ constraint pk_pajack primary key(id)
 
 create unique index idx_pajack_name on pajack(joid,pcode,ackdate)
 """
+
 
 class StockObjectMa(HKBase):
     __tablename__ = "stockobjectma"

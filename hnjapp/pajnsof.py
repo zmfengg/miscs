@@ -84,15 +84,11 @@ class JOImgOcr(object):
                 f0.remove(fn[1])
                 del d0[fn[1]]
         if d0:
-            #logger.debug("JOs(%s) in list were not found" % d0)
-            #logger.debug("while file namings(%s)" % f0)
-            # find the best-match missing JO# and try the renaming
-            var = {}
-            for fn in d0.items():
-                o_sz = sorted([(lvst_dist(fn[0], x), x) for x in f0], key=lambda x: x[0])[0]
-                var.setdefault(o_sz[1], []).append((fn[1], o_sz[1]))  # (fn, dist_jo)
-                f0.remove(o_sz[1])
-                logger.debug("candidate naming is %s(%s) -> %s" % (fn[1], fn[0], o_sz[1]))
+            mh = MatchHelper()
+            act_cans = mh.solve(tuple(f0), tuple(d0))
+            if act_cans:
+                for x in act_cans:
+                    pdfs[d0[x[1]]] = path.join(tar_fldr, "_" + x[0] + ".jpg")
         d0, f0 = None, sorted([x for x in pdfs.values()])
         f0 = dict(zip(f0, range(len(f0))))
         for fn in pdfs.items():
@@ -481,3 +477,87 @@ class JOImgOcr(object):
         tz = cav.textsize(txt, fnt)
         tz = (iz[0] - tz[0] - _scale(org_pt[0], "x"), int(iz[1] - 0.5 * _scale(org_pt[1]) - 0.5 * tz[1]))
         cav.text(tz, txt, fill="black", font=fnt)
+
+
+class MatchHelper(object):
+    """
+    don't use dict, use array instead
+    """
+    _lsts, _cost_array, _costs = (None, ) * 3
+
+    def solve(self, acts, cands):
+        if acts and cands and (len(acts) == len(cands)):
+            self._lsts = [list(x) for x in (acts, cands)]
+            # _costs holds the sorted unique cost
+            self._cost_array, self._costs = None, None
+            self._index()
+            solved_lst = []
+            for cost in self._costs:
+                self._solve(solved_lst, cost)
+            if solved_lst:
+                solved_lst = tuple((x[0][1], x[1][1]) for x in solved_lst)
+            return solved_lst
+        return None
+
+    def _index(self):
+        if not self._lsts:
+            return
+        costs = set()
+        self._cost_array = []
+        for x in self._lsts[0]:
+            row = []
+            self._cost_array.append(row)
+            for y in self._lsts[1]:
+                y = lvst_dist(x, y)
+                costs.add(y)
+                row.append(y)
+        self._costs = sorted(list(costs))
+
+    @classmethod
+    def _purify(self, lst, cost, solved_sets):
+        return [it if it == cost and idx not in solved_sets[1] else 0 for idx, it in enumerate(lst)]
+
+    def _calc_pendings(self, solved_lst, cost):
+        """
+        return tuple(pendings, solved_sets) where
+        @pendings is tuple(tuple(act, cost), tuple(cand))
+        @solved_sets is tuple(set(act_solved), set(cand_solved))
+        """
+        if solved_lst:
+            solved_sets = []
+            for idx in range(len(self._lsts)):
+                solved_sets.append(set(x[idx][0] for x in solved_lst))
+        else:
+            solved_sets = (set(), set())
+        pendings = tuple((idx, self._purify(it, cost, solved_sets)) for idx, it in enumerate(self._cost_array) if idx not in solved_sets[0])
+        pendings = [x for x in ((x[0], int(sum(x[1]) / cost), x[1]) for x in pendings) if x[1] > 0]
+        pendings = [sorted(pendings, key=lambda x: "%04d,%04d" % (x[1], x[0]))]
+        pendings.append([x for x in range(len(self._cost_array[0])) if x not in solved_sets[1]])
+        return pendings, solved_sets
+
+    def _solve(self, solved_lst, cost):
+        """
+        put result to solved_set based on given cost
+        solved_set contains tuple(a,b) where a is act and b is cand
+        """
+        pendings, solved_sets = self._calc_pendings(solved_lst, cost)
+        # after the above, pendings[0] contains only the acts that is
+        # not in solved_sets and contains cost == arg.cost
+        for x in pendings[0][:]:
+            y = x[2] if x[1] == 1 else self._purify(self._cost_array[x[0]], cost, solved_sets)
+            y = [idx for idx, it in enumerate(y) if it]
+            if len(y) == 1:
+                y = tuple([x[0], x[1][x[0]]] for x in zip((x[0], y[0]), self._lsts))
+                logger.debug("(%s) => (%s)" % tuple(self._lsts[x][y[x][0]] for x in range(len(self._lsts))))
+                solved_lst.append(y)
+                for it in zip(solved_sets, y):
+                    it[0].add(it[1][0])
+                # trim the act array, but don't touch the cand because this might be expensive
+                pendings[0].remove(x)
+            else:
+                break
+        if pendings[0]:
+            for x in pendings[0]:
+                pass
+            print("pendings(acts) %s" % pendings[0])
+        # TODO what's left need to analyse

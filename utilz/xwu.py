@@ -1,5 +1,4 @@
 # coding=utf-8
-
 '''
 Created on Apr 19, 2018
 Utils for xlwings's not implemented but useful function
@@ -12,14 +11,20 @@ import xlwings
 import xlwings.constants as const
 from xlwings import Range, xlplatform
 
-from ._miscs import NamedLists, list2dict, updateopts
+from ._miscs import NamedLists, getvalue, list2dict, updateopts
 from .resourcemgr import ResourceMgr
 
-__all__ = ["app", "appmgr", "find", "fromtemplate", "list2dict", "usedrange", "safeopen"]
-_validappsws = set("visible,enableevents,displayalerts,asktoupdatelinks,screenupdating".split(","))
+__all__ = [
+    "app", "appmgr", "find", "fromtemplate", "list2dict", "usedrange",
+    "safeopen"
+]
+_validappsws = set(
+    "visible,enableevents,displayalerts,asktoupdatelinks,screenupdating".split(
+        ","))
 
 
 class _AppStg(object):
+
     def __init__(self, sws=None):
         self._sws = sws
         self._swso, self._kxl, self._app = (None,) * 3
@@ -62,7 +67,8 @@ def app(vis=True, dspalerts=False):
     """
 
     flag = xlwings.apps.count == 0
-    app0 = xlwings.apps.active if not flag else xlwings.App(visible=vis, add_book=False)
+    app0 = xlwings.apps.active if not flag else xlwings.App(
+        visible=vis, add_book=False)
     if app0:
         app0.display_alerts = bool(dspalerts)
     return flag, app0
@@ -85,11 +91,12 @@ def appswitch(app0, sws=None):
     for knv in sws.items():
         if knv[0] not in _validappsws:
             continue
-        ov = getattr(app0.api, knv[0]) #ov = eval("app0.api.%s" % knv[0])
+        ov = getattr(app0.api, knv[0])  #ov = eval("app0.api.%s" % knv[0])
         if ov == bool(knv[1]):
             continue
         mp[knv[0]] = ov
-        setattr(app0.api, knv[0], bool(knv[1])) #exec("app0.api.%s = %s" % (knv[0], bool(knv[1])))
+        setattr(app0.api, knv[0], bool(
+            knv[1]))  #exec("app0.api.%s = %s" % (knv[0], bool(knv[1])))
     return mp
 
 
@@ -126,17 +133,46 @@ def find(sht, val, **kwds):
     @param look_in(or lookin): xlwings.const.FindLookIn, default is xlValues
     @param order(or searchorder): const.SearchOrder, default is xlByRows
     @param direction: const.SearchDirection.xlNext, default is xlNext
+    @param find_all(or findall): find all the instances with given criteria
     """
     if not sht:
         return None
     if not val:
         val = "*"
-    after = kwds.get("after")
-    after = sht.api.Cells(1, 1) if(not after) else sht.api.Cells(after.row, after.column)
+    after = kwds.get("After")
+    after = sht.api.Cells(1, 1) if not after else sht.api.Cells(
+        after.row, after.column)
 
-    d1 = updateopts({"LookAt": ("LookAt,look_at,lookat", const.LookAt.xlPart), "LookIn": ("lookin,look_in", const.FindLookIn.xlValues), "SearchOrder": ("searchorder,search_order,order", const.SearchOrder.xlByRows), "SearchDirection": ("direction", const.SearchDirection.xlNext), "MatchCase": ("match_case,matchcase,case", False), "After": ("after", after)}, kwds)
+    dfs = {
+        "LookAt": ("LookAt,look_at,lookat", const.LookAt.xlPart),
+        "LookIn": ("lookin,look_in", const.FindLookIn.xlValues),
+        "SearchOrder": ("searchorder,search_order,order",
+                        const.SearchOrder.xlByRows),
+        "SearchDirection": ("direction", const.SearchDirection.xlNext),
+        "MatchCase": ("match_case,matchcase,case", False),
+        "After": ("after", after)
+    }
+    d1 = updateopts(dfs, kwds)
     d1["What"], d1["After"] = val, after
-    return apirange(sht.api.Cells.Find(**d1))
+    find_all = getvalue(d1, "findall,find_all")
+    #the api only accept valid keywords, so remove other ones
+    dfs = [x for x in d1 if x != "What" and x not in dfs]
+    if dfs:
+        for x in dfs:
+            del d1[x]
+    rng = apirange(sht.api.Cells.Find(**d1))
+    if find_all and rng:
+        st = set(rng,)
+        while rng:
+            d1["After"] = rng.api
+            rng = apirange(sht.api.Cells.Find(**d1))
+            if not rng or rng in st:
+                rng = st
+                break
+            if rng:
+                st.add(rng)
+    return rng
+
 
 def contains(sht, vals):
     """ check if the sheet contains all the value in the vals tuple
@@ -148,19 +184,25 @@ def contains(sht, vals):
             return None
     return True
 
+
 def detectborder(rng0):
     """
     find all the ranges that was surrounded by borders from this range on
     """
-    bts = [(getattr(const.BordersIndex,"xlEdge%s" % x[0]), int(x[1]), int(x[2])) for x in [y.split(",") for y in "Top,0,-1;Left,1,-1;Bottom,0,1;Right,1,1".split(";")]]
+    bts = [(getattr(const.BordersIndex, "xlEdge%s" % x[0]), int(x[1]),
+            int(x[2])) for x in [
+                y.split(",")
+                for y in "Top,0,-1;Left,1,-1;Bottom,0,1;Right,1,1".split(";")
+            ]]
     sh, maxDtc, orgs, idx, bds = rng0.sheet, 100, [rng0.row, rng0.column], 0, []
     for ptr in bts:
         idx = 0
         while idx < maxDtc:
             nOff = orgs[ptr[1]] + ptr[2] * idx
             if nOff <= 0:
-                break #reach the left/top zero point
-            rng = sh.range(orgs[0] if ptr[1] else nOff, nOff if ptr[1] else orgs[1])
+                break  #reach the left/top zero point
+            rng = sh.range(orgs[0] if ptr[1] else nOff,
+                           nOff if ptr[1] else orgs[1])
             if rng.api.borders(ptr[0]).LineStyle != -4142:
                 bds.append(rng.column if ptr[1] else rng.row)
                 break
@@ -168,6 +210,7 @@ def detectborder(rng0):
     if not bds or len(bds) != 4:
         return None
     return sh.range(sh.range(bds[0], bds[1]), sh.range(bds[2], bds[3]))
+
 
 def fromtemplate(tplfn, app0=None):
     """new a workbook based on the tmpfn template
@@ -191,6 +234,7 @@ def freeze(rng, restrfocus=True):
     def _selrng(rg):
         rg.sheet.activate()
         rg.select()
+
     try:
         _selrng(rng)
         app0.api.ActiveWindow.FreezePanes = True
@@ -227,19 +271,25 @@ def NamedRanges(rng, **kwds):
         rng = rng[0]
     if kwds.get("skip_first_row"):
         rng = rng.offset(1, 0)
-    sht, cur_region, org_pt = rng.sheet, rng.current_region, (rng.row, rng.column)
+    sht, cur_region, org_pt = rng.sheet, rng.current_region, (rng.row,
+                                                              rng.column)
     var = kwds.get("col_cnt", kwds.get("colcnt")) or 0
     e_colidx = org_pt[1] + var if var > 0 else cur_region.last_cell.column
     tt_rows, var = (65000, 0), False
 
-    var = [x for x in sht.range(rng, sht.range(org_pt[0], e_colidx)).columns if x.api.mergecells]
+    var = [
+        x for x in sht.range(rng, sht.range(org_pt[0], e_colidx)).columns
+        if x.api.mergecells
+    ]
     if var:
         for cell in var:
             mr = apirange(cell.api.mergearea)
-            tt_rows = (min(tt_rows[0], mr.row), max(tt_rows[1], mr.last_cell.row))
+            tt_rows = (min(tt_rows[0], mr.row), max(tt_rows[1],
+                                                    mr.last_cell.row))
     else:
-        tt_rows = (org_pt[0],)*2
-    th = sht.range(sht.range(tt_rows[0], org_pt[1]), sht.range(tt_rows[1], e_colidx))
+        tt_rows = (org_pt[0],) * 2
+    th = sht.range(
+        sht.range(tt_rows[0], org_pt[1]), sht.range(tt_rows[1], e_colidx))
     if var:
         if tt_rows[0] == tt_rows[1]:
             var = []
@@ -262,7 +312,9 @@ def NamedRanges(rng, **kwds):
         var = ["%s" % x for x in th.value] if th.value else None
     if not var:
         return None
-    rng = sht.range(sht.range(tt_rows[1]+1, org_pt[1]), sht.range(cur_region.last_cell.row, e_colidx))
+    rng = sht.range(
+        sht.range(tt_rows[1] + 1, org_pt[1]),
+        sht.range(cur_region.last_cell.row, e_colidx))
     th = rng.value
     #one row case, xlwings return a 1-dim array only, make it 2D
     if rng.rows.count == 1:

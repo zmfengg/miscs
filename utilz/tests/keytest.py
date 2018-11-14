@@ -17,6 +17,7 @@ from sqlalchemy import VARCHAR, Column, ForeignKey, Integer
 from sqlalchemy.engine import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
+from xlwings.constants import LookAt
 
 from utilz import imagesize, karatsvc, stsizefmt, xwu
 from utilz._jewelry import RingSizeSvc
@@ -338,6 +339,10 @@ class XwuSuite(TestCase):
         nl = NamedLists(rng.value, {"Edate": "enter,"})
         emp = nl.__next__()
         self.assertEqual(datetime.datetime(1998, 1, 3, 0, 0), emp["edate"], "get date use translated name")
+
+        #test the find's all function
+        nl = xwu.find(sht, "Name", lookat=LookAt.xlPart, find_all=True)
+        self.assertEqual(9, len(nl), "the are 9 items has name as part")
 
     def testDetectBorder(self):
         if not self._hasxls:

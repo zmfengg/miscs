@@ -118,6 +118,8 @@ def list2dict(lst, **kwds):
         return None
     if isinstance(lst, str):
         lst = lst.split(",")
+    else:
+        lst = tuple(str(x) for x in lst)
     mp = updateopts({"dupdiv": ("dupdiv,div,dup_div", ""), "trmap": ("name_map,trmap,alias", None), "bname": ("bname,blank_name", None), "normalize": ("normalize,", "lower")}, kwds)
     dupdiv, bname, trmap, _norm = getvalue(mp, "dupdiv,div,dup_div"), mp.get("bname"), getvalue(mp, "trmap,alias"), getvalue(mp, "normalize,norm")
     if dupdiv is None:
@@ -134,7 +136,7 @@ def list2dict(lst, **kwds):
     trmap = {_norm(x[1]): _norm(x[0]) for x in trmap.items()} if trmap else {}
     ctr = list(range(len(lst_lower)))
     if trmap:
-        for x in [x for x in trmap.keys() if x.find(",") > 0]:
+        for x in [x for x in trmap if x.find(",") > 0]:
             for y in [x1 for x1 in x.split(",") if x1]:
                 cnds = [x for x in ctr if lst_lower[x].find(y) >= 0]
                 if not cnds:
