@@ -41,7 +41,7 @@ def splitarray(arr, logsize=100):
     @param logsize: len of each sub-array's size
     """
     if not arr:
-        return None
+        return []
     if not isinstance(arr, (tuple, list, str)):
         arr = tuple(arr)
     if not logsize:
@@ -119,7 +119,7 @@ def list2dict(lst, **kwds):
     if isinstance(lst, str):
         lst = lst.split(",")
     else:
-        lst = tuple(str(x) for x in lst)
+        lst = tuple(str(x) if x is not None else "" for x in lst)
     mp = updateopts({"dupdiv": ("dupdiv,div,dup_div", ""), "trmap": ("name_map,trmap,alias", None), "bname": ("bname,blank_name", None), "normalize": ("normalize,", "lower")}, kwds)
     dupdiv, bname, trmap, _norm = getvalue(mp, "dupdiv,div,dup_div"), mp.get("bname"), getvalue(mp, "trmap,alias"), getvalue(mp, "normalize,norm")
     if dupdiv is None:

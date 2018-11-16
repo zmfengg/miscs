@@ -121,7 +121,7 @@ class JOImgOcr(object):
         logger.debug("Totally %d images extracted from pdf family(%s)" % (len(fns), fn))
         return fns
 
-    def crop_pdff(self, pdf_fldr, tar_fldr):
+    def crop_pdf_fldr(self, pdf_fldr, tar_fldr):
         """
         crop the pdf in the folder
         """

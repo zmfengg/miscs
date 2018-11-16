@@ -86,7 +86,7 @@ class ShpSns(object):
 
     def __init__(self, *args, **kwargs):
         r = super().__init__(*args, **kwargs)
-        msgs = "sn_rpt,Rpt,SHEET_NAME;sn_err,错误,SHEET_NAME;sn_warn,警告,SHEET_NAME;sn_bc,BCData,SHEET_NAME;ec_qty,数量错误,ERROR;ec_jn,工单号错误,ERROR;ec_wgt,重量错误,ERROR;ec_jmp,JMP号错误,ERROR;ec_date,落货日期错误,ERROR;ec_sh_error,格式错误,ERROR;wc_wgt,重量不符警告,WARN;wc_ack,Ack警告,WARN;wc_date,日期警告,WARN;wc_qty,落货数量警告,WARN;wc_inv_qty,发票数量警告,WARN;wc_smp,样板相关,WARN"
+        msgs = "sn_rpt,Rpt,SHEET_NAME;sn_err,错误,SHEET_NAME;sn_warn,警告,SHEET_NAME;sn_bc,BCData,SHEET_NAME;ec_qty,数量错误,ERROR;ec_jn,工单号错误,ERROR;ec_wgt_not_sure,重量不确定,ERROR;ec_wgt_missing,无重量数据,ERROR;ec_jmp,JMP号错误,ERROR;ec_date,落货日期错误,ERROR;ec_sh_error,格式错误,ERROR;wc_wgt,重量不符警告,WARN;wc_ack,Ack警告,WARN;wc_date,日期警告,WARN;wc_qty,落货数量警告,WARN;wc_inv_qty,发票数量警告,WARN;wc_smp,样板相关,WARN"
         self._errs = {y[0]: y for y in (x.split(",") for x in msgs.split(";"))}
         return r
 
@@ -223,9 +223,10 @@ class ShpMkr(object):
                 flag = True
         if flag and ridx >= 0:
             sht.range("1:%d" % ridx).api.entirerow.delete()
+        mp = sht.name
         its = C1InvRdr.read_c1(sht)
         if not its:
-            logger.debug("not valid data in sheet(%s)" % sht.name)
+            logger.debug("no valid data in sheet(%s)" % mp)
             return (None,) * 2
         mp, errs, args["shpdate"] = {}, [], its[1]
         for shp in its[0]:
@@ -399,7 +400,7 @@ class ShpMkr(object):
                         [x for x in mp["mtlwgt"].wgts if x and x.wgt > 0])
                     errlst.append(
                         self._shpsns.new_err(mp["jono"], mp["location"],
-                                             "wc_wgt" if haswgt else "ec_wgt",
+                                             "wc_wgt" if haswgt else "ec_wgt_missing",
                                              "重量不符" if haswgt else "欠重量资料", (jwgt, mp["mtlwgt"])))
                     # if not haswgt:
                     #    mp["mtlwgt"] = jwgt
@@ -968,17 +969,16 @@ class ShpMkr(object):
                             (td, shp_date)))
             if shplst:
                 if not crt_err:
-                    newrunmp = {}
-                    self._check_db_error(shplst, invmp, errlst)
-                    #TODO set below to True
-                    if True:
-                        self._write_rpts(wb, shplst, newrunmp, shp_date)
-                        self._write_bc(wb, shplst, newrunmp, shp_date)
+                    self._check_db_error(shplst, invmp, errlst)                    
             if errlst:
                 self.write_logs(wb, errlst)
                 errlst = self._shpsns._errandwarn(errlst)[0]
             if errlst or not shplst:
                 wb = None
+            else:
+                mp = {}
+                self._write_rpts(wb, shplst, mp, shp_date)
+                self._write_bc(wb, shplst, mp, shp_date)
         finally:
             if kxl:
                 _appmgr.ret(kxl)
@@ -1097,9 +1097,12 @@ class ShpImptr():
                                                     "数量不足"))
                         if not nl.wgt or nl.wgt < 0:
                             ttl = ("重量错误", "存在重量不合规记录")
-                            errs.append(
-                                self._shpsns.new_err(nl.jono, nl.jono, "ec_wgt",
-                                                    "未有重量或重量错误"))
+                            if nl.wgt < 0:
+                                errs.append(
+                                    self._shpsns.new_err(nl.jono, nl.jono, "ec_wgt_not_sure", "重量不确定，请人工复核"))
+                            else:
+                                errs.append(
+                                    self._shpsns.new_err(nl.jono, nl.jono, "ec_wgt_missing", "欠重量资料"))
                         if nl.qty:
                             ttlqty += nl.qty
                             var = nl.qty

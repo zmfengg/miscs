@@ -182,7 +182,7 @@ class C1InvRdr():
             if nl.isnumeric():
                 nl = int(nl)
                 if nl != datetime.date.today().month:
-                    sht.delete
+                    sht.delete()
                     return None
         rng = xwu.find(sht, "图片")
         if not rng:
@@ -194,7 +194,7 @@ class C1InvRdr():
         nl = [(x, x.offset(0, 1).value) for x in nl]
         nl = sorted(nl, key=lambda x: x[1], reverse=True)
         rng = xwu.find(sht, "图片", After=nl[0][0])
-        invdate = nl[0][1]
+        invdate = nl[0][1].date()
 
         C1InvItem = namedtuple(
             "C1InvItem", "source,jono,qty,labor,setting,remarks,stones,mtlwgt")

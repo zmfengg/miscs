@@ -15,6 +15,7 @@ from collections import namedtuple
 from datetime import date, datetime
 from decimal import Decimal
 from os import path
+from logging import DEBUG
 
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Query
@@ -66,70 +67,60 @@ class PajBomHhdlr(object):
         return a dict with "pcode" as key and dict as items
             the item dict has keys("pcode","mtlwgt")
         """
-        _ptnoz = re.compile(r"\(\$\d*/OZ\)")
-        _ptnsil = re.compile(r"(925)|(银)")
-        _ptncop = re.compile(r"(BRONZE)|(铜)")
-        _ptnbg = re.compile(r"BONDED", re.I)
-        _ptngol = re.compile(r"^(\d*)K")
-        _ptdst = re.compile(r"[\(（](\d*)[\)）]")
-        _ptfrcchain = re.compile(r"(弹簧扣)|(龙虾扣)|(狗仔头扣)")
+        _ptn_oz = re.compile(r"\(\$\d*/OZ\)")
+        _one_hit_mp = {925: re.compile(r"(925)|(银)"), 
+            200: re.compile(r"(BRONZE)|(铜)", re.I),
+            9925: re.compile(r"BONDED", re.I)}
+        _ptn_k_gold = re.compile(r"^(\d*)K")
+        _ptn_digits = re.compile(r"[\(（](\d*)[\)）]")
+        _ptn_chn_lck = re.compile(r"(弹簧扣)|(龙虾扣)|(狗仔头扣)")
         # the parts must have karat, if not, follow the parent
-        _mtlpts = u"金,银,耳勾,线圈,耳针,Chain".lower().split(",")
+        _mtl_parts = u"金,银,耳勾,线圈,耳针,Chain".lower().split(",")
+        # keywords for parts (that should belong to a chain)
+        _pts_kws = "圈 牌".split()
+        # belts or so, not metal
+        _voids = "色 带".split()
 
         _pcdec = P17Decoder()
 
-        def _parsekarat(mat, wis=None, ispol=True):
-            """ return karat from material string """
-            kt = None
+        def _parse_karat(mat, wis=None, ispol=True):
+            """ return karat(int type) from material string """
+            kt, karat = None, None
             if ispol:
-                mt = _ptnoz.search(mat)
+                mt = _ptn_oz.search(mat)
                 # bronze does not have oz
-                if not mt and not _ptncop.search(mat):
+                if not mt and not _one_hit_mp[200].search(mat):
                     return
-            for x in {925: _ptnsil, 200: _ptncop, 9925: _ptnbg}.items():
+            for x in _one_hit_mp.items():
                 if x[1].search(mat):
                     kt = x[0]
                     break
             if not kt:
-                mt = _ptngol.search(mat)
+                mt = _ptn_k_gold.search(mat) or _ptn_digits.search(mat)
                 if mt:
                     kt = int(mt.group(1))
-                else:
-                    mt = _ptdst.search(mat)
-                    if mt:
-                        kt = int(mt.group(1))
-                        if not karatsvc.getkarat(kt):
-                            karat = karatsvc.getbyfineness(kt)
-                            if karat:
-                                kt = karat.karat
             if not kt:
                 # not found, has must have keyword? if yes, follow master
                 if wis and any(wis):
                     s0 = mat.lower()
-                    for x in _mtlpts:
-                        if s0.find(x) >= 0:
-                            if s0.find(u"银") >= 0:
-                                kt = 925
-                            elif s0.find(u"金") >= 0:
-                                for wi in wis:
-                                    if not wi:
-                                        continue
-                                    karat = karatsvc.getkarat(wi.karat)
-                                    if karat and karat.category == karatsvc.CATEGORY_GOLD:
-                                        kt = wi.karat
-                                        break
-                            # finally no one is found, follow master
-                            if not kt:
-                                kt = wis[0].karat
+                    for x in _mtl_parts:
+                        if s0.find(x) < 0:
+                            continue
+                        if s0.find(u"金") >= 0:
+                            for wi in (x for x in wis if x):
+                                karat = karatsvc.getkarat(wi.karat)
+                                if karat and karat.category == karatsvc.CATEGORY_GOLD:
+                                    return wi.karat
+                        # finally no one is found, follow master
+                        kt = wis[0].karat
                         if kt:
                             break
-                else:
-                    logger.error("No karat found for (%s) and no default provided" % mat)
-                    kt = -1
-            if kt and kt > 0:
-                karat = karatsvc.getkarat(kt)
-                if not karat:
-                    kt = -1
+                if not kt and wis:
+                    if logger.isEnabledFor(DEBUG) and not [1 for x in _voids if mat.find(x) >= 0]:
+                        logger.error("No karat found for (%s) and no default provided" % mat)
+            if kt:
+                karat = karatsvc.getkarat(kt) or karatsvc.getbyfineness(kt)
+                kt = karat.karat if karat else None
             return kt
 
         def _ispendant(pcode):
@@ -167,37 +158,36 @@ class PajBomHhdlr(object):
                         name_map={"pcode": "十七,", "mtlwgt": "金银重,", "stwgt": "石头,"})
                 mstr_sht = shts[0][0]
                 nls = [x for x in xwu.NamedRanges(xwu.usedrange(mstr_sht), name_map=nmps[0])]
-                nl, ridx = nls[0], len(nls) + 1
-                for bg in bgs:
-                    if not bg.pcode:
-                        break
+                nl, ridx = nls[0], len(nls)
+                for bg in (x for x in bgs if bg.pcode):
                     vals = (bg.pcode, "BondedGold($0/OZ)", bg.mtlwgt or 0, (bg.mtlwgt or 0) + (bg.stwgt or 0))
-                    vals = zip("pcode,mat,mtlwgt,fwgt".split(","), vals)
-                    for x in vals:
+                    for x in zip("pcode,mat,mtlwgt,fwgt".split(","), vals):
                         mstr_sht[ridx, nl.getcol(x[0])].value = x[1]
                     ridx += 1
 
             nis0 = lambda x: x if x else 0
-            for jj in range(len(shts)):
-                vvs = shts[jj][1].end("left").expand("table").value
+            for jj, sht in enumerate(shts):
+                vvs = sht[1].end("left").expand("table").value
                 nls = NamedLists(vvs, nmps[jj])
                 if jj == 0:
+                    #BOM master
                     for nl in nls:
                         pcode = nl.pcode
                         if not p17u.isvalidp17(pcode):
                             break
+                        kt = _parse_karat(nl.mat)
+                        if not kt:
+                            continue
                         fpt = tuple(nis0(x) for x in (nl.pcode, nl.mat, nl.up, nl.mtlwgt, nl.fwgt))
-                        key = ("%s" * len(fpt)) % fpt
+                        key = ("%s" * len(fpt)) % fpt                        
                         if key in mstrs:
                             logger.debug("duplicated bom_mstr found(%s, %s)" % (nl.pcode, nl.mat))
                             continue
-                        mstrs.add(key)
-                        kt = _parsekarat(nl.mat)
-                        if not kt:
-                            continue
+                        mstrs.add(key)                        
                         it = pmap.setdefault(pcode, {"pcode": pcode})
                         it.setdefault("mtlwgt", []).append((kt, nl.mtlwgt))
                 elif jj == 1:
+                    #BOM parts
                     nmp = [x for x in nmps[jj].keys() if x.find("pcode") < 0]
                     for nl in nls:
                         pcode = nl.pcode
@@ -232,8 +222,7 @@ class PajBomHhdlr(object):
                     _appmgr.ret(kxl)
 
         for x in pmap.items():
-            lst = x[1].get("mtlwgt")
-            prdwgt = None
+            lst, prdwgt = x[1].get("mtlwgt"), None
             if lst:
                 for y in lst:
                     prdwgt = addwgt(prdwgt, WgtInfo(y[0], y[1]))
@@ -241,45 +230,46 @@ class PajBomHhdlr(object):
                 logger.debug("%s does not have master weight" % x[0])
                 prdwgt = PrdWgt(WgtInfo(0, 0))
             if "parts" in x[1]:
-                ispendant, haschain, haskou, chlenerr = _ispendant(x[0]), False, False, False
-                if ispendant:
+                is_pendant = _ispendant(x[0])
+                has_chain, has_lock, ch_len_err = (False, ) * 3
+                if is_pendant:
                     for y in x[1]["parts"]:
                         nm = y["name"]
                         if triml(nm).find("chain") >= 0:
-                            haschain = True
-                        if _ptfrcchain.search(nm):
-                            haskou = True
+                            has_chain = True
+                        elif _ptn_chn_lck.search(nm):
+                            has_lock = True
                 for y in x[1]["parts"]:
                     nm = y["name"]
-                    kt = _parsekarat(nm, prdwgt.wgts, False)
+                    kt = _parse_karat(nm, prdwgt.wgts, False)
                     if not kt:
                         continue
-                    y["karat"] = kt
-                    ispart = False
-                    if ispendant:
-                        if haschain:
-                            isch = triml(nm).find("chain") >= 0
-                            ispart = isch or (haskou and (_ptfrcchain.search(nm) or nm.find("圈") >= 0))
-                            if isch and not chlenerr:
-                                lc = y["length"]
-                                if lc is not None:
-                                    try:
-                                        lc = float(lc)
-                                    except:
-                                        lc = 0
-                                    if lc > 0:
-                                        chlenerr = True
-                            if ispart:
-                                wgt0 = prdwgt.part
-                                ispart = (not wgt0 or y["karat"] == wgt0.karat)
-                            if not ispart:
-                                if isch:
-                                    logger.debug("No wgt slot for chain(%s) in pcode(%s),merged to main" % (y["name"], x[0]))
-                                else:
-                                    logger.debug("parts(%s) in pcode(%s) merged to main" % (y["name"], x[0]))
+                    y["karat"], is_part = kt, False
+                    if is_pendant and has_chain:
+                        is_chn = triml(nm).find("chain") >= 0
+                        is_part = is_chn or (has_lock and (_ptn_chn_lck.search(nm) or
+                            [1 for v in _pts_kws if nm.find(v) >= 0]))
+                        if is_chn and not ch_len_err:
+                            lc = y["length"]
+                            if lc is not None:
+                                try:
+                                    lc = float(lc)
+                                except:
+                                    lc = 0
+                                ch_len_err = lc > 0
+                        if is_part:
+                            wgt0 = prdwgt.part
+                            is_part = (not wgt0 or y["karat"] == wgt0.karat)
+                        if not is_part:
+                            if is_chn:
+                                logger.debug("No wgt slot for chain(%s) in pcode(%s),merged to main" % (y["name"], x[0]))
+                            '''
+                            else:
+                                logger.debug("parts(%s) in pcode(%s) merged to main" % (y["name"], x[0]))
+                            '''
                     # turn autoswap off in parts appending procedure to avoid main karat being modified
-                    prdwgt = addwgt(prdwgt, WgtInfo(y["karat"], y["wgt"]), ispart, autoswap=False)
-                if chlenerr:
+                    prdwgt = addwgt(prdwgt, WgtInfo(y["karat"], y["wgt"]), is_part, autoswap=False)
+                if ch_len_err:
                     # in common  case, chain should not have length, when this happen
                     # make the weight negative. Skipped
                     prdwgt = prdwgt._replace(part=WgtInfo(prdwgt.part.karat, -prdwgt.part.wgt * 100))
@@ -523,8 +513,7 @@ class PajShpHdlr(object):
             if not tr.uprice:
                 continue
             p17 = tr.pcode
-            if not (p17u.isvalidp17(p17) and not tuple(1 for y in "qty,uprice,silver,gold".split(",")
-            if not isnumeric(tr[y]))):
+            if not (p17u.isvalidp17(p17) and not tuple(1 for y in "qty,uprice,silver,gold".split(",") if not isnumeric(tr[y]))):
                 logger.debug("invalid p17 code(%s) or wgt/qty/uprice data in invoice sheet(%s)" % (p17, invno))
                 continue
             jn = JOElement(tr.jono).value if th.getcol("jono") else None
@@ -631,6 +620,8 @@ class PajShpHdlr(object):
                     logger.debug("repairing(%s) item found, skipped", tr.pcode)
                     continue
                 jono = tr.jono
+                if jono == "B107671":
+                    print("x")
                 mwgt = _getbomwgt(bomwgts, bomwgtsrng, tr.pcode)
                 bomsrc = bool(mwgt)
                 if not bomsrc:
@@ -1018,26 +1009,32 @@ class PajUPTcr(object):
             return set([x[:-1] for x in fh.readlines() if x[0] != "#"])
 
     def createcache(self, pcodes):
+        """
+        create weight/invoice data from given product codes
+        """
         cc = PajCalc()
         td = datetime.today()
         for pcode in pcodes:
             wgts = None
             with ResourceCtx((self._localsm, self._hksvc.sessmgr())) as curs:
                 try:
-                    ivca = Query(PajItem).filter(PajItem.pcode == pcode).with_session(curs[0]).first()
+                    pi = None
+                    ivca = Query([PajItem, PrdWgtSt]).outerjoin(PrdWgtSt).filter(PajItem.pcode == pcode).with_session(curs[0]).first()
                     if ivca:
-                        logger.debug("pcode(%s) already localized" % pcode)
-                        continue
+                        if ivca[1]:
+                            logger.debug("pcode(%s) already localized" % pcode)
+                            continue
+                        pi = ivca[0]
                     q0 = Query([PajShp.pcode, JOhk.name.label("jono"), Styhk.name.label("styno"), JOhk.createdate, PajShp.invdate, PajInv.uprice, PajInv.mps]).join(
                         JOhk).join(Orderma).join(Styhk).join(PajInv, and_(PajShp.joid == PajInv.joid, PajShp.invno == PajInv.invno)).filter(PajShp.pcode == pcode)
                     lst = q0.with_session(curs[1]).all()
                     if not lst:
                         continue
-
-                    pi = PajItem()
-                    pi.pcode, pi.createdate, pi.tag = pcode, td, 0
-                    curs[0].add(pi)
-                    curs[0].flush()
+                    if pi is None:
+                        pi = PajItem()
+                        pi.pcode, pi.createdate, pi.tag = pcode, td, 0
+                        curs[0].add(pi)
+                        curs[0].flush()
                     jeset = set()
                     for jnv in lst:
                         je = jnv.jono
@@ -1096,16 +1093,17 @@ class PajUPTcr(object):
         q0 = Query(PajCnRev).filter(and_(PajCnRev.filldate > lastcrdate, PajCnRev.tag == 0, PajCnRev.revdate >= affdate))
         with ResourceCtx((self._localsm, self._hksvc.sessmgr())) as curs:
             srcs = q0.with_session(curs[1]).all()
-            pcodes = set([x.pcode for x in srcs])
-            pcs = {}
-            for arr in splitarray(list(pcodes)):
-                q0 = Query(PajItem).filter(PajItem.pcode.in_(arr))
-                try:
-                    pcs.update(dict([(x.pcode, x) for x in q0.with_session(curs[0]).all()]))
-                except:
-                    pass
+            pcodes = set((x.pcode for x in srcs)) if srcs else set()
+            pcs, prs = {}, []
+            if pcodes:
+                logger.debug("Totally %d revised records return from HK, now begin copying" % len(logger))
+                for arr in splitarray(list(pcodes)):
+                    q0 = Query(PajItem).filter(PajItem.pcode.in_(arr))
+                    try:
+                        pcs.update(dict([(x.pcode, x) for x in q0.with_session(curs[0]).all()]))
+                    except:
+                        pass
             if pcs:
-                prs = []
                 for arr in splitarray([x.id for x in pcs.values()]):
                     try:
                         prs.extend(curs[0].query(PajCnRevSt).filter(PajCnRevSt.id.in_(arr)).all())
@@ -1150,8 +1148,9 @@ class PajUPTcr(object):
             second  -> max
             third   -> last
             """
-            def fill(ar):
-                return [float(ar.otcost), float(ar.cn), ar.invdate, ar.jono]
+            if not arr:
+                return None
+            fill = lambda ar: [float(ar.otcost), float(ar.cn), ar.invdate, ar.jono]
             li, lx = 9999, -9999
             mi = mx = None
             for ar in arr:
@@ -1163,32 +1162,34 @@ class PajUPTcr(object):
                     mi = fill(ar)
                     li = lb
             df = lx - li
-            if df < 0.1 or df / li < 0.01:
+            if df > 0 and (df < 0.1 or df / li < 0.01):
                 df = (lx + li) / 2.0
                 mi[0], mx[0] = df, df
             return mi, mx, fill(arr[-1])
 
-        def getonly(cns, arr):
+        def _getonly(cns, arr):
             if isinstance(cns, str):
                 cns = cns.split(",")
+            if not arr:
+                return [None, ] * (3 * len(cns))
             lst = []
             for ar in arr:
                 gelmix.setdata(ar)
                 lst.extend([gelmix[cn] for cn in cns])
             return lst
 
-        def almosteq(x, y): return abs(x - y) <= 0.1 or abs(x - y) / x < 0.01
+        almosteq = lambda x, y: abs(x - y) <= 0.1 or abs(x - y) / x < 0.01
         gelq = NamedList("pcode,jono,styno,invdate,cn,otcost")
         with ResourceCtx(self._localsm) as cur:
             q0 = Query([PajItem.pcode, PajInvSt.jono, PajInvSt.styno, PajInvSt.invdate, PajInvSt.cn,
                         PajInvSt.otcost]).join(PajInvSt).order_by(PajItem.pcode).order_by(PajInvSt.invdate)
-            # q0 = q0.limit(50)
             lst = q0.with_session(cur).all()
             mp = {}
-            [mp.setdefault(it.pcode, []).append(it) for it in lst]
+            for it in lst:
+                mp.setdefault(it.pcode, []).append(it)
             q0 = Query([PajItem.pcode, PajCnRevSt.revdate, PajCnRevSt.uprice]).join(PajCnRevSt)
             revdates = {}
-            for arr in splitarray(list(mp.keys())):
+            for arr in splitarray(list(mp)):
                 try:
                     revdates.update({y.pcode: (y.revdate, float(y.uprice)) for y in
                                     [x for x in q0.filter(PajItem.pcode.in_(arr)).with_session(cur).all
@@ -1201,39 +1202,43 @@ class PajUPTcr(object):
             for it in mp.items():
                 lst = it[1]
                 gelq.setdata(lst[0])
-                flag = len(lst) > 1
+                flag, idx = len(lst) > 1, 0
                 acutdate, revcn = revdates.get(it[0], cutdate), 0
                 if isinstance(acutdate, tuple):
                     revcn, acutdate = acutdate[1], acutdate[0]
                 if flag:
-                    for idx in range(len(lst)):
-                        flag = lst[idx].invdate >= acutdate
+                    for idx, it in enumerate(lst):
+                        flag = it.invdate > acutdate
                         if flag:
                             break
                 if not flag:
                     noaff.append((gelq.pcode, gelq.styno, acutdate, revcn, _minmax(lst)))
                 else:
                     mix0, mix1 = _minmax(lst[:idx]), _minmax(lst[idx:])
-                    iot = gelmix.getcol("oc")
                     val = (gelq.pcode, gelq.styno, acutdate, revcn, mix0, mix1)
-                    if mix0[0][iot] * 2.0 / 3.0 + 0.05 >= mix1[1][iot]:
-                        drp.append(val)
-                    elif almosteq(mix0[0][iot], mix1[1][iot]):
+                    if mix0 is None:
                         nochg.append(val)
-                    elif mix0[0][iot] > mix1[1][iot]:
-                        noeng.append(val)
-                    elif mix0[0][iot] < mix1[1][iot]:
-                        # old's max under new's min
-                        pum.append(val)
                     else:
-                        mixture.append(val)
+                        iot = gelmix.getcol("oc")
+                        if mix0[0][iot] * 2.0 / 3.0 + 0.05 >= mix1[1][iot]:
+                            drp.append(val)
+                        elif almosteq(mix0[0][iot], mix1[1][iot]):
+                            nochg.append(val)
+                        elif mix0[0][iot] > mix1[1][iot]:
+                            noeng.append(val)
+                        elif mix0[0][iot] < mix1[1][iot]:
+                            # old's max under new's min
+                            pum.append(val)
+                        else:
+                            mixture.append(val)
             mp = {"NotAffected": noaff,
                   "NoChanges": nochg,
                   "Mixture": mixture,
                   "NoEnough": noeng,
                   "PriceDrop1of3": drp,
                   "PriceUp": pum}
-            app = xwu.app(True)[1]
+            app = xwu.appmgr.acq()[0]
+            #app = xwu.app(True)[1]
             grp0 = (("", ), "Before,After".split(","))
             grp1 = "Min.,Max.,Last".split(",")
             grp2 = "pcode,styno,revdate,cn,karat".split(",")
@@ -1247,15 +1252,13 @@ class PajUPTcr(object):
                 sht = shts[-1]
                 sht.name, vvs = x[0], []
                 gidx = 0 if x[0] == "NotAffected" else 1
-                ttl0, ttl1 = ["", ] * 4, ["", ] * 4
+                ttl0, ttl1 = [None, ] * len(grp2), [None, ] * len(grp2)
                 for z in grp0[gidx]:
                     ttl0.append(z)
-                    for ii in range(len(ctss[gidx]) * len(grp1) - 1):
-                        ttl0.append(" ")
+                    ttl0 += [None, ] * (len(ctss[gidx]) * len(grp1) - 1)
                     for xx in grp1:
                         ttl1.append(xx)
-                        for ii in range(len(ctss[gidx])-1):
-                            ttl1.extend(" ")
+                        ttl1 += [None, ] * (len(ctss[gidx]) - 1)
                 if len(grp0[gidx]) > 1:
                     vvs.append(ttl0)
                 vvs.append(ttl1)
@@ -1270,7 +1273,7 @@ class PajUPTcr(object):
                 for it in x[1]:
                     ttl = list(it[:ttlen])
                     ttl.append(pd.decode(ttl[0], "karat"))
-                    [ttl.extend(getonly(ctss[gidx], kk)) for kk in it[ttlen:]]
+                    [ttl.extend(_getonly(ctss[gidx], kk)) for kk in it[ttlen:]]
                     vvs.append(ttl)
                 sht.range(1, 1).value = vvs
                 sht.autofit("c")
@@ -1278,6 +1281,8 @@ class PajUPTcr(object):
                 sht[1, grp2.index("karat")].column_width = 10
                 xwu.freeze(sht.range(3 + (1 if len(grp0[gidx]) > 1 else 0), ttlen + 2))
 
-            for sht in wb.sheets:
-                if sht not in shts:
-                    sht.delete()
+            if shts:
+                for sht in wb.sheets:
+                    if sht not in shts:
+                        sht.delete()
+            app.visible = True
