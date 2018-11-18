@@ -27,23 +27,26 @@ from utilz.resourcemgr import ResourceCtx, ResourceMgr, SessionMgr
 
 from .main import logger, thispath
 
-resfldr = appathsep(appathsep(thispath) + "res")
-
-
+#resfldr = appathsep(appathsep(thispath) + "res")
+resfldr = path.join(thispath, "res")
 class KeySuite(TestCase):
     """ key tests for this util funcs """
 
     def testResourceMgr(self):
+        """ test for Resource manager, which should be invoked by context manager
+        """
         class A(object):
+            """ simple resource class that dump action to logger for the manager"""
             def __init__(self, name):
                 self.name = name
-                logger.debug("resource %s created" % name)
+                logger.debug("resource %s created", name)
 
             def _close(self):
-                logger.debug("%s disposed" % self.name)
+                logger.debug("%s disposed", self.name)
 
             def run(self):
-                logger.debug("Your are making use of resource provided by(%s)" % self.name)
+                """ simulate producer method that return value for the caller """
+                logger.debug("Your are making use of resource provided by(%s)", self.name)
                 return self.name
 
         def _newres():
@@ -64,6 +67,8 @@ class KeySuite(TestCase):
             r[1].run()
 
     def testStsize(self):
+        """ test for stone size parser
+        """
         self.assertEqual("N/A", stsizefmt("N/A"), "Not a valid stone size")
         self.assertEqual("N/A", stsizefmt("n/a"), "Not a valid stone size")
         self.assertEqual("0300", stsizefmt("3tk"), "Not a valid stone size")
@@ -81,6 +86,9 @@ class KeySuite(TestCase):
         self.assertEqual("5X4X3", stsizefmt("0300X0500X0400", True), "Size format")
 
     def testList2Dict(self):
+        """ test for _misc.list2Dict, maybe don't need to use this function separated,
+        try to use NamedList instead
+        """
         lst, alias = ("A", None, "", "bam", "Bam1"), {"namE": "A", "description": "b,am"}
         mp = list2dict(lst, alias=alias)
         self.assertEqual(0, mp.get("name"))
@@ -102,6 +110,8 @@ class KeySuite(TestCase):
         self.assertEqual(4, mp.get("Bam1"))
 
     def testNamedList(self):
+        """ test for NamedList class, a good to use class for sequence data access by name type
+        """
         lsts = (["Name", "group", "age"],
                 ["Peter", "Admin", 30],
                 ["Watson", "Admin", 45],
@@ -157,7 +167,7 @@ class KeySuite(TestCase):
         lsts = (["Name", "group", "age"],
                 ["Peter", "Admin", 30]
                 )
-        #now just a minor test on the normalize function, make sure non-normalized works
+        # now just a minor test on the normalize function, make sure non-normalized works
         nls = [x for x in NamedLists(lsts, normalize=None)]
         nl = nls[0]
         self.assertEqual("Peter", nl.get("Name"))
@@ -166,6 +176,7 @@ class KeySuite(TestCase):
         # now namedlist treating normal object, There is an object NamedList before
         # but finally merged into NamedList
         class A(object):
+            """ sample bean like object, NamedList get its property directly """
             name, id, age = "Hello", 0, 0
         al = NamedList({"nick": "name"})
         it = A()
@@ -193,12 +204,15 @@ class KeySuite(TestCase):
         self.assertEqual(2, nl.getcol("age"))
 
     def testAppathSep(self):
+        """ tes for appathsep, early stage function of my python programming, 
+        it should be replaced by path.join """
         fldr = thispath
         self.assertTrue(fldr[-1] != path.sep, "a path's name should not ends with path.sep")
         fldr = appathsep(fldr)
         self.assertTrue(fldr[-1] == path.sep, "with path.sep appended")
 
     def testGetFiles(self):
+        """ test for _misc.getfiles, a early stage funtion of my python programming """
         fldr = path.join(thispath, "res")
         fns = getfiles(fldr, "NamedL", True)
         self.assertEqual("NamedList.xlsx", fns[0], "the only excel file there")
@@ -211,6 +225,7 @@ class KeySuite(TestCase):
         self.assertTrue(u"厉害为国為幗.txt" in fns, "utf-8 based system can return mixing charset")
 
     def testKaratSvc(self):
+        """ the test for karat service """
         ks = karatsvc
         k0 = ks[9]
         k1 = ks["9K"]
@@ -232,6 +247,7 @@ class KeySuite(TestCase):
         self.assertEqual(ks[18], lst[-1], "sort method")
 
     def testRingSizeCvt(self):
+        """ a size converter, maybe should be migrated to UOMConverter """
         rgsvc = RingSizeSvc()
         self.assertEqual("M", rgsvc.convert("US", "6", "UK"), "US#6 = UK#M")
         self.assertEqual("M", rgsvc.convert("US", "6", "AU"), "US#6 = UK#M, AU using UK")
@@ -240,6 +256,7 @@ class KeySuite(TestCase):
         self.assertAlmostEqual(47.0, rgsvc.getcirc("US", "4 1/4"), "the circumference of US#4 1/4 is 47.0mm")
 
     def testImagesize(self):
+        """ the imagesize function(power by PIL) """
         fns = getfiles(path.join(thispath, "res"), "65x27")
         for fn in fns:
             self.assertEqual((65, 27), imagesize(fn), "the size of %s" % fn)
@@ -257,9 +274,13 @@ class KeySuite(TestCase):
 
 # @skip("no excel")
 class XwuSuite(TestCase):
+    """
+    test suit for xwu funcitons
+    """
     _hasxls = None
 
-    def setUp(self):        
+    def setUp(self):
+        """ self init, including app, tk """
         if self._hasxls is not None:
             return
         try:
@@ -270,27 +291,30 @@ class XwuSuite(TestCase):
             self._hasxls = False
         if not self._hasxls:
             logger.debug("No excel is available")
-    
+
     def tearDown(self):
         if self._hasxls:
             xwu.appmgr.ret(self.tk)
         return super().tearDown()
-        
+
     @classmethod
     def tearDownClass(cls):
         if cls._hasxls:
             xwu.appmgr.ret(cls.tk)
 
     def fail_noexcel(self):
+        """ raise error when no excel is found """
         self.fail("no excel was available, Pls. install one")
 
     def testappmgr(self):
+        """ test for xwu.appmgr property """
         if not self._hasxls:
             self.fail_noexcel()
             return
         # xlwings.apps.count is not reliable, don't need to test
 
     def testxwuappswitch(self):
+        """ test for xwu.appswitch function """
         if not self._hasxls:
             self.fail_noexcel()
             return
@@ -310,15 +334,18 @@ class XwuSuite(TestCase):
         self.assertTrue(os["enableevents"])
 
     def testEscapettl(self):
+        """ extract title data out from a excel's sheet header """
         ttls = ('2017&"宋体,Regular"年&"Arial,Regular"6&"宋体,Regular"月', '2017&"宋体,Regular"年&"Arial,Regular"&6 6&"宋体,Regular"月')
         exps = ("2017年6月", "2017年6月")
-        for idx in range(len(ttls)):
-            self.assertEquals(exps[idx], xwu.escapetitle(ttls[idx]), "the title")
+        for idx, it in enumerate(ttls):
+            self.assertEquals(exps[idx], xwu.escapetitle(it), "the title")
 
     def testNamedList(self):
-        #now test a very often use ability, read data from (excel) and handle it
-        #now think of use NamedRanges, better ability to detect even if there is merged range
-        #without NamedList(s), I have to use tr[map[name]] to get the value
+        """
+        # now test a very often use ability, read data from (excel) and handle it
+        # now think of use NamedRanges, better ability to detect even if there is merged range
+        # without NamedList(s), I have to use tr[map[name]] to get the value
+        """
         if not self._hasxls:
             self.fail_noexcel()
             return
@@ -340,16 +367,17 @@ class XwuSuite(TestCase):
         emp = nl.__next__()
         self.assertEqual(datetime.datetime(1998, 1, 3, 0, 0), emp["edate"], "get date use translated name")
 
-        #test the find's all function
+        # test the find's all function
         nl = xwu.find(sht, "Name", lookat=LookAt.xlPart, find_all=True)
         self.assertEqual(9, len(nl), "the are 9 items has name as part")
 
     def testDetectBorder(self):
+        """ check the detect border function of xwu """
         if not self._hasxls:
             self.fail_noexcel()
             return
         app = self.app
-        wb = app.books.open(path.join(thispath,"res","getTableData.xlsx"))
+        wb = app.books.open(path.join(thispath, "res", "getTableData.xlsx"))
         sht = wb.sheets["borderdect"]
         rng = xwu.find(sht, 1)
         rng = xwu.detectborder(rng)
@@ -362,10 +390,10 @@ class XwuSuite(TestCase):
             self.fail_noexcel()
             return
         app = self.app
-        wb = app.books.open(path.join(thispath,"res","getTableData.xlsx"))
-        nmap = {"id":"id,","9k":"9k,","S950":"S950,"}
+        wb = app.books.open(path.join(thispath, "res", "getTableData.xlsx"))
+        nmap = {"id": "id,", "9k": "9k,", "S950": "S950,"}
         sht = wb.sheets["gettabledata"]
-        
+
         s0 = "No Merge,FirstMerge,NonFirstmerge,3Rows"
         #s0 = "FirstMerge,NonFirstmerge,3Rows"
         import time
@@ -422,17 +450,23 @@ class SessMgrSuite(TestCase):
     sessmgr = SessionMgr(engine)
 
     def setup(self):
+        """ class setup """
         logging.getLogger("sqlalchemy").setLevel(logging.DEBUG)
 
     @property
     def sessctx(self):
+        """ section for with statement """
         return ResourceCtx(self.sessmgr)
 
     @property
     def newmstr(self):
+        """ factory method for creating Mstr instances """
         return Mstr("fx")
 
     def testRollback(self):
+        """ try the sqlalchemy's rollback function. I found in realtime app, 
+        it works sometimes only
+        """
         mid = 0
         # by default, the session is not auto-commit, so it's rollbacked while exist
         with self.sessctx as cur:
@@ -452,6 +486,8 @@ class SessMgrSuite(TestCase):
             self.assertFalse(dtl, "The item should not be inserted")
 
     def testCommit(self):
+        """ test for sqlalchemy's commit function. it behaves as rollback(), 
+        it can pass this test, but in realtime app, sometimes goes wrong"""
         mid = 0
         with self.sessctx as cur:
             mstr = self.newmstr
@@ -475,6 +511,7 @@ class SessMgrSuite(TestCase):
             self.assertFalse(mstr, "nothing in the db")
 
     def testPkNotAutoInc(self):
+        """ test for auto-increasement primary key, which need flush function """
         # is the non-autoincreased primary key object persistable?
         with self.sessctx as cur:
             pk = PKNAC(1)
