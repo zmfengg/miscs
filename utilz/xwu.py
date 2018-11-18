@@ -139,7 +139,7 @@ def find(sht, val, **kwds):
         return None
     if not val:
         val = "*"
-    after = kwds.get("After")
+    after = getvalue(kwds, "After")
     after = sht.api.Cells(1, 1) if not after else sht.api.Cells(
         after.row, after.column)
 

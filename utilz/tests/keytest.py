@@ -277,9 +277,9 @@ class XwuSuite(TestCase):
         return super().tearDown()
         
     @classmethod
-    def tearDownClass(self):
-        if self._hasxls:
-            xwu.appmgr.ret(self.tk)
+    def tearDownClass(cls):
+        if cls._hasxls:
+            xwu.appmgr.ret(cls.tk)
 
     def fail_noexcel(self):
         self.fail("no excel was available, Pls. install one")
@@ -343,19 +343,6 @@ class XwuSuite(TestCase):
         #test the find's all function
         nl = xwu.find(sht, "Name", lookat=LookAt.xlPart, find_all=True)
         self.assertEqual(9, len(nl), "the are 9 items has name as part")
-
-    def testDetectBorder(self):
-        if not self._hasxls:
-            self.fail_noexcel()
-            return
-        app = self.app
-        wb = app.books.open(path.join(thispath,"res","getTableData.xlsx"))
-        sht = wb.sheets["borderdect"]
-        rng = xwu.find(sht, 1)
-        rng = xwu.detectborder(rng)
-        self.assertEqual("$B$2:$F$8", rng.address, "very regular region")
-        rng = xwu.detectborder(xwu.find(sht, 2))
-        self.assertEqual("$B$12:$G$19", rng.address, "mal-form shape")
 
     def testDetectBorder(self):
         if not self._hasxls:
