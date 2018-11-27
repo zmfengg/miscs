@@ -85,10 +85,9 @@ class PajNSOFRdr(object):
 class ShpSns(object):
 
     def __init__(self, *args, **kwargs):
-        r = super().__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         msgs = "sn_rpt,Rpt,SHEET_NAME;sn_err,错误,SHEET_NAME;sn_warn,警告,SHEET_NAME;sn_bc,BCData,SHEET_NAME;ec_qty,数量错误,ERROR;ec_jn,工单号错误,ERROR;ec_wgt_not_sure,重量不确定,ERROR;ec_wgt_missing,无重量数据,ERROR;ec_jmp,JMP号错误,ERROR;ec_date,落货日期错误,ERROR;ec_sh_error,格式错误,ERROR;wc_wgt,重量不符警告,WARN;wc_ack,Ack警告,WARN;wc_date,日期警告,WARN;wc_qty,落货数量警告,WARN;wc_inv_qty,发票数量警告,WARN;wc_smp,样板相关,WARN"
         self._errs = {y[0]: y for y in (x.split(",") for x in msgs.split(";"))}
-        return r
 
     def get(self, wb, sn, auto_add=True):
         """
@@ -766,7 +765,7 @@ class ShpMkr(object):
         objs = opts["objs"]
         if isinstance(objs, dict):
             prs = tuple(objs[x] for x in "ack inv".split())
-            prs = "New" if not prs[0] else "%4.2f" (prs[1] - prs[0]) / prs[0] * 100
+            prs = "New" if not prs[0] else "%4.2f" % ((float(prs[1]) - float(prs[0])) / float(prs[0]) * 100)
             return [prs, ] + [objs[x] for x in "inv ack file date".split()]
         return None
 

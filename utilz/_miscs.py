@@ -30,9 +30,9 @@ def _norm_exp(the_mode):
     if not the_mode:
         the_mode = lambda x: x.strip() if x is not None else x
     elif the_mode.lower().find("low") >= 0:
-        the_mode = lambda x: triml(x)
+        the_mode = triml
     else:
-        the_mode = lambda x: trimu(x)
+        the_mode = trimu
     return the_mode
 
 def splitarray(arr, logsize=100):
@@ -167,21 +167,22 @@ def imagesize(fn):
         itp = imghdr.what(fn)
         if not itp:
             return None
-        rc = None
-        if itp == 'png':
-            check = struct.unpack('>i', head[4:8])[0]
-            if check == 0x0d0a1a0a:
-                rc = struct.unpack('>ii', head[16:24])
-        elif itp == 'gif':
-            rc = struct.unpack('<HH', head[6:10])
-        elif itp == 'bmp':
+
+        def _sz_png():
+            return struct.unpack('>ii', head[16:24]) if struct.unpack('>i', head[4:8])[0] == 0x0d0a1a0a else None
+
+        def _sz_gif():
+            return struct.unpack('<HH', head[6:10])
+
+        def _sz_bmp():
             sig = head[:2].decode("ascii")
             if sig == "BM":  # Microsoft
-                rc = struct.unpack("<II", head[18:26])
+                sig = struct.unpack("<II", head[18:26])
             else:  # IBM
-                rc = struct.unpack("<HH", head[18:22])
-        elif itp == 'jpeg':
-            #https://en.wikibooks.org/wiki/JPEG_-_Idea_and_Practice/The_header_part
+                sig = struct.unpack("<HH", head[18:22])
+            return sig
+
+        def _sz_jpeg():
             try:
                 ftype = 0
                 fhandle.seek(0, 0)
@@ -200,9 +201,14 @@ def imagesize(fn):
                 rc = struct.unpack('>HH', brs[ptr+4: ptr+8])
                 rc = (rc[1], rc[0])
             except:  # IGNORE:W0703
-                pass
-        return rc
+                rc = None
+            return rc
 
+        ops = {"png": _sz_png, "gif": _sz_gif, "bmp": _sz_bmp, "jpeg": _sz_jpeg}
+        rc = ops.get(itp)
+        if not rc:
+            return None
+        return rc()
 
 def getfiles(fldr, part=None, nameonly=False):
     """
@@ -337,7 +343,7 @@ class NamedList(object):
         name = self._nrl(name)
         if self._dtype == 1:
             return self._data[self._nmap[name]]
-        elif name in self._nmap:
+        if name in self._nmap:
             name = self._nmap[name]
         return self._data[name] if self._dtype == 2 else getattr(self._data, name)
 
@@ -507,11 +513,12 @@ def easydialog(dlg):
     return rc
 
 def easymsgbox(box, *args):
-    """
-    show a messagebox with provided arguments, common snippets, the only usage is to hide the master window:
+    r"""
+    show a messagebox with provided arguments, common snippets, the only usage
+    is to hide the master window:
     from tkinter import messagebox as mb
     rc = easymsgbox(mb.showinfo, "hello", "you")
-    or 
+    or
     rc = easymsgbox(mb.askyesno, "attention", "need to delete sth?")
     """
     rt = tk.Tk()

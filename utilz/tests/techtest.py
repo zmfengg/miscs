@@ -10,6 +10,7 @@ for python's language/basic facility test, a practice farm
 import re
 from os import path
 from unittest import TestCase, skip
+import gettext
 
 import pytesseract as tesseract
 from PIL import Image, ImageFile
@@ -170,3 +171,10 @@ class ArgParserTest(TestCase):
         print(ap.parse_args(["-w"]))
         print(ap.parse_args(["-w", "kill"]))
         """
+
+    def testGetText(self):
+        gettext.bindtextdomain('utilz', r'd:\temp\abx')
+        gettext.textdomain('utilz')
+        _ = gettext.gettext
+        print(_('This is a translatable string.'))
+        print("hello")

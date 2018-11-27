@@ -11,7 +11,7 @@ import logging
 import random
 from functools import cmp_to_key
 from os import listdir, path
-from unittest import TestCase, main, skip
+from unittest import TestCase, main
 
 from sqlalchemy import VARCHAR, Column, ForeignKey, Integer
 from sqlalchemy.engine import create_engine
@@ -35,13 +35,13 @@ class KeySuite(TestCase):
     def testResourceMgr(self):
         """ test for Resource manager, which should be invoked by context manager
         """
-        class A(object):
+        class Res(object):
             """ simple resource class that dump action to logger for the manager"""
             def __init__(self, name):
                 self.name = name
                 logger.debug("resource %s created", name)
 
-            def _close(self):
+            def close(self):
                 logger.debug("%s disposed", self.name)
 
             def run(self):
@@ -50,10 +50,10 @@ class KeySuite(TestCase):
                 return self.name
 
         def _newres():
-            return A(str(random.randint(1, 9999)))
+            return Res(str(random.randint(1, 9999)))
 
-        def _dispose(a):
-            a._close()
+        def _dispose(res):
+            res.close()
 
         mgr = ResourceMgr(_newres, _dispose)
         with ResourceCtx(mgr) as r:
@@ -175,11 +175,11 @@ class KeySuite(TestCase):
 
         # now namedlist treating normal object, There is an object NamedList before
         # but finally merged into NamedList
-        class A(object):
+        class Bean(object):
             """ sample bean like object, NamedList get its property directly """
             name, id, age = "Hello", 0, 0
         al = NamedList({"nick": "name"})
-        it = A()
+        it = Bean()
         al.setdata(it)
         # the getter
         self.assertEqual(it.name, al.nick, "One object, 2 name or more")
@@ -204,7 +204,7 @@ class KeySuite(TestCase):
         self.assertEqual(2, nl.getcol("age"))
 
     def testAppathSep(self):
-        """ tes for appathsep, early stage function of my python programming, 
+        """ tes for appathsep, early stage function of my python programming,
         it should be replaced by path.join """
         fldr = thispath
         self.assertTrue(fldr[-1] != path.sep, "a path's name should not ends with path.sep")
@@ -221,7 +221,7 @@ class KeySuite(TestCase):
         fns = getfiles(fldr, nameonly=True)
         fnx = listdir(fldr)
         self.assertEqual(len(fnx), len(fns), "the count of files")
-        fns = set([x for x in fns])
+        fns = set(iter(fns))
         self.assertTrue(u"厉害为国為幗.txt" in fns, "utf-8 based system can return mixing charset")
 
     def testKaratSvc(self):
@@ -272,35 +272,35 @@ class KeySuite(TestCase):
         self.assertEqual(2, lvst_dist("'mI", "I'm"), "same string")
 
 
-# @skip("no excel")
 class XwuSuite(TestCase):
     """
     test suit for xwu funcitons
     """
     _hasxls = None
+    _app, _tk = (None, ) * 2
 
     def setUp(self):
         """ self init, including app, tk """
         if self._hasxls is not None:
             return
         try:
-            self.app, self.tk = xwu.appmgr.acq()
+            self._app, self._tk = xwu.appmgr.acq()
             self._hasxls = True
         except:
-            self.app, self.tk = (None,) * 2
+            self._app, self._tk = (None,) * 2
             self._hasxls = False
         if not self._hasxls:
             logger.debug("No excel is available")
 
     def tearDown(self):
         if self._hasxls:
-            xwu.appmgr.ret(self.tk)
+            xwu.appmgr.ret(self._tk)
         return super().tearDown()
 
     @classmethod
     def tearDownClass(cls):
         if cls._hasxls:
-            xwu.appmgr.ret(cls.tk)
+            xwu.appmgr.ret(cls._tk)
 
     def fail_noexcel(self):
         """ raise error when no excel is found """
@@ -318,7 +318,7 @@ class XwuSuite(TestCase):
         if not self._hasxls:
             self.fail_noexcel()
             return
-        app = self.app
+        app = self._app
         xwu.appswitch(app, True)
         os = xwu.appswitch(app)
         self.assertFalse(bool(os), "no changes need to be made")
@@ -338,7 +338,7 @@ class XwuSuite(TestCase):
         ttls = ('2017&"宋体,Regular"年&"Arial,Regular"6&"宋体,Regular"月', '2017&"宋体,Regular"年&"Arial,Regular"&6 6&"宋体,Regular"月')
         exps = ("2017年6月", "2017年6月")
         for idx, it in enumerate(ttls):
-            self.assertEquals(exps[idx], xwu.escapetitle(it), "the title")
+            self.assertEqual(exps[idx], xwu.escapetitle(it), "the title")
 
     def testNamedList(self):
         """
@@ -350,7 +350,7 @@ class XwuSuite(TestCase):
             self.fail_noexcel()
             return
         fn = getfiles(resfldr, "NamedList")[0]
-        app = self.app
+        app = self._app
         wb = app.books.open(fn)
         sht = wb.sheets[0]
         rng = xwu.find(sht, "*Table")
@@ -376,7 +376,7 @@ class XwuSuite(TestCase):
         if not self._hasxls:
             self.fail_noexcel()
             return
-        app = self.app
+        app = self._app
         wb = app.books.open(path.join(thispath, "res", "getTableData.xlsx"))
         sht = wb.sheets["borderdect"]
         rng = xwu.find(sht, 1)
@@ -386,10 +386,11 @@ class XwuSuite(TestCase):
         self.assertEqual("$B$12:$G$19", rng.address, "mal-form shape")
 
     def testGetTableData(self):
+        """ the gettabledata function under different conditions """
         if not self._hasxls:
             self.fail_noexcel()
             return
-        app = self.app
+        app = self._app
         wb = app.books.open(path.join(thispath, "res", "getTableData.xlsx"))
         nmap = {"id": "id,", "9k": "9k,", "S950": "S950,"}
         sht = wb.sheets["gettabledata"]
@@ -415,6 +416,7 @@ BaseClass = declarative_base()
 
 
 class Mstr(BaseClass):
+    """ master item """
     __tablename__ = "mstr"
     id = Column(Integer, primary_key=True)
     name = Column(VARCHAR(20))
@@ -424,6 +426,7 @@ class Mstr(BaseClass):
 
 
 class Dtl(BaseClass):
+    """ detail item of the Master Item """
     __tablename__ = "dtl"
 
     def __init__(self, mstr):
@@ -434,11 +437,11 @@ class Dtl(BaseClass):
 
 
 class PKNAC(BaseClass):
-    # primary key not auto-increased
+    """ primary key not auto-increased test table """
     __tablename__ = "pknac"
 
-    def __init__(self, id):
-        self.id = id
+    def __init__(self, id_):
+        self.id = id_
     id = Column(Integer, primary_key=True, autoincrement=False)
 
 
@@ -464,7 +467,7 @@ class SessMgrSuite(TestCase):
         return Mstr("fx")
 
     def testRollback(self):
-        """ try the sqlalchemy's rollback function. I found in realtime app, 
+        """ try the sqlalchemy's rollback function. I found in realtime app,
         it works sometimes only
         """
         mid = 0
@@ -486,7 +489,7 @@ class SessMgrSuite(TestCase):
             self.assertFalse(dtl, "The item should not be inserted")
 
     def testCommit(self):
-        """ test for sqlalchemy's commit function. it behaves as rollback(), 
+        """ test for sqlalchemy's commit function. it behaves as rollback(),
         it can pass this test, but in realtime app, sometimes goes wrong"""
         mid = 0
         with self.sessctx as cur:

@@ -147,7 +147,7 @@ class C1InvRdr():
                         if rng:
                             rngs.append(rng)
                     if len(cnsc1) == len(rngs):
-                        var = self.read_c1(sht)
+                        var = self.read_c1(sht, skip_checking=True)
                         if var:
                             items.extend(var[0])
                     else:
@@ -165,7 +165,7 @@ class C1InvRdr():
         return items
 
     @classmethod
-    def read_c1(self, sht):
+    def read_c1(self, sht, skip_checking=False):
         """
         read c1 invoice file
         @param   sht: the sheet that is verified to be the C1 format
@@ -173,28 +173,30 @@ class C1InvRdr():
         @return: a list of C1InvItem with source = "C1"
         """
 
-        sn = sht.name
-        nl = sn.find("月")
-        if nl <= 0:
-            return None
-        if nl > 0:
-            nl = sn[:nl]
-            if nl.isnumeric():
-                nl = int(nl)
-                if nl != datetime.date.today().month:
-                    sht.delete()
-                    return None
-        rng = xwu.find(sht, "图片")
+        if not skip_checking:
+            sn = sht.name
+            nl = sn.find("月")
+            if nl <= 0:
+                return None
+            if nl > 0:
+                nl = sn[:nl]
+                if nl.isnumeric():
+                    nl = int(nl)
+                    if nl != datetime.date.today().month:
+                        sht.delete()
+                        return None
+            #there might be several date, get the biggest one
+            nl = xwu.find(sht, "日期", find_all=True)
+            if not nl:
+                return None
+            nl = [(x, x.offset(0, 1).value) for x in nl]
+            nl = sorted(nl, key=lambda x: x[1], reverse=True)
+            rng = xwu.find(sht, "图片", After=nl[0][0])
+            invdate = nl[0][1].date()
+        else:
+            rng, invdate = xwu.find(sht, "图片"), datetime.date.today()
         if not rng:
             return None
-        #there might be several date, get the biggest one
-        nl = xwu.find(sht, "日期", find_all=True)
-        if not nl:
-            return None
-        nl = [(x, x.offset(0, 1).value) for x in nl]
-        nl = sorted(nl, key=lambda x: x[1], reverse=True)
-        rng = xwu.find(sht, "图片", After=nl[0][0])
-        invdate = nl[0][1].date()
 
         C1InvItem = namedtuple(
             "C1InvItem", "source,jono,qty,labor,setting,remarks,stones,mtlwgt")
