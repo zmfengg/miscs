@@ -8,7 +8,7 @@ classes help to do to JO -> PAJ NSOF actions
 '''
 
 import io
-from os import (path, remove, rename, makedirs)
+from os import (path, remove, rename, makedirs, environ)
 import re
 import struct
 from datetime import date
@@ -59,7 +59,10 @@ class JOImgOcr(object):
             fns = getfiles(tar_fldr, ".jpg")
         pdfs, f0, d0, wrongs = {}, set(), {}, []
         import socket
-        td = (date.today().strftime("%Y-%m-%d"), socket.gethostname())
+        try:
+            td = (date.today().strftime("%Y-%m-%d"), "%s@%s" % (environ["USERNAME"], environ["COMPUTERNAME"]))
+        except KeyError:
+            td = (date.today().strftime("%Y-%m-%d"), socket.gethostname())
         del socket
         for fn in fns:  # the first one is the cover sheet, won't extract anything
             var = self.img2jn(fn)
