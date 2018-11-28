@@ -26,6 +26,7 @@ from utilz._miscs import (NamedList, NamedLists, appathsep, getfiles,
 from utilz.resourcemgr import ResourceCtx, ResourceMgr, SessionMgr
 
 from .main import logger, thispath
+from .._catalog import Page, PageSetting
 
 #resfldr = appathsep(appathsep(thispath) + "res")
 resfldr = path.join(thispath, "res")
@@ -519,6 +520,15 @@ class SessMgrSuite(TestCase):
             cur.flush()
             pk1 = cur.query(PKNAC).filter(PKNAC.id == pk.id).first()
             self.assertEqual(pk.id, pk1.id)
+    
+class CatalogTest(TestCase):
+    """ class for catalog making """"
+    def test_detectMargin(self):
+        """
+        the ability to test for height/width of a page can hold 
+        """
+        pass
+        
 
 
 if __name__ == "__main__":

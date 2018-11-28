@@ -1,0 +1,44 @@
+{
+    "_comment": "the design size, not actual",
+    "pages":
+    [
+        {
+            "id": "_A4.3X4",
+            "name": "3X4 In a4 paper",
+            "font":{
+                "name": "arial",
+                "size": "10"
+            },
+            "headers": ["15.5*2", "10"],
+            "footers": ["10*2"],
+            "_comment": "#single block case, all blocks are the same",
+            "block":{
+                "spliters": {
+                    "row": "2.5",
+                    "col": "0.2"
+                },
+                "rows": ["14.5*7", "15*4"],
+                "cols": ["8.5*3", "18"]
+            }
+        },
+        {
+            "id": "_A4.1X4",
+            "name": "1X4 In a4 paper",
+            "font":{
+                "name": "arial",
+                "size": "10"
+            },
+            "headers": ["20*3"],
+            "footers": ["10*2"],
+            "_comment": "#single block case, all blocks are the same",
+            "block":{
+                "spliters": {
+                    "row": "2.5",
+                    "col": "0.2"
+                },
+                "rows": ["14.5*11"],
+                "cols": ["7*12"]
+            }
+        }
+    ]
+}
