@@ -20,14 +20,13 @@ from xlwings.constants import (BorderWeight, Constants, FormatConditionOperator,
 from xlwings.utils import col_name
 
 from hnjapp.c1rdrs import C1InvRdr
-from hnjcore import JOElement, deepget, karatsvc, samekarat, xwu
+from hnjcore import JOElement, samekarat
 from hnjcore.models.cn import MM, MMgd, MMMa
 from hnjcore.models.hk import JO as JOhk
 from hnjcore.models.hk import Orderma, PajAck, POItem
-from hnjcore.utils import getfiles
 from hnjcore.utils.consts import NA
 from utilz import (NamedList, NamedLists, ResourceCtx, easydialog, easymsgbox,
-                   list2dict, splitarray, triml, trimu)
+                   list2dict, splitarray, triml, trimu, xwu, deepget, karatsvc, getfiles)
 
 from .common import _logger as logger
 from .dbsvcs import jesin

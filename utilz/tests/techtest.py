@@ -7,16 +7,19 @@
 for python's language/basic facility test, a practice farm
 '''
 
+import gettext
 import re
+from argparse import ArgumentParser
 from os import path
 from unittest import TestCase, skip
-import gettext
 
 import pytesseract as tesseract
-from PIL import Image, ImageFile
+from cv2 import (ADAPTIVE_THRESH_GAUSSIAN_C, ADAPTIVE_THRESH_MEAN_C,
+                 THRESH_BINARY, GaussianBlur, adaptiveThreshold, imread,
+                 imwrite, threshold)
+from PIL import Image
 
 from utilz import getfiles, imagesize
-from argparse import ArgumentParser
 
 
 class TechTests(TestCase):
@@ -106,9 +109,6 @@ class TesseractSuite(TestCase):
                 img.save(tfn)
 
     def testCV2(self):
-        import cv2
-        from cv2 import GaussianBlur
-
         dpi = None
         srcfn = r'd:\temp\CV2\0003.jpg'
         for fn in getfiles(r"d:\temp\cv2", ".jpg"):
@@ -119,16 +119,16 @@ class TesseractSuite(TestCase):
                 img.load()
                 dpi = img.__getstate__()[0].get("dpi")
                 img.close()
-            img = cv2.imread(fn, 0)
+            img = imread(fn, 0)
             img = GaussianBlur(img, (5, 5), 0)
-            th1 = cv2.threshold(img, 160, 255, cv2.THRESH_BINARY)[1]
+            th1 = threshold(img, 160, 255, THRESH_BINARY)[1]
             fldr, bn, cnt = path.dirname(srcfn), path.splitext(path.basename(fn)), 0
             if False:
-                th2 = cv2.adaptiveThreshold(img, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 11, 2)
-                th3 = cv2.adaptiveThreshold(img, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+                th2 = adaptiveThreshold(img, 255, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY, 11, 2)
+                th3 = adaptiveThreshold(img, 255, ADAPTIVE_THRESH_GAUSSIAN_C, THRESH_BINARY, 11, 2)
             for x in (th1,):
                 fn0 = path.join(fldr, "%s_%d%s" % (bn[0], cnt, bn[1]))
-                cv2.imwrite(fn0, x)
+                imwrite(fn0, x)
                 # because CV2 does not save metadata, while dpi is very important
                 # use PIL's image to process it
                 img = Image.open(fn0, mode="r")
@@ -151,10 +151,11 @@ class TesseractSuite(TestCase):
     def testParse(self):
         pass
 
+@skip("still don't know how to make good use of it")
 class ArgParserTest(TestCase):
     """
     test for the argument parser
-    After many tests, know 
+    After many tests, know
     """
     def testSingle(self):
         ap = ArgumentParser("testPrg") #, "usage of what?", "program try the argument parser", add_help=True)

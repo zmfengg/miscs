@@ -26,10 +26,8 @@ from hnjcore import JOElement, karatsvc
 from hnjcore.models.cn import (JO, MM, Codetable, Customer, MMgd, MMMa,
                                StoneBck, StoneIn, StoneOut, StoneOutMaster,
                                StonePk, Style)
-from hnjcore.utils import (appathsep, daterange, getfiles, isnumeric,
-                           splitarray, xwu)
 from hnjcore.utils.consts import NA
-from utilz import NamedList, NamedLists, getfiles, list2dict, trimu
+from utilz import (NamedList, NamedLists, getfiles, list2dict, trimu, appathsep, daterange, getfiles, isnumeric, splitarray, xwu)
 
 from .common import _date_short
 from .common import _logger as logger, _getdefkarat

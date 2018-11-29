@@ -14,22 +14,21 @@ import re
 from collections import namedtuple
 from datetime import date, datetime
 from decimal import Decimal
-from os import path
 from logging import DEBUG
+from os import path
 
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Query
 from xlwings import Book
 from xlwings.constants import LookAt
 
-from hnjcore import JOElement, appathsep, deepget, karatsvc, p17u, xwu
+from hnjcore import JOElement, isvalidp17
 from hnjcore.models.hk import JO as JOhk
 from hnjcore.models.hk import Orderma, PajCnRev, PajInv, PajShp
 from hnjcore.models.hk import Style as Styhk
-from hnjcore.utils import daterange, getfiles, isnumeric
 from hnjcore.utils.consts import NA
 from utilz import (NamedList, NamedLists, ResourceCtx, SessionMgr, splitarray,
-                   triml)
+                   triml, daterange, getfiles, isnumeric, appathsep, deepget, karatsvc, xwu)
 
 from .common import _getdefkarat
 from .common import _logger as logger
@@ -52,7 +51,8 @@ def _accdstr(dt):
 def _removenonascii(s0):
     """remove thos non ascii characters from given string"""
     if isinstance(s0, str):
-        return "".join([x for x in s0 if ord(x) > 31 and ord(x) < 127 and x != "?"])
+        return "".join(
+            [x for x in s0 if ord(x) > 31 and ord(x) < 127 and x != "?"])
     return s0
 
 
@@ -68,9 +68,11 @@ class PajBomHhdlr(object):
             the item dict has keys("pcode","mtlwgt")
         """
         _ptn_oz = re.compile(r"\(\$\d*/OZ\)")
-        _one_hit_mp = {925: re.compile(r"(925)|(银)"), 
+        _one_hit_mp = {
+            925: re.compile(r"(925)|(银)"),
             200: re.compile(r"(BRONZE)|(铜)", re.I),
-            9925: re.compile(r"BONDED", re.I)}
+            9925: re.compile(r"BONDED", re.I)
+        }
         _ptn_k_gold = re.compile(r"^(\d*)K")
         _ptn_digits = re.compile(r"[\(（](\d*)[\)）]")
         _ptn_chn_lck = re.compile(r"(弹簧扣)|(龙虾扣)|(狗仔头扣)")
@@ -116,8 +118,12 @@ class PajBomHhdlr(object):
                         if kt:
                             break
                 if not kt and wis:
-                    if logger.isEnabledFor(DEBUG) and not [1 for x in _voids if mat.find(x) >= 0]:
-                        logger.error("No karat found for (%s) and no default provided" % mat)
+                    if logger.isEnabledFor(DEBUG) and not [
+                            1 for x in _voids if mat.find(x) >= 0
+                    ]:
+                        logger.error(
+                            "No karat found for (%s) and no default provided" %
+                            mat)
             if kt:
                 karat = karatsvc.getkarat(kt) or karatsvc.getbyfineness(kt)
                 kt = karat.karat if karat else None
@@ -150,17 +156,44 @@ class PajBomHhdlr(object):
             # duplicated item detection
             mstrs, pts = set(), set()
             shts[0][0].name, shts[1][0].name = "BOM_mstr", "BOM_part"
-            nmps = {0: {u"pcode": "十七位,", "mat": u"材质,", "mtlwgt": u"抛光,", "up": "单价", "fwgt": "成品重"}, 1: {"pcode": u"十七位,", "matid": "物料ID,", "name": u"物料名称", "spec": u"物料特征", "qty": u"数量", "wgt": u"重量", "unit": u"单位", "length": u"长度"}}
+            nmps = {
+                0: {
+                    u"pcode": "十七位,",
+                    "mat": u"材质,",
+                    "mtlwgt": u"抛光,",
+                    "up": "单价",
+                    "fwgt": "成品重"
+                },
+                1: {
+                    "pcode": u"十七位,",
+                    "matid": "物料ID,",
+                    "name": u"物料名称",
+                    "spec": u"物料特征",
+                    "qty": u"数量",
+                    "wgt": u"重量",
+                    "unit": u"单位",
+                    "length": u"长度"
+                }
+            }
             # bonded gold item, merge to mstr
             if bg_sht:
                 bg_sht.name = "BG.Wgt"
-                bgs = xwu.NamedRanges(xwu.usedrange(bg_sht),
-                        name_map={"pcode": "十七,", "mtlwgt": "金银重,", "stwgt": "石头,"})
+                bgs = xwu.NamedRanges(
+                    xwu.usedrange(bg_sht),
+                    name_map={
+                        "pcode": "十七,",
+                        "mtlwgt": "金银重,",
+                        "stwgt": "石头,"
+                    })
                 mstr_sht = shts[0][0]
-                nls = [x for x in xwu.NamedRanges(xwu.usedrange(mstr_sht), name_map=nmps[0])]
+                nls = [
+                    x for x in xwu.NamedRanges(
+                        xwu.usedrange(mstr_sht), name_map=nmps[0])
+                ]
                 nl, ridx = nls[0], len(nls)
                 for bg in (x for x in bgs if bg.pcode):
-                    vals = (bg.pcode, "BondedGold($0/OZ)", bg.mtlwgt or 0, (bg.mtlwgt or 0) + (bg.stwgt or 0))
+                    vals = (bg.pcode, "BondedGold($0/OZ)", bg.mtlwgt or 0,
+                            (bg.mtlwgt or 0) + (bg.stwgt or 0))
                     for x in zip("pcode,mat,mtlwgt,fwgt".split(","), vals):
                         mstr_sht[ridx, nl.getcol(x[0])].value = x[1]
                     ridx += 1
@@ -173,17 +206,20 @@ class PajBomHhdlr(object):
                     #BOM master
                     for nl in nls:
                         pcode = nl.pcode
-                        if not p17u.isvalidp17(pcode):
+                        if not isvalidp17(pcode):
                             break
                         kt = _parse_karat(nl.mat)
                         if not kt:
                             continue
-                        fpt = tuple(nis0(x) for x in (nl.pcode, nl.mat, nl.up, nl.mtlwgt, nl.fwgt))
-                        key = ("%s" * len(fpt)) % fpt                        
+                        fpt = tuple(
+                            nis0(x) for x in (nl.pcode, nl.mat, nl.up,
+                                              nl.mtlwgt, nl.fwgt))
+                        key = ("%s" * len(fpt)) % fpt
                         if key in mstrs:
-                            logger.debug("duplicated bom_mstr found(%s, %s)" % (nl.pcode, nl.mat))
+                            logger.debug("duplicated bom_mstr found(%s, %s)" %
+                                         (nl.pcode, nl.mat))
                             continue
-                        mstrs.add(key)                        
+                        mstrs.add(key)
                         it = pmap.setdefault(pcode, {"pcode": pcode})
                         it.setdefault("mtlwgt", []).append((kt, nl.mtlwgt))
                 elif jj == 1:
@@ -191,12 +227,16 @@ class PajBomHhdlr(object):
                     nmp = [x for x in nmps[jj].keys() if x.find("pcode") < 0]
                     for nl in nls:
                         pcode = nl.pcode
-                        if not p17u.isvalidp17(pcode):
+                        if not isvalidp17(pcode):
                             break
-                        fpt = tuple(nis0(x) for x in (nl.pcode, nl.matid, nl.name, nl.spec, nl.qty, nl.wgt, nl.unit, nl.length))
+                        fpt = tuple(
+                            nis0(x)
+                            for x in (nl.pcode, nl.matid, nl.name, nl.spec,
+                                      nl.qty, nl.wgt, nl.unit, nl.length))
                         key = ("%s" * len(fpt)) % fpt
                         if key in pts:
-                            logger.debug("duplicated bom_part found(%s, %s)" % (nl.pcode, nl.name))
+                            logger.debug("duplicated bom_part found(%s, %s)" %
+                                         (nl.pcode, nl.name))
                             continue
                         pts.add(key)
                         it = pmap.setdefault(pcode, {"pcode": pcode})
@@ -204,11 +244,12 @@ class PajBomHhdlr(object):
                         mats.append(it)
                         for cn in nmp:
                             it[cn] = nl[cn]
+
         pmap = {}
         if isinstance(fldr, Book):
             _readwb(fldr, pmap)
         else:
-            fns = getfiles(fldr, "xls") if path.isdir(fldr) else (fldr, )
+            fns = getfiles(fldr, "xls") if path.isdir(fldr) else (fldr,)
             if not fns:
                 return
             app, kxl = _appmgr.acq()
@@ -231,7 +272,7 @@ class PajBomHhdlr(object):
                 prdwgt = PrdWgt(WgtInfo(0, 0))
             if "parts" in x[1]:
                 is_pendant = _ispendant(x[0])
-                has_chain, has_lock, ch_len_err = (False, ) * 3
+                has_chain, has_lock, ch_len_err = (False,) * 3
                 if is_pendant:
                     for y in x[1]["parts"]:
                         nm = y["name"]
@@ -247,8 +288,10 @@ class PajBomHhdlr(object):
                     y["karat"], is_part = kt, False
                     if is_pendant and has_chain:
                         is_chn = triml(nm).find("chain") >= 0
-                        is_part = is_chn or (has_lock and (_ptn_chn_lck.search(nm) or
-                            [1 for v in _pts_kws if nm.find(v) >= 0]))
+                        is_part = is_chn or (
+                            has_lock and
+                            (_ptn_chn_lck.search(nm) or
+                             [1 for v in _pts_kws if nm.find(v) >= 0]))
                         if is_chn and not ch_len_err:
                             lc = y["length"]
                             if lc is not None:
@@ -262,17 +305,24 @@ class PajBomHhdlr(object):
                             is_part = (not wgt0 or y["karat"] == wgt0.karat)
                         if not is_part:
                             if is_chn:
-                                logger.debug("No wgt slot for chain(%s) in pcode(%s),merged to main" % (y["name"], x[0]))
+                                logger.debug(
+                                    "No wgt slot for chain(%s) in pcode(%s),merged to main"
+                                    % (y["name"], x[0]))
                             '''
                             else:
                                 logger.debug("parts(%s) in pcode(%s) merged to main" % (y["name"], x[0]))
                             '''
                     # turn autoswap off in parts appending procedure to avoid main karat being modified
-                    prdwgt = addwgt(prdwgt, WgtInfo(y["karat"], y["wgt"]), is_part, autoswap=False)
+                    prdwgt = addwgt(
+                        prdwgt,
+                        WgtInfo(y["karat"], y["wgt"]),
+                        is_part,
+                        autoswap=False)
                 if ch_len_err:
                     # in common  case, chain should not have length, when this happen
                     # make the weight negative. Skipped
-                    prdwgt = prdwgt._replace(part=WgtInfo(prdwgt.part.karat, -prdwgt.part.wgt * 100))
+                    prdwgt = prdwgt._replace(
+                        part=WgtInfo(prdwgt.part.karat, -prdwgt.part.wgt * 100))
             x[1]["mtlwgt"] = prdwgt
 
         return pmap
@@ -287,6 +337,7 @@ class PajBomHhdlr(object):
             if None is provided, it will be 2017/01/01
             return a workbook contains the result
         """
+
         def _fmtwgt(prdwgt):
             wgt = (prdwgt.main, prdwgt.aux, prdwgt.part)
             lst = []
@@ -316,7 +367,10 @@ class PajBomHhdlr(object):
         if not pmap:
             return ffn
         vvs = ["pcode,m.karat,m.wgt,p.karat,p.wgt,c.karat,c.wgt".split(",")]
-        jos = ["Ref.pcode,JO#,Sty#,Run#,m.karat,m.wgt,p.karat,p.wgt,c.karat,c.wgt,rm.wgt,rp.wgt,rc.wgt".split(",")]
+        jos = [
+            "Ref.pcode,JO#,Sty#,Run#,m.karat,m.wgt,p.karat,p.wgt,c.karat,c.wgt,rm.wgt,rp.wgt,rc.wgt"
+            .split(",")
+        ]
         if not mindt:
             mindt = datetime(2017, 1, 1)
         qp = Query(Styhk.id).join(Orderma, Orderma.styid == Styhk.id) \
@@ -343,13 +397,15 @@ class PajBomHhdlr(object):
                     for jn in lst1:
                         jowgt = hksvc.getjowgts(jn.jono)
                         if not _samewgt(jowgt, wgt):
-                            lst = [pcode, jn.jono.value, jn.styno.value, jn.running]
+                            lst = [
+                                pcode, jn.jono.value, jn.styno.value, jn.running
+                            ]
                             lst.extend(_fmtwgt(jowgt))
                             lst.extend(_fmtwgt(wgt)[1::2])
                             jos.append(lst)
                         else:
-                            logger.debug("JO(%s) has same weight as pcode(%s)"
-                                         % (jn.jono.value, pcode))
+                            logger.debug("JO(%s) has same weight as pcode(%s)" %
+                                         (jn.jono.value, pcode))
                 except:
                     pass
 
@@ -416,7 +472,8 @@ class PajShpHdlr(object):
 
     @classmethod
     def _getfmd(cls, fn):
-        return datetime.fromtimestamp(path.getmtime(fn)).replace(microsecond=0).replace(second=0)
+        return datetime.fromtimestamp(
+            path.getmtime(fn)).replace(microsecond=0).replace(second=0)
 
     @classmethod
     def _readquodata(cls, sht, qmap):
@@ -431,12 +488,16 @@ class PajShpHdlr(object):
         # or sht.range(rng.end('right'),rng.end('down')).value failed
         _ptngwt = re.compile(r"[\d.]+")
         vvs = sht.range(rng, rng.current_region.last_cell).value
-        nls = NamedLists(vvs, {"pcode": "Item,", "stone": "stone,", "metal": "metal ,"}, False)
+        nls = NamedLists(vvs, {
+            "pcode": "Item,",
+            "stone": "stone,",
+            "metal": "metal ,"
+        }, False)
         for tr in nls:
             p17 = tr.pcode
             if not p17:
                 continue
-            if p17u.isvalidp17(p17) and p17 not in qmap:
+            if isvalidp17(p17) and p17 not in qmap:
                 sw = 0 if not tr.stone else \
                     sum([float(x)
                          for x in _ptngwt.findall(tr.stone)])
@@ -471,14 +532,18 @@ class PajShpHdlr(object):
         if not invno:
             fn = _removenonascii(path.basename(fn))
             with self._hksvc.sessionctx() as cur:
-                shp = Query([PajShp.fn, func.min(PajShp.lastmodified)]).group_by(
-                    PajShp.fn).filter(PajShp.fn == fn).with_session(cur).first()
+                shp = Query([PajShp.fn,
+                             func.min(PajShp.lastmodified)]).group_by(
+                                 PajShp.fn).filter(
+                                     PajShp.fn == fn).with_session(cur).first()
                 if shp:
                     rc = 2 if shp[1] < fmd else 1
         else:
             with self._hksvc.sessionctx() as cur:
-                inv = Query([PajInv.invno, func.min(PajInv.lastmodified)]).group_by(
-                    PajInv.invno).filter(PajInv.invno == invno).with_session(cur).first()
+                inv = Query(
+                    [PajInv.invno, func.min(PajInv.lastmodified)]).group_by(
+                        PajInv.invno).filter(
+                            PajInv.invno == invno).with_session(cur).first()
                 if inv:
                     rc = 2 if inv[1] < fmd else 1
         return rc
@@ -493,28 +558,41 @@ class PajShpHdlr(object):
         mp = {}
         rng = xwu.find(sht, "Item*No", lookat=LookAt.xlWhole)
         if not rng:
-            return
+            return None
         if not invno:
             invno = cls.read_invno(sht)
         if sht.name != invno:
             sht.name = invno
         rng = rng.expand("table")
-        nls = tuple(NamedLists(rng.value, {"pcode": "item,", "gold": "gold,", "silver": "silver,",
-                                           "jono":  u"job#,工单", "uprice": "price,", "qty": "unit,", "stspec": "stone,"}))
+        nls = tuple(
+            NamedLists(
+                rng.value, {
+                    "pcode": "item,",
+                    "gold": "gold,",
+                    "silver": "silver,",
+                    "jono": u"job#,工单",
+                    "uprice": "price,",
+                    "qty": "unit,",
+                    "stspec": "stone,"
+                }))
         if not nls:
-            return
+            return None
         th = nls[0]
         x = [x for x in "uprice,qty,stspec".split(",") if not th.getcol(x)]
         if x:
-            logger.debug(
-                "key columns(%s) missing in invoice sheet('%s')" % (x, sht.name))
-            return
+            logger.debug("key columns(%s) missing in invoice sheet('%s')" %
+                         (x, sht.name))
+            return None
         for tr in nls:
             if not tr.uprice:
                 continue
             p17 = tr.pcode
-            if not (p17u.isvalidp17(p17) and not tuple(1 for y in "qty,uprice,silver,gold".split(",") if not isnumeric(tr[y]))):
-                logger.debug("invalid p17 code(%s) or wgt/qty/uprice data in invoice sheet(%s)" % (p17, invno))
+            if not (isvalidp17(p17) and
+                    not tuple(1 for y in "qty,uprice,silver,gold".split(",")
+                              if not isnumeric(tr[y]))):
+                logger.debug(
+                    "invalid p17 code(%s) or wgt/qty/uprice data in invoice sheet(%s)"
+                    % (p17, invno))
                 continue
             jn = JOElement(tr.jono).value if th.getcol("jono") else None
             if not jn:
@@ -527,7 +605,8 @@ class PajShpHdlr(object):
             else:
                 mps = MPS("S=%3.2f;G=%3.2f" % (tr.silver, tr.gold)).value \
                     if th.getcol("gold") and th.getcol("silver") else "S=0;G=0"
-                it = PajInvItem(invno, p17, jn, tr.qty, tr.uprice, mps, tr.stspec, fmd)
+                it = PajInvItem(invno, p17, jn, tr.qty, tr.uprice, mps,
+                                tr.stspec, fmd)
                 mp[key] = it
         return mp
 
@@ -561,13 +640,29 @@ class PajShpHdlr(object):
 
         vvs = xwu.usedrange(sht).value
         if not vvs:
-            return
-        PajShpItem = namedtuple("PajShpItem", "fn,orderno,jono,qty,pcode,invno,invdate,mtlwgt,stwgt,shpdate,lastmodified,filldate")
+            return None
+        PajShpItem = namedtuple(
+            "PajShpItem",
+            "fn,orderno,jono,qty,pcode,invno,invdate,mtlwgt,stwgt,shpdate,lastmodified,filldate"
+        )
 
         def _extring(x):
             return x[:8] + x[10:]
+
         items, td0 = {}, datetime.today()
-        shd = {"odx": u"订单号", "invdate": u"发票日期", "odseq": u"订单,序号", "stwgt":  u"平均单件石头,XXX", "invno": u"发票号", "orderno": u"订单号序号", "pcode": u"十七位,十七,物料", "mtlwgt": u"平均单件金,XX", "jono": u"工单,job", "qty": u"数量", "cost": u"cost"}
+        shd = {
+            "odx": u"订单号",
+            "invdate": u"发票日期",
+            "odseq": u"订单,序号",
+            "stwgt": u"平均单件石头,XXX",
+            "invno": u"发票号",
+            "orderno": u"订单号序号",
+            "pcode": u"十七位,十七,物料",
+            "mtlwgt": u"平均单件金,XX",
+            "jono": u"工单,job",
+            "qty": u"数量",
+            "cost": u"cost"
+        }
         nls = tuple(NamedLists(vvs, shd))
         th, bfn = nls[0], "invno,pcode,jono,qty,invdate".split(",")
         x = [x for x in bfn if th.getcol(x) is None]
@@ -580,14 +675,16 @@ class PajShpHdlr(object):
         for x in nls:
             x.jono = JOElement(x.jono).value
 
+        _is_ring = lambda pcode: isvalidp17(pcode) and pcode[1] == "4"
+
         def _getbomwgt(bomap, bomapring, pcode):
             """ in the case of ring, there is only one code there
             """
             if not (bomap and pcode):
-                return
+                return None
             prdwgt = bomap.get(pcode)
             if not prdwgt:  # and is ring
-                if pcode[1] == "4" and bomapring:
+                if bomapring and _is_ring(pcode):
                     pcode0 = pcode
                     pcode = _extring(pcode)
                     prdwgt = bomapring.get(pcode)
@@ -608,20 +705,23 @@ class PajShpHdlr(object):
         if bomwgts is None:
             bomwgts = PajBomHhdlr.readbom(sht.book)
         if bomwgts:
-            bomwgtsrng = dict([(_extring(x[0]), x[1]["mtlwgt"]) for x in bomwgts.items() if x[0][1] == "4"])
-            bomwgts = dict([(x[0], x[1]["mtlwgt"]) for x in bomwgts.items()])
+            bomwgtsrng = {
+                _extring(x[0]): x[1]["mtlwgt"]
+                for x in bomwgts.items()
+                if _is_ring(x[0])
+            }
+            bomwgts = {x[0]: x[1]["mtlwgt"] for x in bomwgts.items()}
         else:
             bomwgtsrng, bomwgts = (None,) * 2
         if not th.getcol("cost"):
             for tr in nls:
                 if not tr.pcode:
                     break
-                if not tr.odseq or tr.odseq[:2] == "CR" or not p17u.isvalidp17(tr.pcode):
+                if not tr.odseq or tr.odseq[:2] == "CR" or not isvalidp17(
+                        tr.pcode):
                     logger.debug("repairing(%s) item found, skipped", tr.pcode)
                     continue
                 jono = tr.jono
-                if jono == "B107671":
-                    print("x")
                 mwgt = _getbomwgt(bomwgts, bomwgtsrng, tr.pcode)
                 bomsrc = bool(mwgt)
                 if not bomsrc:
@@ -630,7 +730,8 @@ class PajShpHdlr(object):
                 invno = tr.invno or "N/A"
                 if th.getcol('orderno'):
                     odno = tr.orderno
-                elif len([1 for x in "odx,odseq".split(",") if th.getcol(x)]) == 2:
+                elif len(
+                    [1 for x in "odx,odseq".split(",") if th.getcol(x)]) == 2:
                     odno = tr.odx + "-" + tr.odseq
                 else:
                     odno = "N/A"
@@ -644,12 +745,16 @@ class PajShpHdlr(object):
                     si = items[thekey]
                     wi = si.mtlwgt
                     if not bomsrc:
-                        wi = wi._replace(main=wi.main._replace(wgt=_tofloat(
-                            (wi.main.wgt * si.qty + mwgt.main.wgt * tr.qty)/(si.qty + tr.qty), 4)))
+                        wi = wi._replace(
+                            main=wi.main._replace(
+                                wgt=_tofloat((wi.main.wgt * si.qty +
+                                              mwgt.main.wgt * tr.qty) /
+                                             (si.qty + tr.qty), 4)))
                     items[thekey] = si._replace(qty=si.qty + tr.qty, mtlwgt=wi)
                 else:
                     ivd = _str2date(tr.invdate)
-                    si = PajShpItem(bfn, odno, jono, tr.qty, tr.pcode, invno, ivd, mwgt, stwgt, ivd, fmd, td0)
+                    si = PajShpItem(bfn, odno, jono, tr.qty, tr.pcode, invno,
+                                    ivd, mwgt, stwgt, ivd, fmd, td0)
                     items[thekey] = si
         else:
             # new sample case, extract weight data from the quo sheet, but deprecated
@@ -683,8 +788,9 @@ class PajShpHdlr(object):
                     """
                     prdwgt = PrdWgt(WgtInfo(0, 0))
                 mtl_stone = (0, 0)
-                si = PajShpItem(bfn, odno, JOElement(tr.jono).value, tr.qty, p17,
-                                tr.invno, ivd, prdwgt, mtl_stone[1], ivd, fmd, td0)
+                si = PajShpItem(bfn, odno,
+                                JOElement(tr.jono).value, tr.qty, p17, tr.invno,
+                                ivd, prdwgt, mtl_stone[1], ivd, fmd, td0)
                 # new sample won't have duplicated items
                 items[random.random()] = si
         return items
@@ -698,10 +804,13 @@ class PajShpHdlr(object):
         err = True
         with self._hksvc.sessionctx() as sess:
             if shps[0]:
-                sess.query(PajShp).filter(PajShp.fn.in_([_removenonascii(path.basename(x))
-                                                         for x in shps[0]])).delete(synchronize_session=False)
+                sess.query(PajShp).filter(
+                    PajShp.fn.in_([
+                        _removenonascii(path.basename(x)) for x in shps[0]
+                    ])).delete(synchronize_session=False)
             if invs[0]:
-                sess.query(PajInv).filter(PajInv.invno.in_(invs[0])).delete(synchronize_session=False)
+                sess.query(PajInv).filter(PajInv.invno.in_(
+                    invs[0])).delete(synchronize_session=False)
             jns = set()
             if shps[1]:
                 jns.update([JOElement(x.jono) for x in shps[1].values()])
@@ -713,13 +822,16 @@ class PajShpHdlr(object):
                 if shps[1]:
                     for dct in [x._asdict() for x in shps[1].values()]:
                         je = JOElement(dct["jono"])
-                        if je not in jns or not p17u.isvalidp17(dct["pcode"]):
-                            logger.info("Item(%s) does not contains valid JO# or pcode" % dct)
+                        if je not in jns or not isvalidp17(dct["pcode"]):
+                            logger.info(
+                                "Item(%s) does not contains valid JO# or pcode"
+                                % dct)
                             continue
                         dct["fn"] = _removenonascii(dct["fn"])
                         dct["joid"] = jns[je].id
                         # "mtlwgt" is a list of WgtInfo Object
-                        dct["mtlwgt"] = sum([x.wgt for x in dct["mtlwgt"].wgts if x])
+                        dct["mtlwgt"] = sum(
+                            [x.wgt for x in dct["mtlwgt"].wgts if x])
                         # the stone weight field might be str only, set it to zero
                         shp = PajShp()
                         for x in dct.items():
@@ -764,19 +876,22 @@ class PajShpHdlr(object):
             # when excel open a file, the file's modified date will be changed, so, in
             # order to get the actual modified date, get it first
             fmds = dict([(x, self._getfmd(x)) for x in fns])
-            fns = sorted([(x, self.get_shp_date(x)) for x in fns], key=lambda x: x[1])
+            fns = sorted([(x, self.get_shp_date(x)) for x in fns],
+                         key=lambda x: x[1])
             fns = [x[0] for x in fns]
             for fn in fns:
                 rflag = self._hasread(fmds[fn], fn)
                 if rflag == 1:
-                    logger.debug("data in file(%s) is up-to-date" % path.basename(fn))
+                    logger.debug(
+                        "data in file(%s) is up-to-date" % path.basename(fn))
                     continue
                 shptorv, invtorv = [], []
                 shps, invs = {}, {}
                 shtshps, shtinvs = [], []
                 if rflag == 2:
                     shptorv.append(fn)
-                shd0, fmd, wb = self.get_shp_date(fn), fmds[fn], app.books.open(fn)
+                shd0, fmd, wb = self.get_shp_date(fn), fmds[fn], app.books.open(
+                    fn)
                 try:
                     bomwgts = PajBomHhdlr.readbom(wb)
                     for sht in wb.sheets:
@@ -793,7 +908,8 @@ class PajShpHdlr(object):
                     if shtshps and shtinvs:
                         if rflag != 1:
                             for sht in shtshps:
-                                its = PajShpHdlr.read_shp(fn, shd0, fmd, sht, bomwgts)
+                                its = PajShpHdlr.read_shp(
+                                    fn, shd0, fmd, sht, bomwgts)
                                 if its:
                                     if "_ERROR_" in its:
                                         errors.append(its["_ERROR_"])
@@ -808,14 +924,19 @@ class PajShpHdlr(object):
                                 if its[1]:
                                     invtorv.extend(its[1])
                     elif bool(shtshps) ^ bool(shtinvs):
-                        logger.info("Error::Not both shipment and invoice in file(%s), No data updated" % path.basename(fn))
+                        logger.info(
+                            "Error::Not both shipment and invoice in file(%s), No data updated"
+                            % path.basename(fn))
                 finally:
                     if wb:
                         wb.close()
                 if sum((len(x) for x in (shptorv, shps, invtorv, invs))) == 0:
-                    logger.debug("no valid data returned from file(%s)" % path.basename(fn))
-                logger.debug("counts of file(%s) are: Shp2Rv=%d, Shps=%d, Inv2Rv=%d, Invs=%d" %
-                             (path.basename(fn), len(shptorv), len(shps), len(invtorv), len(invs)))
+                    logger.debug("no valid data returned from file(%s)" %
+                                 path.basename(fn))
+                logger.debug(
+                    "counts of file(%s) are: Shp2Rv=%d, Shps=%d, Inv2Rv=%d, Invs=%d"
+                    % (path.basename(fn), len(shptorv), len(shps), len(invtorv),
+                       len(invs)))
                 # sometimes the shipmentdata does not have inv# data
                 its = {x[0]: x[1] for x in shps.items() if not x[1].invno}
                 if its:
@@ -823,7 +944,8 @@ class PajShpHdlr(object):
                     for it in its.items():
                         x = xmp.get(it[1].jono)
                         if not x:
-                            logger.debug("failed to get invoice for JO#(%s)" % it[1].jono)
+                            logger.debug("failed to get invoice for JO#(%s)" %
+                                         it[1].jono)
                             return -1
                         else:
                             shps[it[0]] = it[1]._replace(invno=x.invno)
@@ -833,7 +955,8 @@ class PajShpHdlr(object):
                     logger.info("file(%s) contains errors", path.basename(fn))
                     logger.info(x[1])
                 else:
-                    logger.debug("data in file(%s) were committed to db", (path.basename(fn)))
+                    logger.debug("data in file(%s) were committed to db",
+                                 (path.basename(fn)))
         finally:
             _appmgr.ret(kxl)
         return -1 if len(errors) > 0 else 1, errors
@@ -851,18 +974,22 @@ class PajJCMkr(object):
         """ create report file of given year/month"""
 
         def _makemap(sht=None):
-            coldefs = (u"invoice date=invdate;invoice no.=invno;order no.=orderno;customer=cstname;"
-                       u"job no.=jono;style no.=styno;running no.=running;paj item no.=pcode;karat=karat;"
-                       u"描述=cdesc;in english=edesc;job quantity=joqty;quantity received=shpqty;"
-                       u"total cost=ttlcost;cost=uprice;平均单件金银重g=umtlwgt;平均单件石头重g=ustwgt;石头=stspec;"
-                       u"mm program in#=iono;jmp#=jmpno;date=shpdate;remark=rmk;has dia=hasdia")
+            coldefs = (
+                u"invoice date=invdate;invoice no.=invno;order no.=orderno;customer=cstname;"
+                u"job no.=jono;style no.=styno;running no.=running;paj item no.=pcode;karat=karat;"
+                u"描述=cdesc;in english=edesc;job quantity=joqty;quantity received=shpqty;"
+                u"total cost=ttlcost;cost=uprice;平均单件金银重g=umtlwgt;平均单件石头重g=ustwgt;石头=stspec;"
+                u"mm program in#=iono;jmp#=jmpno;date=shpdate;remark=rmk;has dia=hasdia"
+            )
             vvs = sht.range("A1").expand("right").value
             vvs = [x.lower() if isinstance(x, str) else x for x in vvs]
             imap, nmap = {}, {}
             for s0 in coldefs.split(";"):
                 ss0 = s0.split("=")
-                x = [x for x in range(
-                    len(vvs)) if x not in imap and vvs[x].find(ss0[0]) >= 0]
+                x = [
+                    x for x in range(len(vvs))
+                    if x not in imap and vvs[x].find(ss0[0]) >= 0
+                ]
                 if x:
                     imap[x[0]] = ss0[1]
                     nmap[ss0[1]] = x[0]
@@ -898,20 +1025,23 @@ class PajJCMkr(object):
                 pajsjn[jn] = []
             lst1 = pajsjn[jn]
             lst1.append(x)
-        ios = dict([("%s,%s,%s" % (x.running, x.jmp, x.shpdate.strftime(dfmt)), x) for x
-                    in self._hksvc.getmmioforjc(df, dt, runns)])
+        ios = dict([("%s,%s,%s" % (x.running, x.jmp, x.shpdate.strftime(dfmt)),
+                     x) for x in self._hksvc.getmmioforjc(df, dt, runns)])
         app, kxl = _appmgr.acq()
         lst = []
         try:
             wb = xwu.fromtemplate(tplfn, app)
             sht = wb.sheets("Data")
             nmps = _makemap(sht)
-            ss = ("cstname,Customer.name,karat,JO.karat,cdesc,JO.description,joqty"
-                  ",JO.qty,jmpno,MM.name,shpdate,MMMa.refdate,shpqty,MM.qty").split(",")
+            ss = (
+                "cstname,Customer.name,karat,JO.karat,cdesc,JO.description,joqty"
+                ",JO.qty,jmpno,MM.name,shpdate,MMMa.refdate,shpqty,MM.qty"
+            ).split(",")
             dtmap0 = dict(zip(ss[0:len(ss) - 1:2], ss[1:len(ss):2]))
-            ss = ("invdate,PajShp.invdate,invno,PajShp.invno,orderno,PajShp.orderno"
-                  ",pcode,PajShp.pcode,uprice,PajInv.uprice,umtlwgt,PajShp.mtlwgt"
-                  ",ustwgt,PajShp.stwgt,stspec,PajInv.stspec").split(",")
+            ss = (
+                "invdate,PajShp.invdate,invno,PajShp.invno,orderno,PajShp.orderno"
+                ",pcode,PajShp.pcode,uprice,PajInv.uprice,umtlwgt,PajShp.mtlwgt"
+                ",ustwgt,PajShp.stwgt,stspec,PajInv.stspec").split(",")
             dtmap1 = dict(zip(ss[0:len(ss) - 1:2], ss[1:len(ss):2]))
 
             for row in mms:
@@ -923,7 +1053,8 @@ class PajJCMkr(object):
                 mp["running"], mp["jono"], mp["styno"], mp["edesc"] = rn, "'" + \
                     jn, row.Style.name.value, bcs[rn] if rn in bcs else "N/A"
 
-                key1, key, fnd = jn, "%s,%s" % (jn, mp["shpdate"].strftime(dfmt)), False
+                key1, key, fnd = jn, "%s,%s" % (
+                    jn, mp["shpdate"].strftime(dfmt)), False
                 if key in pajs:
                     x = pajs[key]
                     for y in dtmap1.items():
@@ -936,7 +1067,9 @@ class PajJCMkr(object):
                         shpd = mp["shpdate"]
                         for x in lst1:
                             ddiff = x.PajShp.shpdate - shpd
-                            if (abs(ddiff.days) <= 5 and abs(x.PajShp.qty - float(mp["shpqty"])) < 0.1):
+                            if (abs(ddiff.days) <= 5 and
+                                    abs(x.PajShp.qty - float(mp["shpqty"])) <
+                                    0.1):
                                 hts.append(x)
                                 for y in dtmap1.items():
                                     mp[y[0]] = deepget(x, y[1])
@@ -953,19 +1086,24 @@ class PajJCMkr(object):
                     for x in dtmap1.keys():
                         mp[x] = None
                     mp["ttlcost"] = None
-                key = "%s,%s,%s" % (
-                    rn, mp["jmpno"], mp["shpdate"].strftime(dfmt))
-                mp["rmk"] = ("QtyError" if not (mp["joqty"] and mp["shpqty"]) else
+                key = "%s,%s,%s" % (rn, mp["jmpno"],
+                                    mp["shpdate"].strftime(dfmt))
+                mp["rmk"] = ("QtyError"
+                             if not (mp["joqty"] and mp["shpqty"]) else
                              "" if mp["joqty"] == mp["shpqty"] else "Partial")
                 mp["iono"] = ios[key].inoutno if key in ios else "N/A"
-                hasdia = (mp["cdesc"].find(u"钻") >= 0 or mp["cdesc"].find(u"占") >= 0 or
-                          (mp["edesc"] and mp["edesc"].lower().find("dia") >= 0))
+                hasdia = (mp["cdesc"].find(u"钻") >= 0 or
+                          mp["cdesc"].find(u"占") >= 0 or
+                          (mp["edesc"] and
+                           mp["edesc"].lower().find("dia") >= 0))
                 mp["hasdia"] = "D" if hasdia else "N"
 
                 x = [mp[nmps[1][x]] for x in range(len(nmps[1]))]
-                lst.append(["" if not y else y.strip() if isinstance(y, str) else
-                            y.strftime(dfmt) if isinstance(y, datetime) else float(y) if isinstance(y, Decimal) else
-                            y for y in x])
+                lst.append([
+                    "" if not y else y.strip() if isinstance(y, str) else
+                    y.strftime(dfmt) if isinstance(y, datetime) else
+                    float(y) if isinstance(y, Decimal) else y for y in x
+                ])
             sht.range("A2").value = lst
             for x in [x for x in wb.sheets if x != sht]:
                 x.delete()
@@ -992,97 +1130,102 @@ class PajUPTcr(object):
         self._hksvc = hksvc
         self._srcfn = srcfn
         self._localsm = SessionMgr(localeng)
-        if False:
-            sess = ResourceCtx(self._localsm)
-            with sess as cur:
-                try:
-                    ext = cur.query(PajInvSt).limit(1).first()
-                except:
-                    ext = None
-                if not ext:
-                    PajInvSt.metadata.create_all(localeng)
+        PajInvSt.metadata.create_all(localeng)
+
+
+    def _cache_wgts(self, pcode, curs, **kwds):
+        """
+        persist one pcode
+        @param: curs: curs[0] is localDB, curs[1] is source(HK) db
+        """
+        var = Query([
+            PajItem, PrdWgtSt
+        ]).outerjoin(PrdWgtSt).filter(PajItem.pcode == pcode).with_session(
+            curs[0]).first()
+        if var:
+            if var[1]:
+                logger.debug("pcode(%s) already localized", pcode)
+                return
+            pi = var[0]
         else:
-            PajInvSt.metadata.create_all(localeng)
+            pi = PajItem()
+            pi.pcode, pi.createdate, pi.tag = pcode, kwds["td"], 0
+            curs[0].add(pi)
+            curs[0].flush()
+        var = Query([
+            PajShp.pcode,
+            JOhk.name.label("jono"),
+            Styhk.name.label("styno"), JOhk.createdate, PajShp.invdate,
+            PajInv.uprice, PajInv.mps
+        ]).join(JOhk).join(Orderma).join(Styhk).join(
+            PajInv,
+            and_(PajShp.joid == PajInv.joid,
+                 PajShp.invno == PajInv.invno)).filter(PajShp.pcode == pcode)
+        var = var.with_session(curs[1]).all()
+        if not var:
+            return
+        td, jeset, wgts = kwds["td"], set(), None
+        for jnv in var:
+            je = jnv.jono
+            if je in jeset:
+                continue
+            jeset.add(je)
+            if not wgts:
+                wgts = self._hksvc.getjowgts(je)
+                if not wgts:
+                    continue
+                for ic, wgt in enumerate(wgts.wgts):
+                    if not wgt:
+                        continue
+                    cn = PrdWgtSt()
+                    cn.pid, cn.karat, cn.wgt, cn.remark, cn.tag = pi.id, wgt.karat, wgt.wgt, je.value, 0
+                    cn.createdate, cn.lastmodified = td, td
+                    cn.wtype = 0 if ic == 0 else 100 if ic == 2 else 10
+                    curs[0].add(cn)
+            cn = kwds["cc"].calchina(wgts, jnv.uprice, jnv.mps, PAJCHINAMPS)
+            if cn:
+                ic = PajInvSt()
+                ic.pid, ic.uprice, ic.mps = pi.id, jnv.uprice, jnv.mps
+                ic.cn = cn.china
+                ic.jono, ic.styno = je.value, jnv.styno.value
+                ic.jodate, ic.createdate, ic.invdate, ic.lastmodified = jnv.createdate, td, jnv.invdate, td
+                ic.mtlcost, ic.otcost = cn.metalcost, cn.china - cn.metalcost
+                curs[0].add(ic)
+        curs[0].commit()
+        logger.debug("pcode(%s) localized", pcode)
 
-    def readpcodes(self):
-        with open(self._srcfn, "r+t") as fh:
-            return set([x[:-1] for x in fh.readlines() if x[0] != "#"])
-
-    def createcache(self, pcodes):
+    def _loc_wgts(self, pcodes):
         """
         create weight/invoice data from given product codes
         """
-        cc = PajCalc()
-        td = datetime.today()
+        mp = {"cc": PajCalc(), "td": datetime.today()}
         for pcode in pcodes:
-            wgts = None
             with ResourceCtx((self._localsm, self._hksvc.sessmgr())) as curs:
                 try:
-                    pi = None
-                    ivca = Query([PajItem, PrdWgtSt]).outerjoin(PrdWgtSt).filter(PajItem.pcode == pcode).with_session(curs[0]).first()
-                    if ivca:
-                        if ivca[1]:
-                            logger.debug("pcode(%s) already localized" % pcode)
-                            continue
-                        pi = ivca[0]
-                    q0 = Query([PajShp.pcode, JOhk.name.label("jono"), Styhk.name.label("styno"), JOhk.createdate, PajShp.invdate, PajInv.uprice, PajInv.mps]).join(
-                        JOhk).join(Orderma).join(Styhk).join(PajInv, and_(PajShp.joid == PajInv.joid, PajShp.invno == PajInv.invno)).filter(PajShp.pcode == pcode)
-                    lst = q0.with_session(curs[1]).all()
-                    if not lst:
-                        continue
-                    if pi is None:
-                        pi = PajItem()
-                        pi.pcode, pi.createdate, pi.tag = pcode, td, 0
-                        curs[0].add(pi)
-                        curs[0].flush()
-                    jeset = set()
-                    for jnv in lst:
-                        je = jnv.jono
-                        if je in jeset:
-                            continue
-                        jeset.add(je)
-                        if not wgts:
-                            wgts = self._hksvc.getjowgts(je)
-                            if not wgts:
-                                continue
-                            wgtarr = wgts.wgts
-                            for idx in range(len(wgtarr)):
-                                if not wgtarr[idx]:
-                                    continue
-                                pw = PrdWgtSt()
-                                pw.pid, pw.karat, pw.wgt, pw.remark, pw.tag = pi.id, wgtarr[idx].karat, wgtarr[idx].wgt, je.value, 0
-                                pw.createdate, pw.lastmodified = td, td
-                                pw.wtype = 0 if idx == 0 else 100 if idx == 2 else 10
-                                curs[0].add(pw)
-                        up, mps = jnv.uprice, jnv.mps
-                        cn = cc.calchina(wgts, up, mps, PAJCHINAMPS)
-                        if cn:
-                            ic = PajInvSt()
-                            ic.pid, ic.uprice, ic.mps = pi.id, up, mps
-                            ic.cn = cn.china
-                            ic.jono, ic.styno = je.value, jnv.styno.value
-                            ic.jodate, ic.createdate, ic.invdate, ic.lastmodified = jnv.createdate, td, jnv.invdate, td
-                            ic.mtlcost, ic.otcost = cn.metalcost, cn.china - cn.metalcost
-                            curs[0].add(ic)
-                    curs[0].commit()
-                    logger.debug("pcode(%s) localized" % pcode)
+                    self._cache_wgts(pcode, curs, **mp)
                 except Exception as e:
-                    logger.debug("Error occur while persisting localize result %s" % e)
+                    logger.debug(
+                        "Error occur while persisting localize result %s" % e)
                     curs[0].rollback()
 
     def localize(self):
-        self.localizerev()
-        pcodes = list(self.readpcodes())
+        """
+        do all the localizations
+        """
+        self._loc_rev()
+        
+        pcodes = None
+        with open(self._srcfn, "r+t") as fh:
+            pcodes = list(set([x[:-1] for x in fh.readlines() if x[0] != "#"]))
         if not pcodes:
             return
         logger.debug("totally %d pcodes send for localize" % len(pcodes))
-        cnt = 0
         for arr in splitarray(pcodes, 50):
-            self.createcache(arr)
-            cnt += 1
+            self._loc_wgts(arr)
 
-    def localizerev(self):
-        """ localize the rev history
+    def _loc_rev(self):
+        """
+        localize the rev history
         """
         affdate = datetime(2018, 4, 4)
         q0 = Query((func.max(PajCnRevSt.createdate),))
@@ -1090,35 +1233,38 @@ class PajUPTcr(object):
             lastcrdate = q0.with_session(cur).first()[0]
         if not lastcrdate:
             lastcrdate = affdate
-        q0 = Query(PajCnRev).filter(and_(PajCnRev.filldate > lastcrdate, PajCnRev.tag == 0, PajCnRev.revdate >= affdate))
+        q0 = Query(PajCnRev).filter(
+            and_(PajCnRev.filldate > lastcrdate, PajCnRev.tag == 0,
+                 PajCnRev.revdate >= affdate))
         with ResourceCtx((self._localsm, self._hksvc.sessmgr())) as curs:
             srcs = q0.with_session(curs[1]).all()
             pcodes = set((x.pcode for x in srcs)) if srcs else set()
             pcs, prs = {}, []
             if pcodes:
-                logger.debug("Totally %d revised records return from HK, now begin copying" % len(logger))
+                logger.debug(
+                    "Totally %d revised records return from HK, now begin copying"
+                    % len(pcodes))
                 for arr in splitarray(list(pcodes)):
                     q0 = Query(PajItem).filter(PajItem.pcode.in_(arr))
                     try:
-                        pcs.update(dict([(x.pcode, x) for x in q0.with_session(curs[0]).all()]))
+                        pcs.update({x.pcode: x
+                                  for x in q0.with_session(curs[0]).all()})
                     except:
                         pass
             if pcs:
                 for arr in splitarray([x.id for x in pcs.values()]):
                     try:
-                        prs.extend(curs[0].query(PajCnRevSt).filter(PajCnRevSt.id.in_(arr)).all())
+                        prs.extend(curs[0].query(PajCnRevSt).filter(
+                            PajCnRevSt.id.in_(arr)).all())
                     except:
                         pass
             if prs:
-                tag = curs[0].query((func.max(PajCnRevSt.tag),)).first()[0]
-                if not tag:
-                    tag = 0
+                tag = curs[0].query((func.max(PajCnRevSt.tag),)).first()[0] or 0
                 tag = int(tag) + 1
                 for x in prs:
                     x.tag = tag
                     curs[0].add(x)
-            td = datetime.today()
-            npis = []
+            td, npis = datetime.today(), []
             for x in [y for y in srcs if y.pcode not in pcs]:
                 pi = PajItem()
                 pi.pcode, pi.createdate, pi.tag = x.pcode, td, 0
@@ -1126,21 +1272,19 @@ class PajUPTcr(object):
                 npis.append(pi)
             if npis:
                 curs[0].flush()
-                pcs.update(dict([(x.pcode, x) for x in npis]))
+                pcs.update({x.pcode: x for x in npis})
             for x in srcs:
-                pi = pcs[x.pcode]
                 rev = PajCnRevSt()
-                rev.pid, rev.uprice = pi.id, x.uprice
-                rev.revdate, rev.createdate, rev.tag = x.revdate, td, 0
+                rev.pid, rev.uprice, rev.revdate, rev.createdate, rev.tag = pcs[x.pcode].id, x.uprice, x.revdate, td, 0
                 curs[0].add(rev)
             curs[0].commit()
 
     def analyse(self, cutdate=None):
+        """ do the Paj UnitPrice trend analyst """
         if not cutdate:
             cutdate = datetime(2018, 5, 1)
 
-        mixcols = "oc,cn,invdate,jono".split(",")
-        gelmix = NamedList(mixcols)
+        nl_mix = NamedList("oc cn invdate jono".split())
 
         def _minmax(arr):
             """ return a 3 element tuple, each element contains mixcols data
@@ -1156,70 +1300,77 @@ class PajUPTcr(object):
             for ar in arr:
                 lb = float(ar.otcost)
                 if lb > lx:
-                    mx = fill(ar)
-                    lx = lb
+                    mx, lx = fill(ar), lb
                 if lb < li:
-                    mi = fill(ar)
-                    li = lb
+                    mi, li = fill(ar), lb
             df = lx - li
             if df > 0 and (df < 0.1 or df / li < 0.01):
                 df = (lx + li) / 2.0
-                mi[0], mx[0] = df, df
+                mi[0], mx[0] = (df, ) * 2
             return mi, mx, fill(arr[-1])
 
         def _getonly(cns, arr):
             if isinstance(cns, str):
                 cns = cns.split(",")
             if not arr:
-                return [None, ] * (3 * len(cns))
+                return [
+                    None,
+                ] * (3 * len(cns))
             lst = []
             for ar in arr:
-                gelmix.setdata(ar)
-                lst.extend([gelmix[cn] for cn in cns])
+                nl_mix.setdata(ar)
+                lst.extend([nl_mix[cn] for cn in cns])
             return lst
 
         almosteq = lambda x, y: abs(x - y) <= 0.1 or abs(x - y) / x < 0.01
-        gelq = NamedList("pcode,jono,styno,invdate,cn,otcost")
+        nl_q = NamedList("pcode,jono,styno,invdate,cn,otcost")
         with ResourceCtx(self._localsm) as cur:
-            q0 = Query([PajItem.pcode, PajInvSt.jono, PajInvSt.styno, PajInvSt.invdate, PajInvSt.cn,
-                        PajInvSt.otcost]).join(PajInvSt).order_by(PajItem.pcode).order_by(PajInvSt.invdate)
-            lst = q0.with_session(cur).all()
-            mp = {}
-            for it in lst:
-                mp.setdefault(it.pcode, []).append(it)
-            q0 = Query([PajItem.pcode, PajCnRevSt.revdate, PajCnRevSt.uprice]).join(PajCnRevSt)
-            revdates = {}
+            q0 = Query([
+                PajItem.pcode, PajInvSt.jono, PajInvSt.styno, PajInvSt.invdate,
+                PajInvSt.cn, PajInvSt.otcost
+            ]).join(PajInvSt).order_by(PajItem.pcode).order_by(PajInvSt.invdate)
+            q0 = q0.with_session(cur).all()
+            if not q0:
+                return
+            mp, revdates = {}, {}
+            for arr in q0:
+                mp.setdefault(arr.pcode, []).append(arr)
+            q0 = Query([PajItem.pcode, PajCnRevSt.revdate,
+                        PajCnRevSt.uprice]).join(PajCnRevSt)
             for arr in splitarray(list(mp)):
                 try:
-                    revdates.update({y.pcode: (y.revdate, float(y.uprice)) for y in
-                                    [x for x in q0.filter(PajItem.pcode.in_(arr)).with_session(cur).all
-                                    ()]})
-                except Exception as e:
-                    print(e)
-                    pass
+                    revdates.update({
+                        y.pcode: (y.revdate, float(y.uprice)) for y in [
+                            x for x in q0.filter(PajItem.pcode.in_(arr)).
+                            with_session(cur).all()
+                        ]
+                    })
+                except:
+                    logger.debug("exception occur while caching revcn")
 
             noaff, mixture, noeng, drp, pum, nochg = [], [], [], [], [], []
-            for it in mp.items():
-                lst = it[1]
-                gelq.setdata(lst[0])
+            for arr in mp.items():
+                lst = arr[1]
+                nl_q.setdata(lst[0])
                 flag, idx = len(lst) > 1, 0
-                acutdate, revcn = revdates.get(it[0], cutdate), 0
+                acutdate, revcn = revdates.get(arr[0], cutdate), 0
                 if isinstance(acutdate, tuple):
                     revcn, acutdate = acutdate[1], acutdate[0]
                 if flag:
-                    for idx, it in enumerate(lst):
-                        flag = it.invdate > acutdate
+                    for idx, x in enumerate(lst):
+                        flag = x.invdate > acutdate
                         if flag:
                             break
                 if not flag:
-                    noaff.append((gelq.pcode, gelq.styno, acutdate, revcn, _minmax(lst)))
+                    noaff.append((nl_q.pcode, nl_q.styno, acutdate, revcn,
+                                  _minmax(lst)))
                 else:
                     mix0, mix1 = _minmax(lst[:idx]), _minmax(lst[idx:])
-                    val = (gelq.pcode, gelq.styno, acutdate, revcn, mix0, mix1)
+                    val = (nl_q.pcode, nl_q.styno, acutdate, revcn, mix0, mix1)
                     if mix0 is None:
                         nochg.append(val)
                     else:
-                        iot = gelmix.getcol("oc")
+                        iot = nl_mix.getcol("oc")
                         if mix0[0][iot] * 2.0 / 3.0 + 0.05 >= mix1[1][iot]:
                             drp.append(val)
                         elif almosteq(mix0[0][iot], mix1[1][iot]):
@@ -1231,15 +1382,16 @@ class PajUPTcr(object):
                             pum.append(val)
                         else:
                             mixture.append(val)
-            mp = {"NotAffected": noaff,
-                  "NoChanges": nochg,
-                  "Mixture": mixture,
-                  "NoEnough": noeng,
-                  "PriceDrop1of3": drp,
-                  "PriceUp": pum}
+            mp = {
+                "NotAffected": noaff,
+                "NoChanges": nochg,
+                "Mixture": mixture,
+                "NoEnough": noeng,
+                "PriceDrop1of3": drp,
+                "PriceUp": pum
+            }
             app = xwu.appmgr.acq()[0]
-            #app = xwu.app(True)[1]
-            grp0 = (("", ), "Before,After".split(","))
+            grp0 = (("",), "Before,After".split(","))
             grp1 = "Min.,Max.,Last".split(",")
             grp2 = "pcode,styno,revdate,cn,karat".split(",")
             ctss = ("cn,invdate".split(","), "oc,cn,jono,invdate".split(","))
@@ -1252,13 +1404,21 @@ class PajUPTcr(object):
                 sht = shts[-1]
                 sht.name, vvs = x[0], []
                 gidx = 0 if x[0] == "NotAffected" else 1
-                ttl0, ttl1 = [None, ] * len(grp2), [None, ] * len(grp2)
+                ttl0, ttl1 = [
+                    None,
+                ] * len(grp2), [
+                    None,
+                ] * len(grp2)
                 for z in grp0[gidx]:
                     ttl0.append(z)
-                    ttl0 += [None, ] * (len(ctss[gidx]) * len(grp1) - 1)
+                    ttl0 += [
+                        None,
+                    ] * (len(ctss[gidx]) * len(grp1) - 1)
                     for xx in grp1:
                         ttl1.append(xx)
-                        ttl1 += [None, ] * (len(ctss[gidx]) - 1)
+                        ttl1 += [
+                            None,
+                        ] * (len(ctss[gidx]) - 1)
                 if len(grp0[gidx]) > 1:
                     vvs.append(ttl0)
                 vvs.append(ttl1)
@@ -1266,20 +1426,22 @@ class PajUPTcr(object):
                 ttl = grp2.copy()
                 ttlen = len(ttl) - 1
                 cnt = 0
-                while cnt < len(grp1)*len(grp0[gidx]):
+                while cnt < len(grp1) * len(grp0[gidx]):
                     ttl.extend(ctss[gidx])
                     cnt += 1
                 vvs.append(ttl)
-                for it in x[1]:
-                    ttl = list(it[:ttlen])
+                for arr in x[1]:
+                    ttl = list(arr[:ttlen])
                     ttl.append(pd.decode(ttl[0], "karat"))
-                    [ttl.extend(_getonly(ctss[gidx], kk)) for kk in it[ttlen:]]
+                    for kk in arr[ttlen:]:
+                        ttl.extend(_getonly(ctss[gidx], kk))
                     vvs.append(ttl)
                 sht.range(1, 1).value = vvs
                 sht.autofit("c")
                 # let the karat column smaller
                 sht[1, grp2.index("karat")].column_width = 10
-                xwu.freeze(sht.range(3 + (1 if len(grp0[gidx]) > 1 else 0), ttlen + 2))
+                xwu.freeze(
+                    sht.range(3 + (1 if len(grp0[gidx]) > 1 else 0), ttlen + 2))
 
             if shts:
                 for sht in wb.sheets:

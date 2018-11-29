@@ -28,8 +28,9 @@ from hnjcore.models.hk import JOItem as JI
 from hnjcore.models.hk import StockObjectMa as SO
 from hnjcore.models.hk import (JO, Customer, Orderma, PajCnRev, PajInv, PajShp,
                                POItem, Style)
-from hnjcore.utils import samekarat, splitarray, ResourceCtx
+from hnjcore.utils import samekarat
 from hnjcore.utils.consts import NA
+from utilz import splitarray, ResourceCtx
 
 from . import pajcc
 from .pajcc import MPS, PrdWgt, WgtInfo
