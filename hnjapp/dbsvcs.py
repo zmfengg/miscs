@@ -249,9 +249,9 @@ class HKSvc(SvcBase):
             if limit:
                 q = q.limit(limit)
             rows = q.with_session(cur).all()
-            if rows and limit != 1:
+            if rows and len(rows) > 0:                
                 rows = sorted(rows, key=attrgetter("tag"))
-                rows = sorted(rows, key=attrgetter("revdate"))
+                #rows = sorted(rows, key=attrgetter("revdate"))
         return rows
 
     def getrevcn(self, pcode, calcdate=None):

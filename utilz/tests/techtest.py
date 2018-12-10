@@ -79,6 +79,34 @@ class TechTests(TestCase):
         # a full-blow
         arr = sth3(5, 20, nice="to")
         self.assertTupleEqual((5, (20,), {"nice": "to"}), arr)
+    
+    def testClassMethod(self):
+        """
+        static/class method can be accessed by
+            .class of itself
+            .instance of itself
+            .class of child
+            .instance of child
+        Although they finally call to the same function, but they are not the referencely same
+        """
+        class A():
+            @classmethod
+            def sta(cls):
+                return "sta"
+            
+            def inst(self):
+                return "inst"
+        class B(A):
+            def inst(self):
+                return super().inst() + "_B"
+        
+        self.assertEqual(A.sta(), B().sta())
+        self.assertEqual(A.sta(), B.sta())
+        self.assertEqual(A.sta(), B().sta())
+        self.assertEqual(A().inst() + "_B", B().inst())
+        self.assertFalse(A.sta is A().sta)
+        self.assertFalse(A.sta is B.sta)
+        self.assertFalse(A().sta is B().sta)
 
 
 @skip("TODO::")

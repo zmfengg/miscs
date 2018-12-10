@@ -323,7 +323,8 @@ class NamedList(object):
 
     def setdata(self, val):
         """
-        set the internal data(should be of tuple/list)
+        set the internal data(should be of tuple/list). always return myself
+        so that you can use continous action
         """
         if val:
             if isinstance(val, Sequence) and len(self._nmap) != len(val):

@@ -17,6 +17,7 @@ from PIL import Image
 from sqlalchemy.orm import Query
 
 from hnjapp.c1rdrs import _fmtbtno
+from hnjapp.pajrdrs import PajBomHhdlr
 from hnjcore.models.hk import JO, Orderma, PajShp, Style
 from utilz import ResourceCtx, getfiles, trimu
 from utilz.xwu import (NamedLists, appmgr, find, usedrange, NamedRanges)

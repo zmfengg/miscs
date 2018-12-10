@@ -28,16 +28,19 @@ from hnjcore.models.hk import Orderma, PajCnRev, PajInv, PajShp
 from hnjcore.models.hk import Style as Styhk
 from hnjcore.utils.consts import NA
 from utilz import (NamedList, NamedLists, ResourceCtx, SessionMgr, splitarray,
-                   triml, daterange, getfiles, isnumeric, appathsep, deepget, karatsvc, xwu)
+                   triml, daterange, getfiles, isnumeric, appathsep, deepget,
+                   karatsvc, xwu, getvalue)
+
 
 from .common import _getdefkarat
 from .common import _logger as logger
 from .localstore import PajCnRev as PajCnRevSt
 from .localstore import PajInv as PajInvSt
-from .localstore import PajItem
+from .localstore import PajItem as PajItemSt
 from .localstore import PajWgt as PrdWgtSt
 from .pajcc import (MPS, PAJCHINAMPS, P17Decoder, PajCalc, PrdWgt, WgtInfo,
                     _tofloat, addwgt)
+from .dbsvcs import HKSvc
 
 _accdfmt = "%Y-%m-%d %H:%M:%S"
 _appmgr = xwu.appmgr
@@ -57,197 +60,121 @@ def _removenonascii(s0):
 
 
 class PajBomHhdlr(object):
-    """ methods to read BOMs from PAJ """
+    """ class to read BOMs from PAJ
+    @param part_chk_ver: the Part checker version,
+        default is None or 0,
+            That is, when there is (chain with length) and (lock exists), 
+            圈 will be treated as part of the chain
+        1 stands for loose,
+            That is, when there is chain with length,
+            圈 will be treated as part of the chain
+    """
+    _ptn_oz = re.compile(r"\(\$\d*/OZ\)")
+    _one_hit_mp = {
+        925: (re.compile(r"(925)|(银)"), ),
+        200: (re.compile(r"(BRONZE)|(铜)", re.I), ),
+        9925: (re.compile(r"BONDED", re.I), re.compile(r"B&Gold", re.I))
+    }
+    _ptn_k_gold = re.compile(r"^(\d*)K")
+    _ptn_digits = re.compile(r"[\(（](\d*)[\)）]")
+    _ptn_chn_lck = re.compile(r"(弹簧扣)|(龙虾扣)|(狗仔头扣)")
+    # the parts must have karat, if not, follow the parent
+    _mtl_parts = u"金 银 耳勾 线圈 耳针 耳束 Chain".lower().split()
+    # keywords for parts (that should belong to a chain)
+    _pts_kws = "圈 牌".split()
+    # belts or so, not metal
+    _voids = "色 带 胶".split()
+    _pcdec = P17Decoder()
+    _part_chk_ver = None
 
-    @classmethod
-    def readbom(cls, fldr):
+    _nmps = {
+        "mstr": {
+            u"pcode": "十七位,",
+            "mat": u"材质,",
+            "mtlwgt": u"抛光,",
+            "up": "单价",
+            "fwgt": "成品重"
+        },
+        "parts": {
+            "pcode": u"十七位,",
+            "matid": "物料ID,",
+            "name": u"物料名称",
+            "spec": u"物料特征",
+            "qty": u"数量",
+            "wgt": u"重量",
+            "unit": u"单位",
+            "length": u"长度"
+        }
+    }
+
+    def __init__(self, *args, **kwargs):
+        self._part_chk_ver = getvalue(kwargs, "part_chk_ver")
+
+    def _parse_karat(self, mat, wis=None, ispol=True):
+        """ return karat(int type) from material string """
+        kt, karat = None, None
+        if ispol:
+            mt = self._ptn_oz.search(mat)
+            if not mt:
+                # no /oz sign
+                for x in (j for y in (200, 9925) for j in self._one_hit_mp[y]):
+                    karat = x.search(mat)
+                    if karat:
+                        break
+                if not karat:
+                    return None
+        kt = max(x[0] if y.search(mat) else 0 for x in self._one_hit_mp.items() for y in x[1])
+        if not kt:
+            mt = self._ptn_k_gold.search(mat) or self._ptn_digits.search(mat)
+            if mt:
+                kt = int(mt.group(1))
+        if not kt:
+            # not found, has must have keyword? if yes, follow master
+            voids = [1 for x in self._voids if mat.find(x) >= 0]
+            if not voids and wis and any(wis):
+                s0 = mat.lower()
+                for x in self._mtl_parts:
+                    if s0.find(x) < 0:
+                        continue
+                    if s0.find(u"金") >= 0:
+                        for wi in (x for x in wis if x):
+                            karat = karatsvc.getkarat(wi.karat)
+                            if karat and karat.category == karatsvc.CATEGORY_GOLD:
+                                return wi.karat
+                    # finally no one is found, follow master
+                    # kt = wis[0].karat
+                    
+                    # but zhangyuting claimed in e-mail with title "配件的"物料名称"里没有金" on 2018/12/10 that the karat should be 925
+                    # so let it to be 925
+                    kt = 925
+                    if kt:
+                        break
+            if not kt and wis:
+                if logger.isEnabledFor(DEBUG) and not voids:
+                    logger.error(
+                        "No karat found for (%s) and no default provided" %
+                        mat)
+        if kt:
+            karat = karatsvc.getkarat(kt) or karatsvc.getbyfineness(kt)
+            kt = karat.karat if karat else None
+        return kt
+
+    def _ispendant(self, pcode):
+        return self._pcdec.decode(pcode, "PRODTYPE").find("吊") >= 0
+
+    def _isring(self, pcode):
+        return self._pcdec.decode(pcode, "PRODTYPE").find("戒") >= 0
+
+    def readbom(self, fldr):
         """
         read BOM from given folder
         @param fldr: the folder contains the BOM file(s)
         return a dict with "pcode" as key and dict as items
             the item dict has keys("pcode","mtlwgt")
         """
-        _ptn_oz = re.compile(r"\(\$\d*/OZ\)")
-        _one_hit_mp = {
-            925: re.compile(r"(925)|(银)"),
-            200: re.compile(r"(BRONZE)|(铜)", re.I),
-            9925: re.compile(r"BONDED", re.I)
-        }
-        _ptn_k_gold = re.compile(r"^(\d*)K")
-        _ptn_digits = re.compile(r"[\(（](\d*)[\)）]")
-        _ptn_chn_lck = re.compile(r"(弹簧扣)|(龙虾扣)|(狗仔头扣)")
-        # the parts must have karat, if not, follow the parent
-        _mtl_parts = u"金,银,耳勾,线圈,耳针,Chain".lower().split(",")
-        # keywords for parts (that should belong to a chain)
-        _pts_kws = "圈 牌".split()
-        # belts or so, not metal
-        _voids = "色 带".split()
-
-        _pcdec = P17Decoder()
-
-        def _parse_karat(mat, wis=None, ispol=True):
-            """ return karat(int type) from material string """
-            kt, karat = None, None
-            if ispol:
-                mt = _ptn_oz.search(mat)
-                # bronze does not have oz
-                if not mt and not _one_hit_mp[200].search(mat):
-                    return
-            for x in _one_hit_mp.items():
-                if x[1].search(mat):
-                    kt = x[0]
-                    break
-            if not kt:
-                mt = _ptn_k_gold.search(mat) or _ptn_digits.search(mat)
-                if mt:
-                    kt = int(mt.group(1))
-            if not kt:
-                # not found, has must have keyword? if yes, follow master
-                if wis and any(wis):
-                    s0 = mat.lower()
-                    for x in _mtl_parts:
-                        if s0.find(x) < 0:
-                            continue
-                        if s0.find(u"金") >= 0:
-                            for wi in (x for x in wis if x):
-                                karat = karatsvc.getkarat(wi.karat)
-                                if karat and karat.category == karatsvc.CATEGORY_GOLD:
-                                    return wi.karat
-                        # finally no one is found, follow master
-                        kt = wis[0].karat
-                        if kt:
-                            break
-                if not kt and wis:
-                    if logger.isEnabledFor(DEBUG) and not [
-                            1 for x in _voids if mat.find(x) >= 0
-                    ]:
-                        logger.error(
-                            "No karat found for (%s) and no default provided" %
-                            mat)
-            if kt:
-                karat = karatsvc.getkarat(kt) or karatsvc.getbyfineness(kt)
-                kt = karat.karat if karat else None
-            return kt
-
-        def _ispendant(pcode):
-            return _pcdec.decode(pcode, "PRODTYPE").find("吊") >= 0
-
-        def _isring(pcode):
-            return _pcdec.decode(pcode, "PRODTYPE").find("戒") >= 0
-
-        def _readwb(wb, pmap):
-            """ read bom in the given wb to pmap
-            """
-            shts, bg_sht = [[], []], None
-            for sht in wb.sheets:
-                rng = xwu.find(sht, u"十七位")
-                if not rng:
-                    continue
-                if xwu.find(sht, u"抛光后"):
-                    shts[0] = (sht, rng)
-                elif xwu.find(sht, u"物料特征"):
-                    shts[1] = (sht, rng)
-                else:
-                    if xwu.find(sht, u"录入日期"):
-                        bg_sht = sht
-                # if all(shts): break
-            if not all(shts):
-                return
-            # duplicated item detection
-            mstrs, pts = set(), set()
-            shts[0][0].name, shts[1][0].name = "BOM_mstr", "BOM_part"
-            nmps = {
-                0: {
-                    u"pcode": "十七位,",
-                    "mat": u"材质,",
-                    "mtlwgt": u"抛光,",
-                    "up": "单价",
-                    "fwgt": "成品重"
-                },
-                1: {
-                    "pcode": u"十七位,",
-                    "matid": "物料ID,",
-                    "name": u"物料名称",
-                    "spec": u"物料特征",
-                    "qty": u"数量",
-                    "wgt": u"重量",
-                    "unit": u"单位",
-                    "length": u"长度"
-                }
-            }
-            # bonded gold item, merge to mstr
-            if bg_sht:
-                bg_sht.name = "BG.Wgt"
-                bgs = xwu.NamedRanges(
-                    xwu.usedrange(bg_sht),
-                    name_map={
-                        "pcode": "十七,",
-                        "mtlwgt": "金银重,",
-                        "stwgt": "石头,"
-                    })
-                mstr_sht = shts[0][0]
-                nls = [
-                    x for x in xwu.NamedRanges(
-                        xwu.usedrange(mstr_sht), name_map=nmps[0])
-                ]
-                nl, ridx = nls[0], len(nls)
-                for bg in (x for x in bgs if bg.pcode):
-                    vals = (bg.pcode, "BondedGold($0/OZ)", bg.mtlwgt or 0,
-                            (bg.mtlwgt or 0) + (bg.stwgt or 0))
-                    for x in zip("pcode,mat,mtlwgt,fwgt".split(","), vals):
-                        mstr_sht[ridx, nl.getcol(x[0])].value = x[1]
-                    ridx += 1
-
-            nis0 = lambda x: x if x else 0
-            for jj, sht in enumerate(shts):
-                vvs = sht[1].end("left").expand("table").value
-                nls = NamedLists(vvs, nmps[jj])
-                if jj == 0:
-                    #BOM master
-                    for nl in nls:
-                        pcode = nl.pcode
-                        if not isvalidp17(pcode):
-                            break
-                        kt = _parse_karat(nl.mat)
-                        if not kt:
-                            continue
-                        fpt = tuple(
-                            nis0(x) for x in (nl.pcode, nl.mat, nl.up,
-                                              nl.mtlwgt, nl.fwgt))
-                        key = ("%s" * len(fpt)) % fpt
-                        if key in mstrs:
-                            logger.debug("duplicated bom_mstr found(%s, %s)" %
-                                         (nl.pcode, nl.mat))
-                            continue
-                        mstrs.add(key)
-                        it = pmap.setdefault(pcode, {"pcode": pcode})
-                        it.setdefault("mtlwgt", []).append((kt, nl.mtlwgt))
-                elif jj == 1:
-                    #BOM parts
-                    nmp = [x for x in nmps[jj].keys() if x.find("pcode") < 0]
-                    for nl in nls:
-                        pcode = nl.pcode
-                        if not isvalidp17(pcode):
-                            break
-                        fpt = tuple(
-                            nis0(x)
-                            for x in (nl.pcode, nl.matid, nl.name, nl.spec,
-                                      nl.qty, nl.wgt, nl.unit, nl.length))
-                        key = ("%s" * len(fpt)) % fpt
-                        if key in pts:
-                            logger.debug("duplicated bom_part found(%s, %s)" %
-                                         (nl.pcode, nl.name))
-                            continue
-                        pts.add(key)
-                        it = pmap.setdefault(pcode, {"pcode": pcode})
-                        mats, it = it.setdefault("parts", []), {}
-                        mats.append(it)
-                        for cn in nmp:
-                            it[cn] = nl[cn]
-
         pmap = {}
         if isinstance(fldr, Book):
-            _readwb(fldr, pmap)
+            self._read_book(fldr, pmap)
         else:
             fns = getfiles(fldr, "xls") if path.isdir(fldr) else (fldr,)
             if not fns:
@@ -256,79 +183,198 @@ class PajBomHhdlr(object):
             try:
                 for fn in fns:
                     wb = app.books.open(fn)
-                    _readwb(wb, pmap)
+                    self._read_book(wb, pmap)
                     wb.close()
             finally:
                 if kxl and app:
                     _appmgr.ret(kxl)
 
-        for x in pmap.items():
-            lst, prdwgt = x[1].get("mtlwgt"), None
-            if lst:
-                for y in lst:
-                    prdwgt = addwgt(prdwgt, WgtInfo(y[0], y[1]))
-            else:
-                logger.debug("%s does not have master weight" % x[0])
-                prdwgt = PrdWgt(WgtInfo(0, 0))
-            if "parts" in x[1]:
-                is_pendant = _ispendant(x[0])
-                has_chain, has_lock, ch_len_err = (False,) * 3
-                if is_pendant:
-                    for y in x[1]["parts"]:
-                        nm = y["name"]
-                        if triml(nm).find("chain") >= 0:
-                            has_chain = True
-                        elif _ptn_chn_lck.search(nm):
-                            has_lock = True
-                for y in x[1]["parts"]:
-                    nm = y["name"]
-                    kt = _parse_karat(nm, prdwgt.wgts, False)
-                    if not kt:
-                        continue
-                    y["karat"], is_part = kt, False
-                    if is_pendant and has_chain:
-                        is_chn = triml(nm).find("chain") >= 0
-                        is_part = is_chn or (
-                            has_lock and
-                            (_ptn_chn_lck.search(nm) or
-                             [1 for v in _pts_kws if nm.find(v) >= 0]))
-                        if is_chn and not ch_len_err:
-                            lc = y["length"]
-                            if lc is not None:
-                                try:
-                                    lc = float(lc)
-                                except:
-                                    lc = 0
-                                ch_len_err = lc > 0
-                        if is_part:
-                            wgt0 = prdwgt.part
-                            is_part = (not wgt0 or y["karat"] == wgt0.karat)
-                        if not is_part:
-                            if is_chn:
-                                logger.debug(
-                                    "No wgt slot for chain(%s) in pcode(%s),merged to main"
-                                    % (y["name"], x[0]))
-                            '''
-                            else:
-                                logger.debug("parts(%s) in pcode(%s) merged to main" % (y["name"], x[0]))
-                            '''
-                    # turn autoswap off in parts appending procedure to avoid main karat being modified
-                    prdwgt = addwgt(
-                        prdwgt,
-                        WgtInfo(y["karat"], y["wgt"]),
-                        is_part,
-                        autoswap=False)
-                if ch_len_err:
-                    # in common  case, chain should not have length, when this happen
-                    # make the weight negative. Skipped
-                    prdwgt = prdwgt._replace(
-                        part=WgtInfo(prdwgt.part.karat, -prdwgt.part.wgt * 100))
-            x[1]["mtlwgt"] = prdwgt
+        self._adjust_wgts(pmap)
 
         return pmap
+    
+    def _part_chk(self, y, chns, lks, has_semi_chn):
+        """
+        determine if the given y is a part
+        """
+        nm = y["name"]
+        return chns and y["_id"] in chns or lks and (lks.get(y["_id"]) or sum([1 for v in self._pts_kws if nm.find(v) >= 0]))
+    
+    def _part_chk_l(self, y, chns, lks, has_semi_chn):
+        """
+        loose rule for determining if the given y is a part
+        """
+        nm = y["name"]
+        return chns and y["_id"] in chns or\
+            lks and lks.get(y["_id"]) or\
+            has_semi_chn and [1 for v in self._pts_kws if nm.find(v) >= 0]
 
-    @classmethod
-    def readbom2jos(cls, fldr, hksvc, fn=None, mindt=None):
+    def _adjust_wgts(self, pmap):
+        if not pmap:
+            return
+        part_ck = self._part_chk if not self._part_chk_ver else self._part_chk_l
+        for pcode, prop in pmap.items():
+            ch_lks, prdwgt = prop.get("mtlwgt"), None
+            if ch_lks:
+                for y in ch_lks:
+                    prdwgt = addwgt(prdwgt, WgtInfo(y[0], y[1]))
+            else:
+                logger.debug("%s does not have master weight" % pcode)
+                prdwgt = PrdWgt(WgtInfo(0, 0))
+            if "parts" not in prop:
+                prop["mtlwgt"] = prdwgt._replace(netwgt=prop.get("netwgt"))
+                continue
+            ch_lks = {}
+            if self._ispendant(pcode):
+                for y in prop["parts"][::]:
+                    nm = y["name"]
+                    if triml(nm).find("chain") >= 0:
+                        ch_lks.setdefault("chain", {})[y["_id"]] = y
+                    elif self._ptn_chn_lck.search(nm):
+                        ch_lks.setdefault("lock", {})[y["_id"]] = y
+            chns, lks = tuple(ch_lks.get(x) or {} for x in "chain lock".split())
+            has_semi_chn, subs = self._has_semi_chn(chns), 0
+            for y in prop["parts"]:
+                nm = y["name"]
+                kt = self._parse_karat(nm, prdwgt.wgts, False)
+                if not kt:
+                    subs += y["wgt"]
+                    continue
+                y["karat"], is_part = kt, False
+                is_part = part_ck(y, chns, lks, has_semi_chn)
+                if is_part:
+                    #make sure part candidate has the same karat with old
+                    wgt0 = prdwgt.part
+                    is_part = not wgt0 or kt == wgt0.karat
+                prdwgt = addwgt(prdwgt, WgtInfo(kt, y["wgt"]),\
+                    is_part, autoswap=False)
+            if has_semi_chn:
+                prdwgt = prdwgt._replace(part=WgtInfo(prdwgt.part.karat, -prdwgt.part.wgt * 100))
+            prop["mtlwgt"] = prdwgt._replace(netwgt=round(prop.get("netwgt", 0) - subs, 2))
+
+    def _has_semi_chn(self, chns):
+        """
+        check if the chains contains semi-chain, that is, 成品链
+        """
+        lc = 0
+        for y in chns.values():
+            lc = y["length"]
+            if lc is None:
+                continue
+            try:
+                lc = float(lc)
+                break
+            except:
+                pass
+        return lc
+
+    def _read_book(self, wb, pmap):
+        """
+        read bom in the given wb to pmap
+        """
+        shts, bg_sht = [[], []], None
+        for sht in wb.sheets:
+            rng = xwu.find(sht, u"十七位")
+            if not rng:
+                continue
+            if xwu.find(sht, u"抛光后"):
+                shts[0] = (sht, rng)
+            elif xwu.find(sht, u"物料特征"):
+                shts[1] = (sht, rng)
+            else:
+                if xwu.find(sht, u"录入日期"):
+                    bg_sht = sht
+            if all(shts) and bg_sht:
+                break
+        if not all(shts):
+            return
+        if bg_sht:
+            self._append_bd(bg_sht, shts[0][0])
+        for sht, rdr in {shts[0]: self._read_mstr, shts[1]: self._read_pts}.items():
+            rdr(sht, pmap)
+
+    def _get_data(self, sht_rng, nmp):
+        vvs = sht_rng[1].end("left").expand("table").value
+        return NamedLists(vvs, nmp)
+
+    def _read_mstr(self, sht_rng, pmap):
+        """ read the bom master to pmap(dict) """
+        sht_rng[0].name = "BOM_mstr"
+        nl, mstrs, netwgts = self._nmps["mstr"], set(), {}
+        for nl in self._get_data(sht_rng, nl):
+            pcode = nl.pcode
+            if not isvalidp17(pcode):
+                break
+            #dup check
+            key = tuple(nl[x] or 0 for x in "pcode mat up mtlwgt fwgt".split())
+            key = ("%s" * len(key)) % key
+            if key in mstrs:
+                logger.debug("duplicated bom_mstr found(%s, %s)" %
+                                (nl.pcode, nl.mat))
+                continue
+            kt = nl.fwgt
+            if kt:
+                netwgts[pcode] = netwgts.get(pcode, 0) + kt
+            kt = self._parse_karat(nl.mat)
+            if not kt:
+                continue
+            mstrs.add(key)
+            it = pmap.setdefault(pcode, {"pcode": pcode})
+            it.setdefault("mtlwgt", []).append((kt, nl.mtlwgt))
+        for pcode, kt in netwgts.items():
+            pmap[pcode]["netwgt"] = round(kt, 2)
+
+    def _read_pts(self, sht_rng, pmap):
+        """ read parts from the sheet to pmap(dict) """
+        sht_rng[0].name, pts = "BOM_part", set()
+        nmp = [x for x in self._nmps["parts"] if x.find("pcode") < 0]
+        _mat_id = lambda x: "%s,%f" % (x.matid, x.wgt or 0)
+        for nl in self._get_data(sht_rng, self._nmps["parts"]):
+            pcode = nl.pcode
+            if not isvalidp17(pcode):
+                break
+            key = tuple(nl[x] or 0 for x in "pcode matid name spec qty wgt unit length".split())
+            key = ("%s" * len(key)) % key
+            if key in pts:
+                logger.debug("duplicated bom_part found(%s, %s)" %
+                                (nl.pcode, nl.name))
+                continue
+            pts.add(key)
+            it = pmap.setdefault(pcode, {"pcode": pcode})
+            mats, it = it.setdefault("parts", []), {}
+            mats.append(it)
+            for cn in nmp:
+                it[cn] = nl[cn]
+            it["_id"] = _mat_id(nl)
+            if not it["wgt"]:
+                it["wgt"] = 0
+
+    def _append_bd(self, bg_sht, mstr_sht):
+        """ append the single_bonded_gold sheet to bom-mstr sheet """
+        bgs = xwu.NamedRanges(
+            xwu.usedrange(bg_sht),
+            name_map={
+                "pcode": "十七,",
+                "mtlwgt": "金银重,",
+                "stwgt": "石头,"
+            })
+        nls = [
+            x for x in xwu.NamedRanges(
+                xwu.usedrange(mstr_sht), name_map=self._nmps["mstr"])
+        ]
+        nl, ridx = nls[0], len(nls)
+        if isvalidp17(nls[-1].pcode):
+            ridx += 1
+        for bg in (x for x in bgs if x.pcode):
+            vals = (bg.pcode, "BondedGold($0/OZ)", bg.mtlwgt or 0,
+                    (bg.mtlwgt or 0) + (bg.stwgt or 0))
+            for x in zip("pcode,mat,mtlwgt,fwgt".split(","), vals):
+                mstr_sht[ridx, nl.getcol(x[0])].value = x[1]
+            ridx += 1
+        #bg_sht.name = "BG.Wgt"
+        bg_sht.delete()
+
+    def readbom2jos(self, fldr, hksvc, fn=None, mindt=None):
         """ build a jo collection list based on the BOM file provided
             @param fldr: the folder contains the BOM file(s)
             @param hksvc: the HK db service
@@ -362,7 +408,7 @@ class PajBomHhdlr(object):
                 eq = abs(round(wis[0][i].wgt - wis[1][i].wgt, 2)) <= 0.02
             return eq
 
-        pmap = cls.readbom(fldr)
+        pmap = self.readbom(fldr)
         ffn = None
         if not pmap:
             return ffn
@@ -416,10 +462,10 @@ class PajBomHhdlr(object):
             app, kxl = _appmgr.acq()
             wb = app.books.add()
             sns, data = "BOMData,JOs".split(","), (vvs, jos)
-            for idx in range(len(sns)):
-                sht = wb.sheets[idx]
-                sht.name = sns[idx]
-                sht.range(1, 1).value = data[idx]
+            for cnt, pcode in enumerate(sns):
+                sht = wb.sheets[cnt]
+                sht.name = pcode
+                sht.range(1, 1).value = data[cnt]
                 sht.autofit("c")
             wb.save(fn)
             ffn = wb.fullname
@@ -612,6 +658,7 @@ class PajShpHdlr(object):
 
     @classmethod
     def read_invno(cls, sht):
+        """ get the inv# inside the sheet(if there is) """
         rng = xwu.find(sht, "Inv*No:")
         return rng.offset(0, 1).value if rng else None
 
@@ -703,7 +750,7 @@ class PajShpHdlr(object):
         # when sheet's shpdate differs from file's shpdate, use the maximum one
         shd = max(shd, fshd)
         if bomwgts is None:
-            bomwgts = PajBomHhdlr.readbom(sht.book)
+            bomwgts = PajBomHhdlr().readbom(sht.book)
         if bomwgts:
             bomwgtsrng = {
                 _extring(x[0]): x[1]["mtlwgt"]
@@ -731,7 +778,7 @@ class PajShpHdlr(object):
                 if th.getcol('orderno'):
                     odno = tr.orderno
                 elif len(
-                    [1 for x in "odx,odseq".split(",") if th.getcol(x)]) == 2:
+                    [x for x in "odx,odseq".split(",") if th.getcol(x)]) == 2:
                     odno = tr.odx + "-" + tr.odseq
                 else:
                     odno = "N/A"
@@ -893,7 +940,7 @@ class PajShpHdlr(object):
                 shd0, fmd, wb = self.get_shp_date(fn), fmds[fn], app.books.open(
                     fn)
                 try:
-                    bomwgts = PajBomHhdlr.readbom(wb)
+                    bomwgts = PajBomHhdlr().readbom(wb)
                     for sht in wb.sheets:
                         if sht.name.find(u"返修") >= 0:
                             continue
@@ -959,7 +1006,7 @@ class PajShpHdlr(object):
                                  (path.basename(fn)))
         finally:
             _appmgr.ret(kxl)
-        return -1 if len(errors) > 0 else 1, errors
+        return -1 if errors else 1, errors
 
 
 class PajJCMkr(object):
@@ -1113,54 +1160,90 @@ class PajJCMkr(object):
             _appmgr.ret(kxl)
         return lst, tarfn
 
+def _read_pcodes(fn):
+    if not (fn and path.exists(fn)):
+        return None
+    pcodes = None
+    with open(fn, "r+t") as fh:
+        pcodes = list({x[:-1] for x in fh.readlines() if x[0] != "#"})
+    return pcodes
 
-class PajUPTcr(object):
+class PajCache(object):
     """
     Paj unit-price tracer
     to use this method, put a dat file inside a folder which should contains sty#
     then I will read and show the price trends
 
-    to speed up the process of fetching data from hk, the key data(wgt/poprices) were localized by a sqlitedb.
+    to speed up the process of fetching data from hk, the key data(wgt/poprices) were cached by a sqlitedb.
 
     the original purpose is to track the stamping products, but in fact, can be use for any Paj items.
-
+    Constructor Arguments:
+    @srcsm: sessionMgr to the source db
+    @localsm: sessionMgr to the local db(to cache the source)
+    @srcfn: the text file contains the pcodes
     """
 
-    def __init__(self, hksvc, localeng, srcfn):
-        self._hksvc = hksvc
-        self._srcfn = srcfn
-        self._localsm = SessionMgr(localeng)
-        PajInvSt.metadata.create_all(localeng)
+    def __init__(self, srcsm, localsm, srcfn):
+        self._hksvc = HKSvc(srcsm)
+        self._src_fn = srcfn
+        self._local_sm = localsm
+        PajInvSt.metadata.create_all(localsm.engine)
 
+    def cache(self):
+        """
+            cache revcn/pajinv/weights
+        """
+        pcodes0 = self._cache_revcns()
+        pcodes = _read_pcodes(self._src_fn) or pcodes0
+        if not pcodes:
+            return
+        ttl = len(pcodes)
+        logger.debug("totally %d pcodes need weight caching" % ttl)
+        cnt, sz  = 0, 50
+        for arr in splitarray(pcodes, sz):
+            self._cache_wgts(arr)
+            cnt += 1
+            logger.debug("%d of %d weight records cached" % (cnt * sz, ttl))
+        logger.debug("all weight of given pcodes cached")
 
-    def _cache_wgts(self, pcode, curs, **kwds):
+    def _cache_wgts(self, pcodes):
+        """
+        create weight/invoice data from given product codes
+        """
+        mp = {"cc": PajCalc(), "td": datetime.today()}
+        for pcode in pcodes:
+            with ResourceCtx((self._local_sm, self._hksvc.sessmgr())) as curs:
+                try:
+                    self._cache_wgt(pcode, curs, **mp)
+                except:
+                    curs[0].rollback()
+                    logger.debug("Error occur while persisting cache result")
+
+    def _cache_wgt(self, pcode, curs, **kwds):
         """
         persist one pcode
         @param: curs: curs[0] is localDB, curs[1] is source(HK) db
         """
-        var = Query([
-            PajItem, PrdWgtSt
-        ]).outerjoin(PrdWgtSt).filter(PajItem.pcode == pcode).with_session(
-            curs[0]).first()
+        var = Query([PajItemSt, PrdWgtSt]).outerjoin(PrdWgtSt)
+        var = var.filter(PajItemSt.pcode == pcode)
+        var = var.with_session(curs[0]).first()
         if var:
             if var[1]:
-                logger.debug("pcode(%s) already localized", pcode)
+                logger.debug("weight of pcode(%s) already cached", pcode)
                 return
             pi = var[0]
         else:
-            pi = PajItem()
+            pi = PajItemSt()
             pi.pcode, pi.createdate, pi.tag = pcode, kwds["td"], 0
             curs[0].add(pi)
             curs[0].flush()
-        var = Query([
-            PajShp.pcode,
-            JOhk.name.label("jono"),
+        var = Query([PajShp.pcode, JOhk.name.label("jono"),
             Styhk.name.label("styno"), JOhk.createdate, PajShp.invdate,
-            PajInv.uprice, PajInv.mps
-        ]).join(JOhk).join(Orderma).join(Styhk).join(
-            PajInv,
-            and_(PajShp.joid == PajInv.joid,
-                 PajShp.invno == PajInv.invno)).filter(PajShp.pcode == pcode)
+            PajInv.uprice, PajInv.mps])
+        var = var.join(JOhk).join(Orderma).join(Styhk).join(
+            PajInv, and_(PajShp.joid == PajInv.joid,
+            PajShp.invno == PajInv.invno))
+        var = var.filter(PajShp.pcode == pcode)
         var = var.with_session(curs[1]).all()
         if not var:
             return
@@ -1192,256 +1275,280 @@ class PajUPTcr(object):
                 ic.mtlcost, ic.otcost = cn.metalcost, cn.china - cn.metalcost
                 curs[0].add(ic)
         curs[0].commit()
-        logger.debug("pcode(%s) localized", pcode)
+        logger.debug("weight of pcode(%s) cached", pcode)
 
-    def _loc_wgts(self, pcodes):
-        """
-        create weight/invoice data from given product codes
-        """
-        mp = {"cc": PajCalc(), "td": datetime.today()}
-        for pcode in pcodes:
-            with ResourceCtx((self._localsm, self._hksvc.sessmgr())) as curs:
-                try:
-                    self._cache_wgts(pcode, curs, **mp)
-                except Exception as e:
-                    logger.debug(
-                        "Error occur while persisting localize result %s" % e)
-                    curs[0].rollback()
+    @classmethod
+    def _get_tar_pis(clas, pcodes, cur_src):
+        var = set((x for x in pcodes)) if pcodes else set()
+        if not var:
+            return None
+        logger.debug(
+            "Totally %d revised records return from HK, now begin copying",
+            len(var))
+        pcs = {}
+        for arr in splitarray(list(var)):
+            q0 = Query(PajItemSt).filter(PajItemSt.pcode.in_(arr))
+            try:
+                q0 = q0.with_session(cur_src).all()
+                if not q0:
+                    continue
+                pcs.update({x.pcode: x for x in q0})
+            except:
+                pass
+        return pcs
 
-    def localize(self):
-        """
-        do all the localizations
-        """
-        self._loc_rev()
-        
-        pcodes = None
-        with open(self._srcfn, "r+t") as fh:
-            pcodes = list(set([x[:-1] for x in fh.readlines() if x[0] != "#"]))
-        if not pcodes:
-            return
-        logger.debug("totally %d pcodes send for localize" % len(pcodes))
-        for arr in splitarray(pcodes, 50):
-            self._loc_wgts(arr)
+    @classmethod
+    def _get_tar_revs(cls, src_its, cur_tar):
+        if not src_its:
+            return None
+        var = []
+        for arr in splitarray([x.id for x in src_its.values()]):
+            try:
+                var.extend(cur_tar.query([PajItemSt, PajCnRevSt]).join(PajCnRevSt).
+                    filter(PajCnRevSt.id.in_(arr)).all())
+            except:
+                pass
 
-    def _loc_rev(self):
+    def _cache_revcns(self):
         """
-        localize the rev history
+        cache the rev history, only create the blank new, whose tag changed
+        from 0 to lt 0 won't be caught. So when the last cache is too far
+        away, clear the revcn first.
         """
         affdate = datetime(2018, 4, 4)
         q0 = Query((func.max(PajCnRevSt.createdate),))
-        with ResourceCtx(self._localsm) as cur:
-            lastcrdate = q0.with_session(cur).first()[0]
-        if not lastcrdate:
-            lastcrdate = affdate
+        with ResourceCtx(self._local_sm) as cur:
+            var = q0.with_session(cur).first()[0]
+            if not var:
+                var = affdate
+            else:
+                if (datetime.today() - var).days > 2:
+                    var = affdate
+                    PajCnRevSt.query.delete()
+                    cur.commit()
         q0 = Query(PajCnRev).filter(
-            and_(PajCnRev.filldate > lastcrdate, PajCnRev.tag == 0,
+            and_(PajCnRev.filldate > var, PajCnRev.tag == 0,
                  PajCnRev.revdate >= affdate))
-        with ResourceCtx((self._localsm, self._hksvc.sessmgr())) as curs:
-            srcs = q0.with_session(curs[1]).all()
-            pcodes = set((x.pcode for x in srcs)) if srcs else set()
-            pcs, prs = {}, []
-            if pcodes:
-                logger.debug(
-                    "Totally %d revised records return from HK, now begin copying"
-                    % len(pcodes))
-                for arr in splitarray(list(pcodes)):
-                    q0 = Query(PajItem).filter(PajItem.pcode.in_(arr))
-                    try:
-                        pcs.update({x.pcode: x
-                                  for x in q0.with_session(curs[0]).all()})
-                    except:
-                        pass
-            if pcs:
-                for arr in splitarray([x.id for x in pcs.values()]):
-                    try:
-                        prs.extend(curs[0].query(PajCnRevSt).filter(
-                            PajCnRevSt.id.in_(arr)).all())
-                    except:
-                        pass
-            if prs:
-                tag = curs[0].query((func.max(PajCnRevSt.tag),)).first()[0] or 0
-                tag = int(tag) + 1
-                for x in prs:
-                    x.tag = tag
-                    curs[0].add(x)
-            td, npis = datetime.today(), []
-            for x in [y for y in srcs if y.pcode not in pcs]:
-                pi = PajItem()
-                pi.pcode, pi.createdate, pi.tag = x.pcode, td, 0
-                curs[0].add(pi)
-                npis.append(pi)
+        with ResourceCtx((self._local_sm, self._hksvc.sessmgr())) as curs:
+            src_revs = q0.with_session(curs[1]).all()
+            pcodes = {x.pcode for x in src_revs}
+            tar_its = self._get_tar_pis(pcodes, curs[0])
+            affdate, npis = datetime.today(), []
+            for x in [y for y in src_revs if y.pcode not in tar_its]:
+                var = PajItemSt()
+                var.pcode, var.createdate, var.tag = x.pcode, affdate, 0
+                curs[0].add(var)
+                npis.append(var)
             if npis:
                 curs[0].flush()
-                pcs.update({x.pcode: x for x in npis})
-            for x in srcs:
-                rev = PajCnRevSt()
-                rev.pid, rev.uprice, rev.revdate, rev.createdate, rev.tag = pcs[x.pcode].id, x.uprice, x.revdate, td, 0
-                curs[0].add(rev)
+                tar_its.update({x.pcode: x for x in npis})
+            for x in src_revs:
+                var = PajCnRevSt()
+                var.pid, var.uprice, var.revdate, var.createdate, var.tag = tar_its[
+                    x.pcode].id, x.uprice, x.revdate, affdate, x.tag
+                curs[0].add(var)
             curs[0].commit()
+        return pcodes
 
-    def analyse(self, cutdate=None):
-        """ do the Paj UnitPrice trend analyst """
-        if not cutdate:
-            cutdate = datetime(2018, 5, 1)
+class PajUPTracker(object):
+    """
+    Keep track of the PAJ UnitPrice changes history (based on a text file
+    which contains the pcodes)
+    @Arguments:
+    @srcsm: the sessionMgr for the source db
+    @localsm: the sessionMgr for the local db
 
-        nl_mix = NamedList("oc cn invdate jono".split())
+    @optional Arguments:
+    @file: the file contains the pcodes that need to analyse
+    @cutdate: the cutting date to analyse. default is 2018/05/01
+    """
+    nl_mix = NamedList("oc cn invdate jono".split())
 
-        def _minmax(arr):
-            """ return a 3 element tuple, each element contains mixcols data
-            first   -> min
-            second  -> max
-            third   -> last
-            """
-            if not arr:
-                return None
-            fill = lambda ar: [float(ar.otcost), float(ar.cn), ar.invdate, ar.jono]
-            li, lx = 9999, -9999
-            mi = mx = None
-            for ar in arr:
-                lb = float(ar.otcost)
-                if lb > lx:
-                    mx, lx = fill(ar), lb
-                if lb < li:
-                    mi, li = fill(ar), lb
-            df = lx - li
-            if df > 0 and (df < 0.1 or df / li < 0.01):
-                df = (lx + li) / 2.0
-                mi[0], mx[0] = (df, ) * 2
-            return mi, mx, fill(arr[-1])
+    def __init__(self, srcsm, localsm, **kwargs):
+        self._source_sm, self._local_sm = srcsm, localsm
+        self._file = kwargs.get("file")
+        self._cut_date = kwargs.get("cutdate") or datetime(2018, 5, 1)
 
-        def _getonly(cns, arr):
-            if isinstance(cns, str):
-                cns = cns.split(",")
-            if not arr:
-                return [
-                    None,
-                ] * (3 * len(cns))
+    @classmethod
+    def minmax(cls, arr):
+        """
+        return a 3 element tuple, each element contains mixcols data
+        first   -> min
+        second  -> max
+        third   -> last
+        """
+        if not arr:
+            return None
+        fill = lambda ar: [float(ar.otcost), float(ar.cn), ar.invdate, ar.jono]
+        li, lx = 9999, -9999
+        mi = mx = None
+        for ar in arr:
+            lb = float(ar.otcost)
+            if lb > lx:
+                mx, lx = fill(ar), lb
+            if lb < li:
+                mi, li = fill(ar), lb
+        df = lx - li
+        if df > 0 and (df < 0.1 or df / li < 0.01):
+            df = (lx + li) / 2.0
+            mi[0], mx[0] = (df,) * 2
+        return mi, mx, fill(arr[-1])
+
+    def getonly(self, cns, arr):
+        if isinstance(cns, str):
+            cns = cns.split(",")
+        if not arr:
+            return [
+                None,
+            ] * (3 * len(cns))
+        lst = []
+        for ar in arr:
+            self.nl_mix.setdata(ar)
+            lst.extend([self.nl_mix[cn] for cn in cns])
+        return lst
+
+    @classmethod
+    def fetch(cls, cur, pcodes=None):
+        """
+        fetch the pajitem/pajinv data from cache
+        """
+        q0 = Query([
+            PajItemSt.pcode, PajInvSt.jono, PajInvSt.styno, PajInvSt.invdate,
+            PajInvSt.cn, PajInvSt.otcost])
+        q0 = q0.join(PajInvSt).order_by(PajItemSt.pcode).order_by(PajInvSt.invdate)
+        if pcodes:
             lst = []
-            for ar in arr:
-                nl_mix.setdata(ar)
-                lst.extend([nl_mix[cn] for cn in cns])
-            return lst
-
-        almosteq = lambda x, y: abs(x - y) <= 0.1 or abs(x - y) / x < 0.01
-        nl_q = NamedList("pcode,jono,styno,invdate,cn,otcost")
-        with ResourceCtx(self._localsm) as cur:
-            q0 = Query([
-                PajItem.pcode, PajInvSt.jono, PajInvSt.styno, PajInvSt.invdate,
-                PajInvSt.cn, PajInvSt.otcost
-            ]).join(PajInvSt).order_by(PajItem.pcode).order_by(PajInvSt.invdate)
-            q0 = q0.with_session(cur).all()
-            if not q0:
-                return
-            mp, revdates = {}, {}
-            for arr in q0:
-                mp.setdefault(arr.pcode, []).append(arr)
-            q0 = Query([PajItem.pcode, PajCnRevSt.revdate,
-                        PajCnRevSt.uprice]).join(PajCnRevSt)
-            for arr in splitarray(list(mp)):
+            for mp in splitarray(pcodes):
                 try:
-                    revdates.update({
-                        y.pcode: (y.revdate, float(y.uprice)) for y in [
-                            x for x in q0.filter(PajItem.pcode.in_(arr)).
-                            with_session(cur).all()
-                        ]
-                    })
+                    lst.extend(q0.filter(PajItemSt.pcode.in_(mp)).with_session(cur).all()
+                    )
                 except:
-                    logger.debug("exception occur while caching revcn")
+                    pass
+            q0 = lst
+        else:
+            q0 = q0.with_session(cur).all()
+        if not q0:
+            return (None,) * 2
+        mp, revdates = {}, {}
+        for arr in q0:
+            mp.setdefault(arr.pcode, []).append(arr)
+        q0 = Query([PajItemSt.pcode, PajCnRevSt.revdate,
+                    PajCnRevSt.uprice]).join(PajCnRevSt)
+        for arr in splitarray(list(mp)):
+            try:
+                revdates.update({
+                    y.pcode: (y.revdate, float(y.uprice)) for y in [
+                        x for x in q0.filter(PajItemSt.pcode.in_(arr)).
+                        with_session(cur).all()
+                    ]
+                })
+            except:
+                logger.debug("exception occur while caching revcn")
+        return mp, revdates
 
-            noaff, mixture, noeng, drp, pum, nochg = [], [], [], [], [], []
-            for arr in mp.items():
-                lst = arr[1]
-                nl_q.setdata(lst[0])
-                flag, idx = len(lst) > 1, 0
-                acutdate, revcn = revdates.get(arr[0], cutdate), 0
-                if isinstance(acutdate, tuple):
-                    revcn, acutdate = acutdate[1], acutdate[0]
-                if flag:
-                    for idx, x in enumerate(lst):
-                        flag = x.invdate > acutdate
-                        if flag:
-                            break
-                if not flag:
-                    noaff.append((nl_q.pcode, nl_q.styno, acutdate, revcn,
-                                  _minmax(lst)))
+    def _group(self, mp, revdates):
+        if not mp:
+            return None
+        data, nl_q = {}, NamedList("pcode,jono,styno,invdate,cn,otcost")
+        m_x = self.__class__.minmax
+        for arr in mp.items():
+            lst = arr[1]
+            nl_q.setdata(lst[0])
+            flag, idx = lst and len(lst) > 1, 0
+            acutdate, revcn = revdates.get(arr[0], self._cut_date), 0
+            if isinstance(acutdate, tuple):
+                revcn, acutdate = acutdate[1], acutdate[0]
+            if flag:
+                for idx, x in enumerate(lst):
+                    flag = x.invdate > acutdate
+                    if flag:
+                        break
+            if not flag:
+                flag = data.setdefault("noaff", [])
+                flag.append((nl_q.pcode, nl_q.styno, acutdate, revcn, m_x(lst)))
+            else:
+                mix0, mix1 = m_x(lst[:idx]), m_x(lst[idx:])
+                val = (nl_q.pcode, nl_q.styno, acutdate, revcn, mix0, mix1)
+                if mix0 is None:
+                    iot = "nochg"
                 else:
-                    mix0, mix1 = _minmax(lst[:idx]), _minmax(lst[idx:])
-                    val = (nl_q.pcode, nl_q.styno, acutdate, revcn, mix0, mix1)
-                    if mix0 is None:
-                        nochg.append(val)
+                    iot = self.nl_mix.getcol("oc")
+                    if mix0[0][iot] * 2.0 / 3.0 + 0.05 >= mix1[1][iot]:
+                        iot = "drp"
+                    elif self.__class__.almosteq(mix0[0][iot], mix1[1][iot]):
+                        iot = "nochg"
+                    elif mix0[0][iot] > mix1[1][iot]:
+                        iot = "noeng"
+                    elif mix0[0][iot] < mix1[1][iot]:
+                        # old's max under new's min
+                        iot = "pum"
                     else:
-                        iot = nl_mix.getcol("oc")
-                        if mix0[0][iot] * 2.0 / 3.0 + 0.05 >= mix1[1][iot]:
-                            drp.append(val)
-                        elif almosteq(mix0[0][iot], mix1[1][iot]):
-                            nochg.append(val)
-                        elif mix0[0][iot] > mix1[1][iot]:
-                            noeng.append(val)
-                        elif mix0[0][iot] < mix1[1][iot]:
-                            # old's max under new's min
-                            pum.append(val)
-                        else:
-                            mixture.append(val)
-            mp = {
-                "NotAffected": noaff,
-                "NoChanges": nochg,
-                "Mixture": mixture,
-                "NoEnough": noeng,
-                "PriceDrop1of3": drp,
-                "PriceUp": pum
+                        iot = "mixture"
+                data.setdefault(iot, []).append(val)
+        return data
+
+    @classmethod
+    def almosteq(cls, x, y):
+        """ check if x and w are ver close """
+        return abs(x - y) <= 0.1 or abs(x - y) / x < 0.01
+
+    def analyse(self):
+        """ do the Paj UnitPrice trend analyst """
+        PajCache(self._source_sm, self._local_sm, self._file).cache()
+        pcodes = _read_pcodes(self._file)
+        with ResourceCtx(self._local_sm) as cur:
+            grouped_data = self._group(*self.__class__.fetch(cur, pcodes))
+            grps = {
+                0: (("",), "Before,After".split(",")),
+                1: "Min.,Max.,Last".split(","),
+                2: "pcode,styno,revdate,cn,karat".split(",")
             }
-            app = xwu.appmgr.acq()[0]
-            grp0 = (("",), "Before,After".split(","))
-            grp1 = "Min.,Max.,Last".split(",")
-            grp2 = "pcode,styno,revdate,cn,karat".split(",")
-            ctss = ("cn,invdate".split(","), "oc,cn,jono,invdate".split(","))
+            mp = {
+                "noaff": "NotAffected",
+                "nochg": "NoChanges",
+                "mixture": "Mixture",
+                "noeng": "NoEnough",
+                "drp": "PriceDrop1of3",
+                "pum": "PriceUp"
+            }
+            ctss = ("cn invdate".split(), "oc cn jono invdate".split(), )
             shts, pd = [], P17Decoder()
+            app = xwu.appmgr.acq()[0]
             wb = app.books.add()
-            for x in mp.items():
-                if not x[1]:
-                    continue
+            for x in grouped_data.items():
                 shts.append(wb.sheets.add())
                 sht = shts[-1]
-                sht.name, vvs = x[0], []
-                gidx = 0 if x[0] == "NotAffected" else 1
-                ttl0, ttl1 = [
-                    None,
-                ] * len(grp2), [
-                    None,
-                ] * len(grp2)
-                for z in grp0[gidx]:
+                sht.name, vvs = mp.get(x[0], "_" + str(random.randint(0, 99999))), []
+                gidx = len(grps[2])
+                ttl0, ttl1 = [None, ] * gidx, [None, ] * gidx
+                gidx = 0 if x[0] == "noaff" else 1
+                for z in grps[0][gidx]:
                     ttl0.append(z)
-                    ttl0 += [
-                        None,
-                    ] * (len(ctss[gidx]) * len(grp1) - 1)
-                    for xx in grp1:
+                    ttl0 += [None,] * (len(ctss[gidx]) * len(grps[1]) - 1)
+                    for xx in grps[1]:
                         ttl1.append(xx)
-                        ttl1 += [
-                            None,
-                        ] * (len(ctss[gidx]) - 1)
-                if len(grp0[gidx]) > 1:
+                        ttl1 += [None, ] * (len(ctss[gidx]) - 1)
+                if len(grps[0][gidx]) > 1:
                     vvs.append(ttl0)
                 vvs.append(ttl1)
 
-                ttl = grp2.copy()
+                ttl = grps[2].copy()
                 ttlen = len(ttl) - 1
-                cnt = 0
-                while cnt < len(grp1) * len(grp0[gidx]):
-                    ttl.extend(ctss[gidx])
-                    cnt += 1
+                ttl.extend(ctss[gidx] * (len(grps[1]) * len(grps[0][gidx])))
                 vvs.append(ttl)
                 for arr in x[1]:
                     ttl = list(arr[:ttlen])
                     ttl.append(pd.decode(ttl[0], "karat"))
                     for kk in arr[ttlen:]:
-                        ttl.extend(_getonly(ctss[gidx], kk))
+                        ttl.extend(self.getonly(ctss[gidx], kk))
                     vvs.append(ttl)
                 sht.range(1, 1).value = vvs
                 sht.autofit("c")
                 # let the karat column smaller
-                sht[1, grp2.index("karat")].column_width = 10
+                sht[1, grps[2].index("karat")].column_width = 10
                 xwu.freeze(
-                    sht.range(3 + (1 if len(grp0[gidx]) > 1 else 0), ttlen + 2))
+                    sht.range(3 + (1 if len(grps[0][gidx]) > 1 else 0),
+                              ttlen + 2))
 
             if shts:
                 for sht in wb.sheets:

@@ -64,7 +64,6 @@ def readsignetcn(fldr):
     for signet's "RETURN TO VENDOR" sheet
     """
     if not os.path.exists(fldr): return
-    fldr = hnju.appathsep(fldr)
     fns = getfiles(fldr, "txt")
     ptncn = re.compile(r"(CN|QC)\d{3,}")
     ptndec = re.compile(r"\d*\.\d+")
@@ -136,7 +135,7 @@ def readsignetcn(fldr):
         sht = wb.sheets(1)
         rng = sht.range("A1")
         rng.value = lstfn
-        wb.save(fldr + "data")
+        wb.save(path.join(fldr, "data"))
         sht.autofit("c")
         fn = wb.fullname
     return fn
@@ -1460,7 +1459,7 @@ class AckPriceCheck(object):
                     d = wgts
                 else:
                     d = {"main": wgts.main, "sub": wgts.aux, "part": wgts.part}
-                    d = ";".join(["%s(%s=%s)" % (kw[0],kw[1].karat,kw[1].wgt) \
+                    d = ";".join(["%s(%s=%s)" % (kw[0], kw[1].karat, kw[1].wgt) \
                         for kw in d.items() if kw[1]])
                 mp["wgts"] = d
             lst.append([mp[x] if x in mp else NA for x in hdr])

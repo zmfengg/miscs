@@ -27,7 +27,7 @@ from hnjcore.models.cn import (JO, MM, Codetable, Customer, MMgd, MMMa,
                                StoneBck, StoneIn, StoneOut, StoneOutMaster,
                                StonePk, Style)
 from hnjcore.utils.consts import NA
-from utilz import (NamedList, NamedLists, getfiles, list2dict, trimu, appathsep, daterange, getfiles, isnumeric, splitarray, xwu)
+from utilz import (NamedList, NamedLists, getfiles, list2dict, trimu, daterange, isnumeric, splitarray, xwu)
 
 from .common import _date_short
 from .common import _logger as logger, _getdefkarat
@@ -126,8 +126,7 @@ class C1InvRdr():
         if os.path.isfile(fldr):
             fns = [fldr]
         else:
-            root = appathsep(fldr)
-            fns = getfiles(root)
+            fns = getfiles(fldr)
         if not fns:
             return
         killxw, app = xwu.app(False)
@@ -228,7 +227,8 @@ class C1InvRdr():
                         snl = (0,0)
                     c1 = C1InvItem(
                         "C1", je.value, nl.joqty, snl[1], snl[0], nl.remark, [], None)
-            if nl.styno: styno = nl.styno
+            if nl.styno:
+                styno = nl.styno
             #stone data
             qnw = []
             for x in _cnstqnw:
@@ -240,7 +240,7 @@ class C1InvRdr():
                 if s0 and isinstance(s0, str):
                     joqty = c1.qty
                     c1.stones.append(C1InvStone(
-                        nl.stname, qnw[0] / joqty, round(qnw[1] / joqty,4), "N/A"))
+                        nl.stname, qnw[0] / joqty, round(qnw[1] / joqty, 4), "N/A"))
             #wgt data
             kt, gw, sw, pwgt = nl.karat, nl.gwgt, nl.swgt, nl.pwgt
             if not kt or not isnumeric(kt): continue
@@ -252,12 +252,21 @@ class C1InvRdr():
             #only pendant's pwgt is pwgt, else to mainpart
             if pwgt and not ispd(styno):
                 wgt += pwgt; pwgt = 0
-            c1 = c1._replace(mtlwgt = addwgt(c1.mtlwgt,WgtInfo(kt, wgt/joqty, 4)))
+            c1 = c1._replace(mtlwgt=addwgt(c1.mtlwgt, WgtInfo(kt, wgt/joqty, 4)))
             if pwgt:
-                c1 = c1._replace(mtlwgt = addwgt(c1.mtlwgt, WgtInfo(kt, pwgt/joqty, 4), True))
+                c1 = c1._replace(mtlwgt=addwgt(c1.mtlwgt, WgtInfo(kt, pwgt/joqty, 4), True))            
         if c1:
             items.append(c1)
-        return items, invdate
+        # now calculate the netweight for each c1
+        pwgt = []
+        for c1 in items:
+            if c1.jono == "B107646":
+                print('x')
+            # stone wgt in karat
+            kt = sum((x.wgt for x in c1.stones)) / 5 if c1.stones else 0
+            wgt = sum((x.wgt for x in c1.mtlwgt.wgts if x)) + kt
+            pwgt.append(c1._replace(mtlwgt=c1.mtlwgt._replace(netwgt=round(wgt, 2))))
+        return pwgt, invdate
 
     @classmethod
     def _tokarat(self, kt):
