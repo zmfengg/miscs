@@ -111,6 +111,9 @@ class WgtInfo(namedtuple("WgtInfo", "karat,wgt")):
         if karat and wgt:
             return super().__new__(cls, karat, _tofloat(wgt, precious))
         return super().__new__(cls, 0, 0)
+    
+    def __str__(self):
+        return "0" if not self.wgt else "%d=%4.2f" % (self.karat, self.wgt)
 
 
 # mps string and the corresponding silver/gold value
@@ -262,6 +265,25 @@ class PrdWgt(namedtuple("PrdWgt", "main,aux,part,netwgt")):
         return ";".join(["%s(%s=%s)" % (kw[0], kw[1].karat, kw[1].wgt) \
             for kw in d.items() if kw[1]])
 
+    @property
+    def metal(self):
+        """
+        return a list of WgtInfo Object(s)
+        """
+        return tuple(x for x in (self.main, self.aux) if x and x.wgt > 0)
+
+    @property
+    def chain(self):
+        """ WgtInfo type of chain weight """
+        wi = self.part
+        if not (wi and wi.wgt):
+            return None
+        return WgtInfo(wi.karat, wi.wgt if wi.wgt > 0 else -wi.wgt / 100)
+
+    @property
+    def metal_stone(self):
+        """ metal & stone weight without chain """
+        return self.netwgt - (self.chain.wgt if self.chain else 0)
 
 # constants
 PAJCHINAMPS = MPS("S=30;G=1500")

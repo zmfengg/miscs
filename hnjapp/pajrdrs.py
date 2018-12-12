@@ -63,7 +63,7 @@ class PajBomHhdlr(object):
     """ class to read BOMs from PAJ
     @param part_chk_ver: the Part checker version,
         default is None or 0,
-            That is, when there is (chain with length) and (lock exists), 
+            That is, when there is (chain with length) and (lock exists),
             圈 will be treated as part of the chain
         1 stands for loose,
             That is, when there is chain with length,
@@ -143,7 +143,7 @@ class PajBomHhdlr(object):
                                 return wi.karat
                     # finally no one is found, follow master
                     # kt = wis[0].karat
-                    
+
                     # but zhangyuting claimed in e-mail with title "配件的"物料名称"里没有金" on 2018/12/10 that the karat should be 925
                     # so let it to be 925
                     kt = 925
@@ -192,14 +192,14 @@ class PajBomHhdlr(object):
         self._adjust_wgts(pmap)
 
         return pmap
-    
+
     def _part_chk(self, y, chns, lks, has_semi_chn):
         """
         determine if the given y is a part
         """
         nm = y["name"]
         return chns and y["_id"] in chns or lks and (lks.get(y["_id"]) or sum([1 for v in self._pts_kws if nm.find(v) >= 0]))
-    
+
     def _part_chk_l(self, y, chns, lks, has_semi_chn):
         """
         loose rule for determining if the given y is a part

@@ -9,7 +9,7 @@ Shipment handler
 import random
 import re
 from datetime import date, datetime, timedelta
-from os import path
+from os import (path, rename, )
 from time import clock
 from tkinter import filedialog, messagebox
 
@@ -217,7 +217,12 @@ class ShpMkr(object):
         return tarfn
 
     def read_c1(self, sht, args):
-        """ determine the header row """
+        """
+        read shipment data from c1 sheet, return result dict and
+        an error list, inside the result map, the "shpdate" holds
+        the shipment date for later reference
+        """
+        # determine the header row
         for shp in sht.shapes:
             shp.delete()
         ridx, flag = -1, False
@@ -811,16 +816,20 @@ class ShpMkr(object):
         sample, also provide the netwgt/metalwgt data
         """
         if opts is None:
-            return ["净重", "金重", ]
+            return ["连石重", "金重", "链重"]
         prdwgt = opts["objs"]
-        wgts, cats = [x for x in prdwgt.wgts if x and x.wgt > 0], {}
-        for x in wgts:
-            cats[x.karat] = cats.get(x.karat, 0) + x.wgt
-        if len(cats) == 1:
-            x = "%4.2f" % iter(cats.values()).__next__()
+        rc = [round(prdwgt.metal_stone, 2), ]
+        lst = prdwgt.metal
+        if lst:
+            if len(lst) == 1:
+                rc.append(round(lst[0].wgt,2))
+            else:
+                rc.append(";".join([str(x) for x in lst if x.wgt > 0]))
         else:
-            x = ";".join("%s=%4.2f" % (x[0], x[1]) for x in cats.items())
-        return [prdwgt.netwgt, x]
+            rc.append(0)
+        lst = prdwgt.chain
+        rc.append(0 if not lst else str(lst))
+        return rc
 
     def _err_enc_default(self, opts):
         """ default encoder, just show the errmsg """
@@ -1010,6 +1019,13 @@ class ShpMkr(object):
                     self._eap(errlst, "_all_", "_日期_", "wc_date",
                             "落货日期%s可能错误" % shp_date.strftime("%Y-%m-%d"),
                             (td, shp_date))
+                #rename c1's source file based on the shp_date
+                if self._vdrname == "c1" and trimu(path.basename(fn)[:2]) != "C1":          
+                    wb.save()
+                    wb.close()
+                    var = path.join(path.dirname(fn), "C1 %s 落货明细%s" % (shp_date.strftime("%y%m%d"), path.splitext(fn)[1]))
+                    rename(fn, var)
+                    fn, wb = var, app.books.open(var)
             if shplst:
                 if self._debug or not crt_err:
                     self._check_db_error(shplst, invmp, errlst)

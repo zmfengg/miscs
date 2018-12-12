@@ -260,8 +260,6 @@ class C1InvRdr():
         # now calculate the netweight for each c1
         pwgt = []
         for c1 in items:
-            if c1.jono == "B107646":
-                print('x')
             # stone wgt in karat
             kt = sum((x.wgt for x in c1.stones)) / 5 if c1.stones else 0
             wgt = sum((x.wgt for x in c1.mtlwgt.wgts if x)) + kt
