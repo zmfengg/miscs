@@ -338,13 +338,13 @@ class C1JCMkr(object):
         if refid in mpsmp:
             return mpsmp[refid]
 
-    def _getstcosts(self,runns):
+    def get_st_costs(self,runns):
         """
         return the stone costs by map, running as key and cost as value
         """
         return self._cnsvc.getjostcosts(runns)
 
-    def _getjostone(self,runns):
+    def get_st_of_jos(self,runns):
         ttl = "jobn,styno,running,package_id,quantity,weight,pricen,unit,is_out,bill_id,fill_date,check_date".split(",")
         lst = []
         with self._cnsvc.sessionctx() as cur:
@@ -364,7 +364,7 @@ class C1JCMkr(object):
         ,x.pricen,x.unit,x.isout,x.billid,x.filldate,x.checkdate) for x in lst1])
         return lst
 
-    def _getbroken(self,df,dt):
+    def get_st_broken(self,df,dt):
         lst = None
         with self._cnsvc.sessionctx() as cur:
             q = Query([JO.name.label("jono"),JO.deadline,Style.name.label("styno"),JO.running,\
@@ -425,7 +425,7 @@ class C1JCMkr(object):
             if not bcs or len(bcs) < len(runns):
                 logger.debug("%s:Not all records found in BCSystem" % actname)
             bcs = dict([(x.runn, (x.desc, x.ston)) for x in bcs])
-            stcosts = self._getstcosts(runns)
+            stcosts = self.get_st_costs(runns)
             if not stcosts or len(stcosts) < len(runns) / 2:
                 logger.debug("%s:No stone or less than 1/2 has stone, make sure you've prepared stone data with C1STIOData" % actname)
             x = set([x.jono for x in invs if x.jono in vvs]) if invs else set()
@@ -490,7 +490,7 @@ class C1JCMkr(object):
             refid = nl.getcol("running") - 1
             ll = sorted(ll,key = lambda x: x[refid])
             ll.insert(0,ttls[1:])
-            return ll,self._getjostone(runns),self._getbroken(df,dt)
+            return ll,self.get_st_of_jos(runns),self.get_st_broken(df,dt)
 
 class C1STHdlr(object):
     """

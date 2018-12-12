@@ -600,52 +600,12 @@ class ShpMkr(object):
         if self._nsofsts is None:
             self._nsofsts = PajNSOFRdr().readsettings(fn or self._nsofn)
         return self._nsofsts
-
-    def _write_rpts(self, wb, shplst, newrunmp, shp_date):
-        """
-        send the shipment related sheets(Rpt/Err)
-        """
-        app = wb.app
-        sts = self._nsofsettings()
-
-        fn = sts.get(triml("Shipment.IO")).value
-        wbio, iorst = app.books.open(fn), {}
-        shtio = wbio.sheets["master"]
-        nls = [x for x in xwu.NamedRanges(shtio.range(1, 1))]
-        itio, ridx = nls[-1], len(nls) + 2
-        je = JOElement(itio["n#"])
-        iorst["n#"], iorst["date"] = "%s%d" % (je.alpha, je.digit + 1), shp_date
-        pfx = shp_date.strftime("%y%m%d")
-        if self._vdrname != "paj":
-            pfx = pfx[1:]
-        pfx = 'J' + pfx
-        existing = [
-            x["jmp#"]
-            for x in nls[-20:]
-            if x["jmp#"] and x["jmp#"].find(pfx) == 0
-        ]
-        if existing:
-            if self._vdrname != "paj":
-                logger.debug(
-                    "%s should not have more than one shipment in one date" %
-                    self._vdrname)
-                return
-            sfx = "%d" % (int(max(existing)[-1]) + 1)
-        else:
-            sfx = "1" if self._vdrname == "paj" else trimu(self._vdrname)
-        iorst["jmp#"], idx = pfx + sfx, -1
-        for idx in range(len(nls) - 1, 0, -1):
-            jn = nls[idx]["jmp#"]
-            if not jn:
-                continue
-            if (jn.find("C") >= 0) ^ (self._vdrname == "paj"):
-                break
-        iorst["maxrun#"] = int(nls[idx]["maxrun#"])
-
+    
+    def _write_rpts_pgsetup(self, sts, sht, shp_date, iorst):
+        """ setup sheet("rpt")'s margins/header/footer """
         s0 = sts.get("shipment.rptmgns.%s" % self._vdrname)
         if not s0:
             s0 = sts.get("shipment.rptmgns")
-        sht = self._shpsns.get(wb, "sn_rpt")
         pfx = "sht.api.pagesetup"
         shtcmds = [
             pfx + ".%smargin=%s" % tuple(y.split("="))
@@ -662,24 +622,33 @@ class ShpMkr(object):
         for x in shtcmds:
             exec(x)
 
+    def _write_rpts(self, wb, shplst, newrunmp, shp_date):
+        """
+        send the shipment related sheets(Rpt/Err)
+        """
+        sts = self._nsofsettings()
+        io_hlp = _IOHlpr(wb.app, sts, shp_date, self._vdrname)
+        iorst = io_hlp.get()
+        if not iorst:
+            logger.debug("failed to get get valid IO item, generation failed")
+            return
+        sht = self._shpsns.get(wb, "sn_rpt")
+        self._write_rpts_pgsetup(sts, sht, shp_date, iorst)
+        #now prepare and write the data
         s0 = sts.get("shipment.hdrs." + self._vdrname)
         if not s0:
             s0 = sts.get("shipment.hdrs")
-        ttl, ns, hls = [], {}, []
-        for x in s0.value.replace(r"\n", "\n").split(";"):
-            y = x.split("=")
-            y1 = y[1].split(",")
-            ttl.append(y[0])
+        ttl, ns = [], {}
+        for tl, s0 in (x.split("=") for x in s0.value.replace(r"\n", "\n").split(";")):
+            ttl.append(tl)
+            y1 = s0.split(",")
             if len(y1) > 1:
-                ns[y1[0]] = y[0]
-            sht.range(1, len(ttl)).column_width = float(y1[len(y1) - 1])
+                ns[y1[0]] = tl
+            sht.range(1, len(ttl)).column_width = float(y1[-1])
         ns["thisleft"] = "此次,"
-        nl, maxr, lenttl = NamedList(list2dict(
-            ttl, alias=ns)), iorst["maxrun#"], len(ttl)
-        lsts, ns, hls = [
-            ttl
-        ], "jono,running,qty,cstname,styno,description,qtyleft,errmsg".split(
-            ","), []
+        nl = NamedList(list2dict(ttl, alias=ns))
+        ns = "jono running qty cstname styno description qtyleft errmsg".split()
+        maxr, lenttl, lsts, hls = iorst["maxrun#"], len(ttl), [ttl], []
         shplst = sorted(
             shplst,
             key=
@@ -728,11 +697,10 @@ class ShpMkr(object):
             for x in hls:
                 _hl(rng.offset(x[0] - 1, x[1]), 6)
         # the qtyleft formula
-        s0, s1, s2 = col_name(nl.getcol("qty") + 1), col_name(
-            nl.getcol("qtyleft") + 1), col_name(nl.getcol("thisleft") + 1)
+        s0 = {x: col_name(nl.getcol(x) + 1) for x in "qty qtyleft thisleft".split()}
         for idx in range(2, len(lsts) + 1):
-            rng = sht.range("%s%d" % (s2, idx))
-            rng.formula = "=%s%d-%s%d" % (s1, idx, s0, idx)
+            rng = sht.range("%s%d" % (s0["thisleft"], idx))
+            rng.formula = "=%s%d-%s%d" % (s0["qtyleft"], idx, s0["qty"], idx)
             rng.api.numberformatlocal = "_ * #,##0_ ;_ * -#,##0_ ;_ * " "-" "_ ;_ @_ "
             rng.api.formatconditions.add(FormatConditionType.xlCellValue,
                                          FormatConditionOperator.xlLess, "0")
@@ -741,8 +709,7 @@ class ShpMkr(object):
         rng = sht.range(sht.range(1, 1), sht.range(len(lsts), len(nl.colnames)))
         rng.api.borders.linestyle = LineStyle.xlContinuous
         rng.api.borders.weight = BorderWeight.xlThin
-
-        # write sum formula at the bottom
+        # the sum formula at the bottom
         s0 = int(nl.getcol("qty")) + 1
         rng = sht.range(len(lsts) + 1, s0)
         rng.formula = "=sum(%s1:%s%d)" % (col_name(s0), col_name(s0), len(lsts))
@@ -752,15 +719,11 @@ class ShpMkr(object):
         sht.range("A2:A%d" % (len(lsts) + 1)).row_height = 18
         rng = xwu.usedrange(sht).api
         rng.VerticalAlignment = Constants.xlCenter
-        rng.font.name = "tahoma"
-        rng.font.size = 10
+        rng.font.name, rng.font.size = "tahoma", 10
 
-        # write IOs back
         iorst["maxrun#"] = maxr
-        for knv in iorst.items():
-            shtio.range(ridx, itio.getcol(knv[0]) + 1).value = knv[1]
-
-        return fn
+        io_hlp.update(iorst)
+        return 1
 
     def _err_enc_wgt(self, opts):
         """ encoder for wgt error """
@@ -1020,7 +983,7 @@ class ShpMkr(object):
                             "落货日期%s可能错误" % shp_date.strftime("%Y-%m-%d"),
                             (td, shp_date))
                 #rename c1's source file based on the shp_date
-                if self._vdrname == "c1" and trimu(path.basename(fn)[:2]) != "C1":          
+                if self._vdrname == "c1" and trimu(path.basename(fn)[:2]) != "C1":
                     wb.save()
                     wb.close()
                     var = path.join(path.dirname(fn), "C1 %s 落货明细%s" % (shp_date.strftime("%y%m%d"), path.splitext(fn)[1]))
@@ -1348,3 +1311,47 @@ class ShpImptr():
         with self._cnsvc.sessionctx() as cur:
             x = cur.query(func.max(MMMa.id)).first()[0]
         return x if x else 0
+
+class _IOHlpr(object):
+    """ helper class for ShpMkr to get/set the IO sheet """
+    def __init__(self, *args):
+        self._app, self._sts, self._shp_date, self._vdrname = args
+        self._shtio, self._itio, self._ridx = (None, ) * 3
+
+    def get(self):
+        fn = self._sts.get(triml("Shipment.IO")).value
+        wbio, mp = self._app.books.open(fn), {}
+        self._shtio = wbio.sheets["master"]
+        nls = [x for x in xwu.NamedRanges(self._shtio.range(1, 1))]
+        self._itio, self._ridx = nls[-1], len(nls) + 2
+        je = JOElement(self._itio["n#"])
+        mp["n#"], mp["date"] = "%s%d" % (je.alpha, je.digit + 1), self._shp_date
+        pfx = self._shp_date.strftime("%y%m%d")
+        pfx = 'J' + (pfx if self._vdrname == "paj" else pfx[1:])
+        existing = [
+            x["jmp#"]
+            for x in nls[-20:]
+            if x["jmp#"] and x["jmp#"].find(pfx) == 0
+        ]
+        if existing:
+            if self._vdrname != "paj":
+                logger.debug(
+                    "%s should not have more than one shipment in one date" %
+                    self._vdrname)
+                return None
+            sfx = "%d" % (int(max(existing)[-1]) + 1)
+        else:
+            sfx = "1" if self._vdrname == "paj" else trimu(self._vdrname)
+        mp["jmp#"], idx = pfx + sfx, -1
+        for idx in range(len(nls) - 1, 0, -1):
+            jn = nls[idx]["jmp#"]
+            if not jn:
+                continue
+            if (jn.find("C") >= 0) ^ (self._vdrname == "paj"):
+                break
+        mp["maxrun#"] = int(nls[idx]["maxrun#"])
+        return mp
+
+    def update(self, iorst):
+        for knv in iorst.items():
+            self._shtio.range(self._ridx, self._itio.getcol(knv[0]) + 1).value = knv[1]
