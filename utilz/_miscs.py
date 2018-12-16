@@ -61,7 +61,7 @@ def getvalue(dct, key, def_val=None):
             if kw in dct:
                 return dct.get(kw)
             i += 1
-            kw = trimu(kw) if i == 1 else triml(kw)
+            kw = trimu(kw) if kw[0] == kw[0].lower() else triml(kw)
     return def_val
 
 def isnumeric(val):

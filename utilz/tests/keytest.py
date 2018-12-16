@@ -19,7 +19,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from xlwings.constants import LookAt
 
-from utilz import imagesize, karatsvc, stsizefmt, xwu
+from utilz import imagesize, karatsvc, stsizefmt, xwu, getvalue
 from utilz._jewelry import RingSizeSvc
 from utilz._miscs import (NamedList, NamedLists, appathsep, getfiles, list2dict,
                           lvst_dist)
@@ -98,6 +98,15 @@ class KeySuite(TestCase):
                          "Size format")
         self.assertEqual("5X4X3", stsizefmt("0300X0500X0400", True),
                          "Size format")
+
+    def testGetValue(self):
+        """ the getvalue function for the dict, convenience way for upper/lower case """
+        mp = {"abc": 123, "ABC": 456, "Abc": 457, "def": 567}
+        self.assertEqual(123, getvalue(mp, "abc"), "return the extract one")
+        self.assertEqual(456, getvalue(mp, "ABC"), "return the extract one again")
+        self.assertEqual(457, getvalue(mp, "Abc"), "return the extract one again")
+        self.assertEqual(567, getvalue(mp, "DEF"), "get using the lower case in second attempt")
+        self.assertEqual(123, getvalue(mp, "abc,def"), "get using the lower case in second attempt")
 
     def testAppathSep(self):
         """ tes for appathsep, early stage function of my python programming,
