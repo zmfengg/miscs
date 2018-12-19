@@ -12,6 +12,7 @@ import random
 from functools import cmp_to_key
 from os import listdir, path
 from unittest import TestCase, main
+from datetime import datetime, date
 
 from sqlalchemy import VARCHAR, Column, ForeignKey, Integer
 from sqlalchemy.engine import create_engine
@@ -22,7 +23,7 @@ from xlwings.constants import LookAt
 from utilz import imagesize, karatsvc, stsizefmt, xwu, getvalue
 from utilz._jewelry import RingSizeSvc
 from utilz._miscs import (NamedList, NamedLists, appathsep, getfiles, list2dict,
-                          lvst_dist)
+                          lvst_dist, daterange, monthadd)
 from utilz.resourcemgr import ResourceCtx, ResourceMgr, SessionMgr
 
 from .main import logger, thispath
@@ -186,7 +187,23 @@ class KeySuite(TestCase):
         self.assertEqual(0, lvst_dist("I'm", "I'm"), "same string")
         self.assertEqual(1, lvst_dist("I'mx", "I'm"), "same string")
         self.assertEqual(2, lvst_dist("'mI", "I'm"), "same string")
-
+    
+    def testDateX(self):
+        """ test for the daterange/monthadd function """
+        drs = daterange(1998, 1)
+        self.assertEqual(date(1998, 1, 1), drs[0], "daterange's from")
+        self.assertEqual(date(1998, 2, 1), drs[1], "daterange's to")
+        drs = date(2018, 1, 1)
+        self.assertEqual(date(2017, 12, 1), monthadd(drs, -1))
+        self.assertEqual(date(2017, 1, 1), monthadd(drs, -12))
+        self.assertEqual(date(2016, 11, 1), monthadd(drs, -14))
+        self.assertEqual(date(2018, 2, 1), monthadd(drs, 1))
+        self.assertEqual(date(2019, 1, 1), monthadd(drs, 12))
+        # leap year test
+        self.assertEqual(date(2018, 2, 28), monthadd(date(2018, 1, 31), 1))
+        self.assertEqual(date(2018, 2, 28), monthadd(date(2018, 1, 29), 1))
+        self.assertEqual(date(2016, 2, 29), monthadd(date(2016, 1, 29), 1))
+        self.assertEqual(date(2016, 2, 29), monthadd(date(2016, 1, 30), 1))
 
 class NamedListSuite(TestCase):
     """ usages of namedlist class """

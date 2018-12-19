@@ -320,7 +320,7 @@ def NamedRanges(rng, **kwds):
     if rng.rows.count == 1:
         th = [th]
     th.insert(0, var)
-    return NamedLists(th, kwds.get("name_map"))
+    return NamedLists(th, getvalue(kwds, "name_map,alias"))
 
 
 def _newappmgr(sws=None):

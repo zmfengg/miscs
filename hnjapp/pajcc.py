@@ -284,6 +284,12 @@ class PrdWgt(namedtuple("PrdWgt", "main,aux,part,netwgt")):
     def metal_stone(self):
         """ metal & stone weight without chain """
         return self.netwgt - (self.chain.wgt if self.chain else 0)
+    
+    @property
+    def metal_jc(self):
+        """ the metal weight for jocost, that is the weight of all metals """
+        return sum(x.wgt if x.wgt > 0 else -x.wgt / 100 for x in self.wgts if x)
+
 
 # constants
 PAJCHINAMPS = MPS("S=30;G=1500")

@@ -7,30 +7,31 @@ need to be able to read the 2 kinds of files: C1's original and calculator file
 '''
 
 import datetime
-import time
 import numbers
 import os
 import re
 import sys
 import tempfile
+import time
 from collections import OrderedDict, namedtuple
 from os import path
 
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Query
 from xlwings import constants
-from hnjapp.pajcc import PrdWgt, WgtInfo, addwgt
 
 from hnjapp.dbsvcs import jesin
+from hnjapp.pajcc import PrdWgt, WgtInfo, addwgt
 from hnjcore import JOElement, karatsvc
 from hnjcore.models.cn import (JO, MM, Codetable, Customer, MMgd, MMMa,
                                StoneBck, StoneIn, StoneOut, StoneOutMaster,
                                StonePk, Style)
 from hnjcore.utils.consts import NA
-from utilz import (NamedList, NamedLists, getfiles, list2dict, trimu, daterange, isnumeric, splitarray, xwu)
+from utilz import (NamedList, NamedLists, daterange, getfiles, isnumeric,
+                   list2dict, splitarray, trimu, xwu)
 
-from .common import _date_short
-from .common import _logger as logger, _getdefkarat
+from .common import _date_short, _getdefkarat
+from .common import _logger as logger
 
 _ptnbtno = re.compile(r"(\d+)([A-Z]{3})(\d+)")
 
@@ -81,10 +82,10 @@ def _fmtpkno(pkno):
     pfx, pkno, sfx = pkno[:3], pkno[3:], ""
     for idx in range(len(pkno) - 1,-1,-1):
         ch = pkno[idx]
-        if ch >= "A" and ch <= "Z":
+        if "A" <= ch <= "Z":
             sfx = ch + sfx
         else:
-            if len(sfx) > 0:
+            if sfx:
                 idx += 1
                 break
             sfx = ch + sfx
@@ -112,7 +113,7 @@ class C1InvRdr():
         self._c1log = c1log
         self._cclog = cclog
 
-    def read(self, fldr = None):
+    def read(self, fldr=None):
         """
         perform the read action
         @param fldr: the folder contains the invoice files
@@ -128,7 +129,7 @@ class C1InvRdr():
         else:
             fns = getfiles(fldr)
         if not fns:
-            return
+            return None
         killxw, app = xwu.app(False)
         wb = None
         try:
@@ -138,22 +139,14 @@ class C1InvRdr():
                 wb = app.books.open(fn)
                 items = list()
                 for sht in wb.sheets:
-                    rngs = list()
-                    for s0 in cnsc1:
-                        rng = xwu.find(sht, s0, lookat=constants.LookAt.xlPart)
-                        if rng:
-                            rngs.append(rng)
+                    rngs = [x for x in (xwu.find(sht, var, lookat=constants.LookAt.xlPart) for var in cnsc1) if x]
                     if len(cnsc1) == len(rngs):
                         var = self.read_c1(sht, skip_checking=True)
                         if var:
                             items.extend(var[0])
                     else:
-                        for s0 in cnscc:
-                            rng = xwu.find(
-                                sht, s0, lookat=constants.LookAt.xlWhole)
-                            if rng:
-                                rngs.append(rng)
-                        if len(cnsc1) == len(rngs):
+                        rngs = [x for x in (xwu.find(sht, var, lookat=constants.LookAt.xlWhole) for var in cnscc) if x]
+                        if len(cnscc) == len(rngs):
                             items.extend(self._readcalc(sht))
                 wb.close()
         finally:
@@ -225,8 +218,7 @@ class C1InvRdr():
                     if not any(snl):
                         logger.debug("JO(%s) does not contains any labor cost" % je.value)
                         snl = (0,0)
-                    c1 = C1InvItem(
-                        "C1", je.value, nl.joqty, snl[1], snl[0], nl.remark, [], None)
+                    c1 = C1InvItem("C1", je.value, nl.joqty, snl[1], snl[0], nl.remark, [], None)
             if nl.styno:
                 styno = nl.styno
             #stone data
@@ -254,7 +246,7 @@ class C1InvRdr():
                 wgt += pwgt; pwgt = 0
             c1 = c1._replace(mtlwgt=addwgt(c1.mtlwgt, WgtInfo(kt, wgt/joqty, 4)))
             if pwgt:
-                c1 = c1._replace(mtlwgt=addwgt(c1.mtlwgt, WgtInfo(kt, pwgt/joqty, 4), True))            
+                c1 = c1._replace(mtlwgt=addwgt(c1.mtlwgt, WgtInfo(kt, pwgt/joqty, 4), True))           
         if c1:
             items.append(c1)
         # now calculate the netweight for each c1
@@ -262,8 +254,11 @@ class C1InvRdr():
         for c1 in items:
             # stone wgt in karat
             kt = sum((x.wgt for x in c1.stones)) / 5 if c1.stones else 0
-            wgt = sum((x.wgt for x in c1.mtlwgt.wgts if x)) + kt
-            pwgt.append(c1._replace(mtlwgt=c1.mtlwgt._replace(netwgt=round(wgt, 2))))
+            if c1.mtlwgt:
+                wgt = sum((x.wgt for x in c1.mtlwgt.wgts if x)) + kt
+                pwgt.append(c1._replace(mtlwgt=c1.mtlwgt._replace(netwgt=round(wgt, 2))))
+            else:
+                print("JO(%s) does not contains metal wgt" % c1.jono)
         return pwgt, invdate
 
     @classmethod
@@ -447,10 +442,10 @@ class C1JCMkr(object):
                 runn = nl.jobno[1:]
                 if runn in invs:
                     inv = invs[runn]
-                    nl.laborcost = round((inv.setting + inv.labor) * rmbtohk * nl.joqty,2)
+                    nl.laborcost = round((inv.setting + inv.labor) * rmbtohk * nl.joqty, 2)
                 else:
                     logger.debug("%s:No invoice data for JO(%s)" %
-                                (actname,runn))
+                                (actname, runn))
                     continue
                 prdwgt = invs.get(nl.jobno[1:]).mtlwgt #a ' should be skipped
                 prdwgt = (prdwgt.main,prdwgt.aux,prdwgt.part)
@@ -493,7 +488,7 @@ class C1JCMkr(object):
             return ll,self.get_st_of_jos(runns),self.get_st_broken(df,dt)
 
 class C1STHdlr(object):
-    """
+    r"""
     Read C1Stone's IO from newest file in folder(default \\172.16.8.46\pb\dptfile\quotation\2017外发工单工费明细
     \CostForPatrick\StReadLog\) and save directly to heng_ngai db
     """

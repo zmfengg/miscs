@@ -9,8 +9,12 @@ Shipment handler
 import random
 import re
 from datetime import date, datetime, timedelta
-from os import (path, rename, )
+from os import (
+    path,
+    rename,
+)
 from time import clock
+from copy import copy
 from tkinter import filedialog, messagebox
 
 from sqlalchemy import and_, func
@@ -26,7 +30,8 @@ from hnjcore.models.hk import JO as JOhk
 from hnjcore.models.hk import Orderma, PajAck, POItem
 from hnjcore.utils.consts import NA
 from utilz import (NamedList, NamedLists, ResourceCtx, easydialog, easymsgbox,
-                   list2dict, splitarray, triml, trimu, xwu, deepget, karatsvc, getfiles)
+                   list2dict, splitarray, triml, trimu, xwu, deepget, karatsvc,
+                   getfiles)
 
 from .common import _logger as logger
 from .dbsvcs import jesin
@@ -81,7 +86,8 @@ class PajNSOFRdr(object):
         return mp if mp else None
 
 
-class ShpSns(object):
+class _SMSns(object):
+    """ util class for ShpMkr to organize the warning msgs and related operations """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -99,15 +105,34 @@ class ShpSns(object):
             sht = wb.sheets.add(sn, after=wb.sheets[-1]) if auto_add else None
         return sht
 
-    def new_err(self, jn, loc, etype, msg, objs=None):
-        """ new a dict holding the key error info """
+    @classmethod
+    def new_err(cls, *args):
+        """
+        new a dict holding the key error info
+        the argument sequence are:
+        jn, loc, etype, msg, objs
+        """
         return {
-            "jono": "'" + jn,
-            "location": "'" + loc,
-            "type": etype,
-            "msg": msg,
-            "objs": objs
+            "jono": "'" + args[0],
+            "location": "'" + args[1],
+            "type": args[2],
+            "msg": args[3],
+            "objs": None if len(args) < 5 else args[4]
         }
+
+    def eap(self, errlst, *args):
+        """
+        create an error item and append it to the first argument(it should be a list)
+        """
+        errlst.append(self.new_err(*args))
+        type_name = args[2]
+        if type_name == "wc_wgt":
+            #check if the weight is too critical
+            jwgt, shpwgt = args[4]
+            if not cmpwgt(jwgt, shpwgt, 50):
+                type_name = [x for x in args]
+                type_name[2:] = "ec_wgt", "重量偏离指定值50%以上", None
+                errlst.append(self.new_err(*type_name))
 
     def _gettype(self, name):
         """ return the type of given name, can be one of
@@ -122,7 +147,7 @@ class ShpSns(object):
         """
         return self._errs.get(triml(name))
 
-    def _errandwarn(self, errlst):
+    def err_warn(self, errlst):
         return (tuple(x for x in errlst if self._gettype(x["type"]) == "ERROR"),
                 tuple(x for x in errlst if self._gettype(x["type"]) != "ERROR"))
 
@@ -134,20 +159,64 @@ class ShpMkr(object):
     .make the import
     .do invoice comparision
     @param cnsvc/hksvc/bcsvc: the related db services
-    @param(optional) nsofn: the NewSampleOrderForm file name, 
+    @param(optional) nsofn: the NewSampleOrderForm file name,
         I used it to read Paj/C1 repositories
     """
     _mergeshpjo = False
     _vdrname = _nsofsts = None
-    _shpsns = ShpSns()
+    _sns = _SMSns()
     _nsofn = None
-    
+
     def __init__(self, cnsvc, hksvc, bcsvc, **kwds):
         self._cnsvc, self._hksvc, self._bcsvc = cnsvc, hksvc, bcsvc
         self._nsofn = kwds.get("nsofn")
         # debug mode, qtyleft/running should be reset so that I can
         # generate proper report
         self._debug = kwds.get("debug", False)
+
+    def _check_src_file(self, fldr):
+        """
+        check if the source file is already there. If no valid location
+        provided, return None. if exists, return "tarfn" as key, else
+        return a map with keys(tarfldr,fns,fn)
+        """
+        if not fldr:
+            fldr = easydialog(
+                filedialog.Directory(
+                    title="Choose folder contains all raw files from PAJ"))
+            if not path.exists(fldr):
+                return None
+        sts = self._nsofsettings()
+        tarfldr, tarfn = path.dirname(sts.get("shp.template").value), None
+        fns = getfiles(fldr, ".xls")
+        var = re.compile(r"^HNJ \d+")
+        for fn in fns:
+            if var.search(path.basename(fn)):
+                tdm = PajShpHdlr.get_shp_date(fn)
+                if tdm:
+                    tarfn = "HNJ %s 出货明细" % tdm.strftime("%Y-%m-%d")
+                    break
+        if not tarfn:
+            return {"tarfn": None}
+        sts = getfiles(tarfldr, tarfn)
+        if sts:
+            tarfn = sts[0]
+            tdm = path.getmtime(tarfn)
+            fds = copy(fns)
+            fds.append(fldr)
+            fds = max([path.getmtime(x) for x in fds])
+            if fds > tdm:
+                messagebox.showwarning("文件过期",
+                                       "%s\n已过期,请手动删除或更新后再启动本程序" % tarfn)
+                app = _appmgr.acq()[0]
+                app.books.open(tarfn)
+                app.visible = True
+                return {"tarfn": None, "expired": True}
+            logger.debug("result file(%s) already there" % tarfn)
+            return {"tarfn": tarfn}
+        if len(fns) == 1:
+            return {"tarfn": fns[0]}
+        return {"tarfldr": tarfldr, "fns": fns, "fn": tarfn}
 
     def _pajfldr2file(self, fldr):
         """ group the folder into one target file. If target file already exists,
@@ -156,67 +225,35 @@ class ShpMkr(object):
                   -1 if file expired
                   None if unexpected error occured
         """
-        if not fldr:
-            fldr = easydialog(
-                filedialog.Directory(
-                    title="Choose folder contains all raw files from PAJ"))
-            if not path.exists(fldr):
-                return
-        sts = self._nsofsettings()
-        tarfldr, tarfn = path.dirname(sts.get("shp.template").value), None
-        fns = getfiles(fldr, ".xls")
-        ptn = re.compile(r"^HNJ \d+")
-        for fn in fns:
-            if ptn.search(path.basename(fn)):
-                sd = PajShpHdlr.get_shp_date(fn)
-                if sd:
-                    tarfn = "HNJ %s 出货明细" % sd.strftime("%Y-%m-%d")
-                    break
-        if not tarfn:
+        mp = self._check_src_file(fldr)
+        if not mp:
             return None
-        sts = getfiles(tarfldr, tarfn)
-        if sts:
-            tarfn = sts[0]
-            tdm = path.getmtime(tarfn)
-            fds = [path.getmtime(x) for x in getfiles(fldr)]
-            fds.append(path.getmtime(fldr))
-            if max(fds) > tdm:
-                messagebox.showwarning("文件过期",
-                                       "%s\n已过期,请手动删除或更新后再启动本程序" % tarfn)
-                app, kxl = _appmgr.acq()
-                wb = app.books.open(tarfn)
-                return None
-            else:
-                logger.debug("result file(%s) already there" % tarfn)
-                return tarfn
-        if len(fns) == 1:
-            return fns[0]
-
+        if "tarfn" in mp:
+            return mp["tarfn"]
+        tarfldr, fns = (mp[x] for x in "tarfldr fns".split())
         app, kxl = _appmgr.acq()
         wb = app.books.add()
-        new_shts = [x for x in wb.sheets]
-        before_sht = wb.sheets[0]
-        for fn in fns:
-            if fn.find("对帐单") >= 0:
-                continue
-            wbx = xwu.safeopen(app, fn)
+        fds = [x for x in wb.sheets]
+        for fn in (x for x in fns if x.find("对帐单") < 0):
+            var = xwu.safeopen(app, fn)
             try:
-                for sht in wbx.sheets:
-                    if sht.api.visible == -1 and xwu.usedrange(sht).size > 1:
-                        sht.api.Copy(Before=before_sht.api)
+                for sht in (
+                        x for x in var.sheets
+                        if x.api.visible == -1 and xwu.usedrange(x).size > 1):
+                    sht.api.Copy(Before=fds[0].api)
             finally:
-                wbx.close()
-        for x in new_shts:
-            x.delete()
-        if tarfn:
-            wb.save(path.join(tarfldr, tarfn))
-            tarfn = wb.fullname
-            logger.debug("merged file saved to %s" % tarfn)
-            wb.close()
+                var.close()
+        for var in fds:
+            var.delete()
+
+        wb.save(path.join(tarfldr, mp["fn"]))
+        tarfn = wb.fullname
+        logger.debug("merged file saved to %s" % tarfn)
+        wb.close()
         _appmgr.ret(kxl)
         return tarfn
 
-    def read_c1(self, sht, args):
+    def _read_c1(self, sht, args):
         """
         read shipment data from c1 sheet, return result dict and
         an error list, inside the result map, the "shpdate" holds
@@ -307,7 +344,7 @@ class ShpMkr(object):
                 "qtyleft": "qtyleft"
             }
             for mp in shplst:
-                jn = mp["jono"]                
+                jn = mp["jono"]
                 jncmp[jn] = jncmp.get(jn, 0) + 1
                 if jn not in shpwgts:
                     shpwgts[jn] = mp["mtlwgt"]
@@ -316,8 +353,8 @@ class ShpMkr(object):
                 jncmp[jn] -= 1
                 jo = jos.get(jn)
                 if not jo:
-                    self._eap(errlst, jn, mp["location"], "ec_jn",\
-                        "工单号(%s)错误" % jn, None)
+                    self._sns.eap(errlst, jn, mp["location"], "ec_jn",
+                                  "工单号(%s)错误" % jn, None)
                     continue
                 for y in nmap.items():
                     sx = deepget(jo, y[1])
@@ -327,13 +364,13 @@ class ShpMkr(object):
                 jo.qtyleft = jo.qtyleft - mp["qty"]
                 if jo.qtyleft < 0:
                     s0 = "数量不足"
-                    self._eap(errlst, mp["jono"], mp["location"], "ec_qty",\
-                        s0, (jo.qtyleft + mp["qty"], mp["qty"]))
+                    self._sns.eap(errlst, mp["jono"], mp["location"], "ec_qty",
+                                  s0, (jo.qtyleft + mp["qty"], mp["qty"]))
                     mp["errmsg"] = s0
                 elif jo.qtyleft > 0 and not jncmp[jn]:
                     s0 = "数量有余"
-                    self._eap(errlst, mp["jono"], mp["location"], "wc_qty",\
-                        s0, (jo.qtyleft + mp["qty"], mp["qty"]))
+                    self._sns.eap(errlst, mp["jono"], mp["location"], "wc_qty",
+                                  s0, (jo.qtyleft + mp["qty"], mp["qty"]))
                     mp["errmsg"] = s0
                 else:
                     mp["errmsg"] = ""
@@ -346,7 +383,11 @@ class ShpMkr(object):
                 if not cmpwgt(jwgt, mp["mtlwgt"]):
                     haswgt = bool(
                         [x for x in mp["mtlwgt"].wgts if x and x.wgt > 0])
-                    jn = [errlst, mp["jono"], mp["location"], ]
+                    jn = [
+                        errlst,
+                        mp["jono"],
+                        mp["location"],
+                    ]
                     if haswgt:
                         if jo.ordertype != "O":
                             jn = None
@@ -356,10 +397,14 @@ class ShpMkr(object):
                         jn.extend(("ec_wgt_missing", "欠重量资料"))
                     if jn:
                         jn.append((jwgt, mp["mtlwgt"]))
-                        self._eap(*jn)
-                jn = (jo.karat, mp["mtlwgt"].main.karat, )
+                        self._sns.eap(*jn)
+                jn = (
+                    jo.karat,
+                    mp["mtlwgt"].main.karat,
+                )
                 if jn[0] != jn[1]:
-                    self._eap(errlst, mp["jono"], mp["location"], "ec_karat", "主成色与工单成色不一致", jn)
+                    self._sns.eap(errlst, mp["jono"], mp["location"],
+                                  "ec_karat", "主成色与工单成色不一致", jn)
             jncmp = {
                 "PAJ,N": "新版,请向PAJ索要产品图",
                 "PAJ,Q": "QC版，更新重量",
@@ -371,26 +416,15 @@ class ShpMkr(object):
                 if not s0:
                     continue
                 jn = jo.name.value
-                errlst.append(self._ne(jn, jn, "wc_smp", s0, shpwgts[jn]))
+                self._sns.eap(errlst, jn, jn, "wc_smp", s0, shpwgts[jn])
         logger.debug("using %fs for above action" % (clock() - t0))
 
-    def _eap(self, errlst, *args):
-        errlst.append(self._ne(*args))
-        type_name = args[2]
-        if type_name == "wc_wgt":
-            #check if the weight is too critical
-            jwgt, shpwgt = args[4]
-            if not cmpwgt(jwgt, shpwgt, 50):
-                type_name = [x for x in args]
-                type_name[2:] = "ec_wgt", "重量偏离指定值50%以上", None
-                errlst.append(self._ne(*type_name))
-
     def _ne(self, *args):
-        return self._shpsns.new_err(*args)
+        return self._sns.new_err(*args)
 
     def _check_db_inv(self, shplst, invmp, errlst, jns):
         if not invmp:
-            self._eap(errlst, NA, "_all_", "ec_inv_none", "不应无发票资料")
+            self._sns.eap(errlst, NA, "_all_", "ec_inv_none", "不应无发票资料")
             return
         logger.debug("begin to fetch ack/inv data")
         t0 = clock()
@@ -402,13 +436,12 @@ class ShpMkr(object):
                         (clock() - t0, len(jns)))
             tmp = "uprice,mps,ackdate,docno,mps,pcode".split(",")
             acks = {
-                x[0].name.value: tuple(getattr(x[1], y) for y in tmp)
-                for x in q
+                x[0].name.value: tuple(getattr(x[1], y) for y in tmp) for x in q
             } if q else {}
             if acks:
                 nlack = NamedList(
                     list2dict(",".join(tmp), alias={"date": "ackdate"}))
-        tmp = {}        
+        tmp = {}
         for x in invmp.values():
             tmp1 = tmp.setdefault(x.jono, {"jono": x.jono})
             if "inv" not in tmp1:
@@ -416,7 +449,7 @@ class ShpMkr(object):
             else:
                 x0 = tmp1["inv"]
                 if abs(x0.uprice - x.uprice) > 0.001:
-                    self._eap(errlst, x.jono, x.jono, "wc_inv_diff",\
+                    self._sns.eap(errlst, x.jono, x.jono, "wc_inv_diff",\
                             "工单(%s)对应的发票单价前后不一致" % x.jono,\
                             (x.uprice, x0.uprice))
             tmp1["invqty"] += x.qty
@@ -428,12 +461,13 @@ class ShpMkr(object):
         for x in tmp.values():
             if x.get("invqty") != x.get("qty"):
                 if not x.get("qty"):
-                    self._eap(errlst, x["jono"],
-                            "Inv(%s),JO#(%s)" % (x["inv"].invno, x["jono"]),
-                            "wc_inv_qty", "工单(%s)有发票(%s)无落货" %
-                            (x["jono"], x["inv"].invno), None)
+                    self._sns.eap(
+                        errlst, x["jono"],
+                        "Inv(%s),JO#(%s)" % (x["inv"].invno, x["jono"]),
+                        "wc_inv_qty",
+                        "工单(%s)有发票(%s)无落货" % (x["jono"], x["inv"].invno), None)
                 else:
-                    self._eap(errlst, x["jono"], x["jono"],
+                    self._sns.eap(errlst, x["jono"], x["jono"],
                             "wc_inv_qty", "落货数量(%s)与发票数量(%s)不一致" %\
                             (str(x.get("qty", 0)), str(x.get("invqty", 0))),
                             (x.get("qty", 0), x.get("invqty")))
@@ -445,104 +479,50 @@ class ShpMkr(object):
                 nlack.setdata(ack)
                 if abs(inv.uprice - float(nlack.uprice)) > 0.01:
                     jn = x["jono"]
-                    self._eap(errlst, jn, jn, "wc_ack", nlack.pcode, {"inv": inv.uprice,"ack": nlack.uprice, "inv_mps": inv.mps, "ack_mps": nlack.mps,"file": nlack.docno, "date": nlack.date.strftime("%Y-%m-%d")})
+                    self._sns.eap(
+                        errlst, jn, jn, "wc_ack", nlack.pcode, {
+                            "inv": inv.uprice,
+                            "ack": nlack.uprice,
+                            "inv_mps": inv.mps,
+                            "ack_mps": nlack.mps,
+                            "file": nlack.docno,
+                            "date": nlack.date.strftime("%Y-%m-%d")
+                        })
         tmp = jns.difference(tmp.keys())
         if tmp:
-            errlst.extend([self._ne(x, x, "wc_qty",\
-                "工单(%s)有落货无发票" % x, None) for x in tmp])
+            for x in tmp:
+                self._sns.eap(errlst, x, x, "wc_qty", "工单(%s)有落货无发票" % x, None)
 
     def _write_bc(self, wb, shplst, newrunmp, shp_date):
         """
         create a bc template
         """
-        dmp, lsts, rcols = {}, [], "lymd,lcod,styn,mmon,mmo2,runn,detl,quan,gwgt,gmas,jobn,ston,descn,desc,rem1,rem2,rem3,rem4,rem5,rem6,rem7,rem8".split(
+        lsts, rcols = [], "lymd,lcod,styn,mmon,mmo2,runn,detl,quan,gwgt,gmas,jobn,ston,descn,desc,rem1,rem2,rem3,rem4,rem5,rem6,rem7,rem8".split(
             ",")
-        refjo, refpo, refodma = aliased(JOhk), aliased(POItem), aliased(Orderma)
-        rems, nl, hls = [999, 0], NamedList(list2dict(rcols)), []
-        for x in nl.colnames:
-            if not x.find("rem"):
-                idx = int(x[len("rem"):])
-                if idx < rems[0]:
-                    rems[0] = idx
-                if idx > rems[1]:
-                    rems[1] = idx
-        rems[1] += 1
-        with self._hksvc.sessionctx() as cur:
-            dt = datetime.today() - timedelta(days=365)
-            jes = set(JOElement(x["jono"]) for x in shplst)
-            logger.debug("begin to select same sku items for BC")
-            t0 = clock()
-            q = Query([JOhk.name, func.max(refjo.running)]).join(
-                (refjo, JOhk.id != refjo.id), (POItem, JOhk.poid == POItem.id),
-                (Orderma, JOhk.orderid == Orderma.id),
-                (refodma, refjo.orderid == refodma.id),
-                (refpo,
-                 and_(POItem.skuno != '', refpo.id == refjo.poid,
-                      refpo.skuno == POItem.skuno))).filter(
-                          and_(POItem.id > 0, refjo.createdate > dt,
-                               Orderma.cstid == refodma.cstid)).group_by(
-                                   JOhk.name)
-            lst = []
-            for arr in splitarray(jes, 20):
-                qx = q.filter(jesin(arr, JOhk))
-                lst0 = qx.with_session(cur).all()
-                if lst0:
-                    lst.extend(lst0)
-            logger.debug("using %fs to fetch %d records for above action" %
-                         (clock() - t0, len(lst)))
-            josku = {x[1]: x[0].value for x in lst if x[1] > 0} if lst else {}
-
-        joskubcs = self._bcsvc.getbcs([x for x in josku])
-        joskubcs = {josku[int(x.runn)]: x for x in joskubcs} if joskubcs else {}
-
-        stynos = set(
-            [x.get("styno") for x in shplst if x["jono"] not in joskubcs])
-        bcs = self._bcsvc.getbcs(stynos, True)
-        if bcs:
-            for it in bcs:
-                dmp.setdefault(it.styn, []).append(it)
-        for x in dmp:
-            dmp[x] = sorted(dmp[x], key=lambda x: x.runn, reverse=True)
-        bcmp, dmp, lymd = dmp, {}, shp_date.strftime("%Y%m%d %H:%M%S")
+        dups = len("rem")
+        dups = [int(x[dups:]) for x in rcols if x.find("rem") == 0]
+        rems = (
+            min(dups),
+            max(dups) + 1,
+        )
+        bc_by_sty, bc_by_jn = self._write_bc_get_data(shplst)
+        dups, hls, lymd = {}, [], shp_date.strftime("%Y%m%d %H:%M%S")
 
         lsts.append(rcols)
+        nl = NamedList(list2dict(rcols))
         shplst = sorted(
             shplst,
-            key=lambda mpx: "A%06d%s" % (mpx["running"], mpx["jono"]) if mpx["running"] else "B%06d%s" % (0, mpx["jono"])
+            key=
+            lambda mpx: "A%06d%s" % (mpx["running"], mpx["jono"]) if mpx["running"] else "B%06d%s" % (0, mpx["jono"])
         )
         for it in shplst:
             jn = it["jono"]
-            if jn in dmp:
+            if jn in dups:
                 continue
             pfx = "XX" if jn not in newrunmp else ""
-            dmp[jn], styno = 1, it["styno"]
-            bc, rmks = joskubcs.get(jn), []
-            if not bc:
-                bcs = bcmp.get(styno)
-                if bcs:
-                    # find the same karat and longest remarks as template
-                    for bcx in bcs[:10]:
-                        if not samekarat(jn, bcx.jobn):
-                            continue
-                        mc0 = [
-                            x for x in [
-                                getattr(bcx, "rem%d" % y).strip()
-                                for y in range(*rems)
-                            ] if x
-                        ]
-                        if len(mc0) > len(rmks):
-                            rmks, bc = mc0, bcx
-                    if not bc:
-                        bc = bcs[0]
-                        rmks = [
-                            x for x in [
-                                getattr(bc, "rem%d" % y).strip()
-                                for y in range(*rems)
-                            ] if x
-                        ]
-                flag = False
-            else:
-                flag = True
+            dups[jn], styno = 1, it["styno"]
+            flag, bc, rmks = self._write_bc_select(bc_by_jn, bc_by_sty, jn,
+                                                   styno, rems)
             nl.setdata([None] * len(rcols))
             nl.lymd, nl.lcod, nl.styn, nl.mmon = lymd, styno, styno, "'" + lymd[
                 2:4]
@@ -588,7 +568,7 @@ class ShpMkr(object):
             for idx, rmk in enumerate(nrmks):
                 nl["rem%d" % (idx + 1)] = rmk
             lsts.append(nl.data)
-        sht = self._shpsns.get(wb, "sn_bc")
+        sht = self._sns.get(wb, "sn_bc")
         sht.range(1, 1).value = lsts
         if hls:
             rng = sht.range(1, 1)
@@ -596,13 +576,84 @@ class ShpMkr(object):
                 _hl(rng.offset(x[0], x[1]), 6)
         sht.autofit()
 
+    def _write_bc_get_data(self, shplst):
+        """
+        get candidates for writing bc report
+        """
+        refjo, refpo, refodma = aliased(JOhk), aliased(POItem), aliased(Orderma)
+        with self._hksvc.sessionctx() as cur:
+            dt = datetime.today() - timedelta(days=365)
+            jes = set(JOElement(x["jono"]) for x in shplst)
+            logger.debug("begin to select same sku items for BC")
+            t0 = clock()
+            q = Query([JOhk.name, func.max(refjo.running)]).join(
+                (refjo, JOhk.id != refjo.id), (POItem, JOhk.poid == POItem.id),
+                (Orderma, JOhk.orderid == Orderma.id),
+                (refodma, refjo.orderid == refodma.id),
+                (refpo,
+                 and_(POItem.skuno != '', refpo.id == refjo.poid,
+                      refpo.skuno == POItem.skuno))).filter(
+                          and_(POItem.id > 0, refjo.createdate > dt,
+                               Orderma.cstid == refodma.cstid)).group_by(
+                                   JOhk.name)
+            lst = []
+            for arr in splitarray(jes, 20):
+                qx = q.filter(jesin(arr, JOhk))
+                lst0 = qx.with_session(cur).all()
+                if lst0:
+                    lst.extend(lst0)
+            logger.debug("using %fs to fetch %d records for above action" %
+                         (clock() - t0, len(lst)))
+            josku = {x[1]: x[0].value for x in lst if x[1] > 0} if lst else {}
+
+        bc_by_jn = self._bcsvc.getbcs([x for x in josku])
+        bc_by_jn = {josku[int(x.runn)]: x for x in bc_by_jn} if bc_by_jn else {}
+
+        #no good candidates, fetch by sty#
+        bc_by_styn = {
+            x.get("styno") for x in shplst if x["jono"] not in bc_by_jn
+        }
+        bc_by_styn, bcs = {}, self._bcsvc.getbcs(bc_by_styn, True)
+        if bcs:
+            for it in bcs:
+                bc_by_styn.setdefault(it.styn, []).append(it)
+        for x in bc_by_styn:
+            bc_by_styn[x] = sorted(
+                bc_by_styn[x], key=lambda x: x.runn, reverse=True)
+        return bc_by_styn, bc_by_jn
+
+    @classmethod
+    def _write_bc_select(self, bc_by_jn, bc_by_sty, jn, styno, rems):
+        """
+        select a bc record based on provided arguments. First return the extract,
+        if not, select the one with same karat and more remarks
+        """
+        bc, rmks = bc_by_jn.get(jn), []
+        flag = bool(bc)
+        if not flag:
+            bcs = bc_by_sty.get(styno)
+            if bcs:
+                extr = lambda bcx: [x for y in range(*rems) for x in getattr(bcx, "rem%d" % y).strip() if x]
+                for bcx in bcs[:10]:
+                    if not samekarat(jn, bcx.jobn):
+                        continue
+                    mc0 = extr(bcx)
+                    if len(mc0) > len(rmks):
+                        rmks, bc = mc0, bcx
+                if not bc:
+                    bc, rmks = bcs[0], extr(bcs[0])
+        return flag, bc, rmks
+
     def _nsofsettings(self, fn=None):
         if self._nsofsts is None:
             self._nsofsts = PajNSOFRdr().readsettings(fn or self._nsofn)
         return self._nsofsts
-    
+
     def _write_rpts_pgsetup(self, sts, sht, shp_date, iorst):
-        """ setup sheet("rpt")'s margins/header/footer """
+        """
+        setup sheet("rpt")'s margins/header/footer
+        according to pylint, the sht arg is not used, it gives
+        """
         s0 = sts.get("shipment.rptmgns.%s" % self._vdrname)
         if not s0:
             s0 = sts.get("shipment.rptmgns")
@@ -627,19 +678,20 @@ class ShpMkr(object):
         send the shipment related sheets(Rpt/Err)
         """
         sts = self._nsofsettings()
-        io_hlp = _IOHlpr(wb.app, sts, shp_date, self._vdrname)
+        io_hlp = _SMIOHlpr(wb.app, sts, shp_date, self._vdrname)
         iorst = io_hlp.get()
         if not iorst:
             logger.debug("failed to get get valid IO item, generation failed")
-            return
-        sht = self._shpsns.get(wb, "sn_rpt")
+            return None
+        sht = self._sns.get(wb, "sn_rpt")
         self._write_rpts_pgsetup(sts, sht, shp_date, iorst)
         #now prepare and write the data
         s0 = sts.get("shipment.hdrs." + self._vdrname)
         if not s0:
             s0 = sts.get("shipment.hdrs")
         ttl, ns = [], {}
-        for tl, s0 in (x.split("=") for x in s0.value.replace(r"\n", "\n").split(";")):
+        for tl, s0 in (
+                x.split("=") for x in s0.value.replace(r"\n", "\n").split(";")):
             ttl.append(tl)
             y1 = s0.split(",")
             if len(y1) > 1:
@@ -651,16 +703,14 @@ class ShpMkr(object):
         maxr, lenttl, lsts, hls = iorst["maxrun#"], len(ttl), [ttl], []
         shplst = sorted(
             shplst,
-            key=
-            lambda mpx: "A%06d%s" % (mpx.get("running") or 0, mpx["jono"])
-        )
+            key=lambda mpx: "A%06d%s" % (mpx.get("running") or 0, mpx["jono"]))
         for it in shplst:
             ttl = [""] * lenttl
             nl.setdata(ttl)
             if not it.get("running"):
                 if it["jono"] not in newrunmp:
                     maxr += 1
-                    it["running"], nl["running"] = maxr, maxr
+                    it["running"] = nl["running"] = maxr
                     hls.append((len(lsts) + 1, nl.getcol("running")))
                     newrunmp[it["jono"]] = maxr
                 else:
@@ -697,13 +747,16 @@ class ShpMkr(object):
             for x in hls:
                 _hl(rng.offset(x[0] - 1, x[1]), 6)
         # the qtyleft formula
-        s0 = {x: col_name(nl.getcol(x) + 1) for x in "qty qtyleft thisleft".split()}
+        s0 = {
+            x: col_name(nl.getcol(x) + 1)
+            for x in "qty qtyleft thisleft".split()
+        }
         for idx in range(2, len(lsts) + 1):
             rng = sht.range("%s%d" % (s0["thisleft"], idx))
             rng.formula = "=%s%d-%s%d" % (s0["qtyleft"], idx, s0["qty"], idx)
             rng.api.numberformatlocal = "_ * #,##0_ ;_ * -#,##0_ ;_ * " "-" "_ ;_ @_ "
             rng.api.formatconditions.add(FormatConditionType.xlCellValue,
-                                         FormatConditionOperator.xlLess, "0")
+                                        FormatConditionOperator.xlLess, "0")
             rng.api.formatconditions(1).interior.colorindex = 3
 
         rng = sht.range(sht.range(1, 1), sht.range(len(lsts), len(nl.colnames)))
@@ -724,160 +777,6 @@ class ShpMkr(object):
         iorst["maxrun#"] = maxr
         io_hlp.update(iorst)
         return 1
-
-    def _err_enc_wgt(self, opts):
-        """ encoder for wgt error """
-        # don't report weight error for new sample
-        if opts is None:
-            return "主成色,副成色,配件,备注".split(",")
-        if opts["ordertype"] == 'N':
-            return None
-        wgts, flag, vvs = tuple(x.wgts for x in opts["objs"]), False, []
-        for wgt in zip(*wgts):
-            wgtexp, wgtact = tuple(_adjwgtneg(x.wgt) if x else 0 for x in wgt)
-            if wgtact or wgtexp:
-                wdf = (wgtact - wgtexp) / wgtexp if wgtexp else NA
-                pfx = "%4.2f-%4.2f" % (wgtact, wgtexp)
-                if wgtexp:
-                    if abs(wdf) <= 0.05:
-                        vvs.append("OK")
-                        # vvs.append(pfx + "(-)")
-                    else:
-                        flag = flag or wdf > 0.05
-                        vvs.append(pfx + "(%s%%)" % ("%4.2f" % (wdf * 100.0)))
-                else:
-                    if not flag:
-                        flag = True
-                    vvs.append(pfx + "(%s)" % NA)
-            else:
-                vvs.append("'-")
-        if flag:
-            vvs.append("金控有误")
-        return vvs
-
-    def _err_enc_ack(self, opts):
-        """ encoder for ack error """
-        if opts is None:
-            return "state inv ack date file".split()
-        objs = opts["objs"]
-        if isinstance(objs, dict):
-            prs = tuple(objs[x] for x in "ack inv".split())
-            prs = "New" if not prs[0] else "%4.2f" % ((float(prs[1]) - float(prs[0])) / float(prs[0]) * 100)
-            return [prs, ] + [objs[x] for x in "inv ack date file".split()]
-        return None
-
-    def _err_enc_qty(self, opts):
-        if opts is None:
-            return ["剩余数量", ]
-        objs = opts["objs"]
-        if objs and len(objs) == 2:
-            return [objs[0] - objs[1], ]
-        return None
-
-    def _err_enc_smp(self, opts):
-        """
-        sample, also provide the netwgt/metalwgt data
-        """
-        if opts is None:
-            return ["连石重", "金重", "链重"]
-        prdwgt = opts["objs"]
-        rc = [round(prdwgt.metal_stone, 2), ]
-        lst = prdwgt.metal
-        if lst:
-            if len(lst) == 1:
-                rc.append(round(lst[0].wgt,2))
-            else:
-                rc.append(";".join([str(x) for x in lst if x.wgt > 0]))
-        else:
-            rc.append(0)
-        lst = prdwgt.chain
-        rc.append(0 if not lst else str(lst))
-        return rc
-
-    def _err_enc_default(self, opts):
-        """ default encoder, just show the errmsg """
-        return [] if opts is None else None
-
-    def write_logs(self, wb, errlst):
-
-        def _write_err(sht, logs):
-            """
-            write errs
-            """
-            nls = xwu.NamedRanges(sht.range(1, 1))
-            if nls:
-                ttl = nls[0].colnames
-                vvs = [nl.data for nl in nls]
-            else:
-                ttl, vvs = "location,type,msg".split(","), []
-            for mp in logs:
-                vvs.append(tuple("%s" % mp.get(x) if x != "type" else self._shpsns.get_error(mp.get(x))[1] for x in ttl))
-            # supress the duplicates
-            vvs = list({"%s%s%s" % x: x for x in vvs}.values())
-            vvs.insert(0, ttl)
-            sht.range(1, 1).value = vvs
-            return sht
-
-        def _write_warn(sht, logs):
-            """
-            write warnings with different encoder, different title
-            """
-            encs = {
-                "wc_wgt": self._err_enc_wgt,
-                "wc_ack": self._err_enc_ack,
-                "wc_qty": self._err_enc_qty,
-                "wc_smp": self._err_enc_smp
-            }
-            ridx, ttl = 0, "cstname,jono,styno,location,type,msg".split(",")
-            rmpfx = lambda x: (x[1:] if x[0] == "'" else x) if isinstance(x, str) else x
-
-            jns = set(rmpfx(mp.get("jono")) for mp in logs)
-            with self._cnsvc.sessionctx():
-                jomp = self._cnsvc.getjos(jns)[0]
-                jomp = {x.name.value: x for x in jomp}
-                for mp in logs:
-                    jn = rmpfx(mp.get("jono"))
-                    if jn in jomp:
-                        jn = jomp[jn]
-                        mp["cstname"], mp[
-                            "styno"], mp["ordertype"] = jn.customer.name.strip(
-                            ), jn.style.name.value, jn.ordertype
-                    else:
-                        mp["cstname"], mp["styno"], mp["ordertype"] = (NA,) * 3
-            logs = sorted(logs, key=lambda x: x["type"] + "," + x["styno"] + "," + x["jono"])
-            jn = None
-            for mp in logs:
-                jomp = encs.get(mp["type"])
-                if not jomp:
-                    logger.debug("warning encoder for (%s) not found, default used", mp["type"])
-                    jomp = self._err_enc_default
-                vvs = jomp(mp)
-                if vvs is None:
-                    #weight error of new sample won't be shown
-                    if mp["type"] == "wc_wgt":
-                        continue
-                    vvs = []
-                # write a title row for each warning category
-                if mp["type"] != jn:
-                    jn = mp["type"]
-                    ridx += 1
-                    sht.range(ridx, 1).value = ttl + jomp(None)
-                    _hl(sht.range(ridx, 1).expand("right"), 37)
-                ridx += 1
-                sht.range(ridx,
-                          1).value = ["%s" % mp.get(x) if x != "type" else self._shpsns.get_error(mp.get(x))[1] for x in ttl] + vvs
-            return sht
-
-        for sn, logs, wtr in zip(("sn_err", "sn_warn"),
-                                 self._shpsns._errandwarn(errlst),
-                                 (_write_err, _write_warn)):
-            if not logs:
-                continue
-            sht = wtr(self._shpsns.get(wb, sn), logs)
-            if not sht:
-                continue
-            xwu.freeze(sht.range("D2"))
-            sht.autofit("c")
 
     def _get_file(self, fldr):
         """
@@ -908,7 +807,7 @@ class ShpMkr(object):
         """
         rdrmap = {
             "长兴珠宝": ("c2", self._read_c2),
-            "诚艺,胤雅": ("c1", self.read_c1),
+            "诚艺,胤雅": ("c1", self._read_c1),
             "十七,物料编号,paj,diamondlite": ("paj", self._read_paj)
         }
         for sht in wb.sheets:
@@ -927,7 +826,7 @@ class ShpMkr(object):
         fn = self._get_file(fldr)
         if not fn:
             logger.debug("user does not specified any valid source file")
-            return None
+            return (None, ) * 2
         pajopts = {
             "fn": fn,
             "shpdate": PajShpHdlr.get_shp_date(fn),
@@ -937,20 +836,22 @@ class ShpMkr(object):
         invmp, shplst, errlst, self._vdrname = {}, [], [], None
         app, kxl = _appmgr.acq()
         try:
-            wb, flag = app.books.open(fn), False
+            wb = app.books.open(fn)
             # check if Rpt sheet was already there
-            var = tuple(self._shpsns.get(wb, x, False) for x in ("sn_rpt",))
+            var = tuple(self._sns.get(wb, x, False) for x in ("sn_rpt",))
             flag = var and any(var)
             if flag:
-                rng = xwu.usedrange(var[0])
-                flag = bool(rng) or [x for x in rng.value if x]
+                rdr = xwu.usedrange(var[0])
+                flag = bool(rdr) or [x for x in rdr.value if x]
             if flag:
                 logger.debug("target file(%s) don't need regeneration", wb.name)
-                return wb
+                # get reader method will detect the vendor name
+                self._get_reader(wb)
+                return wb, self._vdrname
 
             rdr = self._get_reader(wb)
             if not rdr:
-                return None
+                return (None, ) * 2
             if self._vdrname == "paj":
                 pajopts["bomwgts"] = PajBomHhdlr().readbom(wb)
             crt_err, shp_date = False, None  # critical error flag
@@ -959,13 +860,14 @@ class ShpMkr(object):
                 if lst and any(lst):
                     flag, mp = True, lst[0]
                     if mp:
+                        # shpdate overriding
                         if "shpdate" in mp:
                             shp_date = mp["shpdate"]
                             del mp["shpdate"]
                         shplst.extend(mp.values())
                     if lst[1]:
-                        self._eap(errlst, sht.name, sht.name,\
-                            "ec_sh_error", lst[1])
+                        self._sns.eap(errlst, sht.name, sht.name,
+                                    "ec_sh_error", lst[1])
                         crt_err = True
                 if not flag and self._vdrname == "paj" and not lst[1]:
                     invno = PajShpHdlr.read_invno(sht)
@@ -977,37 +879,221 @@ class ShpMkr(object):
             if shp_date and isinstance(shp_date, str):
                 shp_date = datetime.strptime(shp_date, "%Y-%m-%d")
             if shp_date:
-                td = datetime.today().date() - shp_date
-                if td.days > 2 or td.days < 0:
-                    self._eap(errlst, "_all_", "_日期_", "wc_date",
-                            "落货日期%s可能错误" % shp_date.strftime("%Y-%m-%d"),
-                            (td, shp_date))
+                var = datetime.today().date() - shp_date
+                if var.days > 2 or var.days < 0:
+                    self._sns.eap(errlst, "_all_", "_日期_", "wc_date",
+                                "落货日期%s可能错误" % shp_date.strftime("%Y-%m-%d"),
+                                (var, shp_date))
                 #rename c1's source file based on the shp_date
-                if self._vdrname == "c1" and trimu(path.basename(fn)[:2]) != "C1":
+                if self._vdrname == "c1" and trimu(
+                        path.basename(fn)[:2]) != "C1":
                     wb.save()
                     wb.close()
-                    var = path.join(path.dirname(fn), "C1 %s 落货明细%s" % (shp_date.strftime("%y%m%d"), path.splitext(fn)[1]))
+                    var = path.splitext(fn)[1]
+                    var = "C1 %s 落货明细%s" % (shp_date.strftime("%y%m%d"), var)
+                    var = path.join(path.dirname(fn), var)
                     rename(fn, var)
                     fn, wb = var, app.books.open(var)
             if shplst:
                 if self._debug or not crt_err:
                     self._check_db_error(shplst, invmp, errlst)
             if errlst:
-                self.write_logs(wb, errlst)
-                errlst = self._shpsns._errandwarn(errlst)[0]
+                _SMLogWtr(self._cnsvc, self._sns).write(wb, errlst)
+                errlst = self._sns.err_warn(errlst)[0]
             if not shplst:
                 wb = None
             else:
                 if not errlst or (errlst and self._debug):
-                    mp = {}
+                    mp = {} # map to hold the new created runnings
                     self._write_rpts(wb, shplst, mp, shp_date)
                     self._write_bc(wb, shplst, mp, shp_date)
                 else:
                     wb = None
         finally:
-            if kxl:
-                _appmgr.ret(kxl)
-        return wb
+            _appmgr.ret(kxl)
+        return wb, self._vdrname
+
+
+class _SMLogWtr(object):
+    """
+    the log writter for ShpMkr/ShpImptr
+    """
+
+    def __init__(self, cnsvc, sns=None):
+        self._cnsvc = cnsvc
+        self._sns = sns or _SMSns()
+
+    def write(self, wb, logs):
+        """ write the logs to wb """
+        for sn, log, wtr in zip(("sn_err", "sn_warn"),
+                                 self._sns.err_warn(logs),
+                                 (self._write_err, self._write_warn)):
+            if not log:
+                continue
+            sht = wtr(self._sns.get(wb, sn), log)
+            if not sht:
+                continue
+            xwu.freeze(sht.range("D2"))
+            sht.autofit("c")
+
+    def _write_err(self, sht, logs):
+        """
+        write errs
+        """
+        nls = xwu.NamedRanges(sht.range(1, 1))
+        if nls:
+            ttl = nls[0].colnames
+            vvs = [nl.data for nl in nls]
+        else:
+            ttl, vvs = "location,type,msg".split(","), []
+        for mp in logs:
+            vvs.append(
+                tuple("%s" % mp.get(x) if x != "type" else self._sns.
+                      get_error(mp.get(x))[1] for x in ttl))
+        # supress the duplicates
+        vvs = list({"%s%s%s" % x: x for x in vvs}.values())
+        vvs.insert(0, ttl)
+        sht.range(1, 1).value = vvs
+        return sht
+
+    def _write_warn(self, sht, logs):
+        """
+        write warnings with different encoder, different title
+        """
+        encs = {
+            "wc_wgt": self._enc_wgt,
+            "wc_ack": self._enc_ack,
+            "wc_qty": self._enc_qty,
+            "wc_smp": self._enc_smp
+        }
+        ridx, ttl = 0, "cstname,jono,styno,location,type,msg".split(",")
+        rmpfx = lambda x: (x[1:] if x[0] == "'" else x) if isinstance(x, str) else x
+
+        jns = set(rmpfx(mp.get("jono")) for mp in logs)
+        with self._cnsvc.sessionctx():
+            jomp = self._cnsvc.getjos(jns)[0]
+            jomp = {x.name.value: x for x in jomp}
+            for mp in logs:
+                jn = rmpfx(mp.get("jono"))
+                if jn in jomp:
+                    jn = jomp[jn]
+                    mp["cstname"], mp["styno"], mp[
+                        "ordertype"] = jn.customer.name.strip(
+                        ), jn.style.name.value, jn.ordertype
+                else:
+                    mp["cstname"], mp["styno"], mp["ordertype"] = (NA,) * 3
+        logs = sorted(
+            logs, key=lambda x: x["type"] + "," + x["styno"] + "," + x["jono"])
+        jn = None
+        for mp in logs:
+            jomp = encs.get(mp["type"])
+            if not jomp:
+                logger.debug("warning encoder for (%s) not found, default used",
+                             mp["type"])
+                jomp = self._enc_default
+            vvs = jomp(mp)
+            if vvs is None:
+                #weight error of new sample won't be shown
+                if mp["type"] == "wc_wgt":
+                    continue
+                vvs = []
+            # write a title row for each warning category
+            if mp["type"] != jn:
+                jn = mp["type"]
+                ridx += 1
+                sht.range(ridx, 1).value = ttl + jomp(None)
+                _hl(sht.range(ridx, 1).expand("right"), 37)
+            ridx += 1
+            sht.range(ridx, 1).value = [
+                "%s" % mp.get(x) if x != "type" else self._sns.get_error(
+                    mp.get(x))[1] for x in ttl
+            ] + vvs
+        return sht
+
+    @classmethod
+    def _enc_wgt(cls, opts):
+        """ encoder for wgt error """
+        # don't report weight error for new sample
+        if opts is None:
+            return "主成色,副成色,配件,备注".split(",")
+        if opts["ordertype"] == 'N':
+            return None
+        wgts, flag, vvs = tuple(x.wgts for x in opts["objs"]), False, []
+        for wgt in zip(*wgts):
+            wgtexp, wgtact = tuple(_adjwgtneg(x.wgt) if x else 0 for x in wgt)
+            if wgtact or wgtexp:
+                wdf = (wgtact - wgtexp) / wgtexp if wgtexp else NA
+                pfx = "%4.2f-%4.2f" % (wgtact, wgtexp)
+                if wgtexp:
+                    if abs(wdf) <= 0.05:
+                        vvs.append("OK")
+                        # vvs.append(pfx + "(-)")
+                    else:
+                        flag = flag or wdf > 0.05
+                        vvs.append(pfx + "(%s%%)" % ("%4.2f" % (wdf * 100.0)))
+                else:
+                    if not flag:
+                        flag = True
+                    vvs.append(pfx + "(%s)" % NA)
+            else:
+                vvs.append("'-")
+        if flag:
+            vvs.append("金控有误")
+        return vvs
+
+    @classmethod
+    def _enc_ack(cls, opts):
+        """ encoder for ack error """
+        if opts is None:
+            return "state inv ack date file".split()
+        objs = opts["objs"]
+        if isinstance(objs, dict):
+            prs = tuple(objs[x] for x in "ack inv".split())
+            prs = "New" if not prs[0] else "%4.2f" % (
+                (float(prs[1]) - float(prs[0])) / float(prs[0]) * 100)
+            return [
+                prs,
+            ] + [objs[x] for x in "inv ack date file".split()]
+        return None
+
+    @classmethod
+    def _enc_qty(cls, opts):
+        if opts is None:
+            return [
+                "剩余数量",
+            ]
+        objs = opts["objs"]
+        if objs and len(objs) == 2:
+            return [
+                objs[0] - objs[1],
+            ]
+        return None
+
+    @classmethod
+    def _enc_smp(cls, opts):
+        """
+        sample, also provide the netwgt/metalwgt data
+        """
+        if opts is None:
+            return ["连石重", "金重", "链重"]
+        prdwgt = opts["objs"]
+        rc = [round(prdwgt.metal_stone, 2)]
+        lst = prdwgt.metal
+        if lst:
+            if len(lst) == 1:
+                rc.append(round(lst[0].wgt, 2))
+            else:
+                rc.append(";".join([str(x) for x in lst if x.wgt > 0]))
+        else:
+            rc.append(0)
+        lst = prdwgt.chain
+        rc.append(0 if not lst else str(lst))
+        return rc
+
+    @classmethod
+    def _enc_default(cls, opts):
+        """ default encoder, just show the errmsg """
+        return [] if opts is None else None
 
 
 class ShpImptr():
@@ -1019,9 +1105,10 @@ class ShpImptr():
     def __init__(self, cnsvc, hksvc, bcsvc):
         self._cnsvc, self._hksvc, self._bcsvc = cnsvc, hksvc, bcsvc
         self._groupsampjo = False
-        self._shpsns = ShpSns()
+        self._sns = _SMSns()
 
-    def exacthdr(self, sht):
+    @classmethod
+    def exacthdr(cls, sht):
         """ extract data/jmp#/n# from header """
         pts = (sht.api.pagesetup.leftheader, sht.api.pagesetup.centerheader,
                sht.api.pagesetup.rightheader)
@@ -1035,9 +1122,9 @@ class ShpImptr():
         options:
             verbose = True: show the errors or the complete state
         """
-        sm, verbose = ShpMkr(self._cnsvc, self._hksvc,
-                             self._bcsvc, **options), options.get("verbose")
-        wb = sm.build_rpts(fn)
+        sm, verbose = ShpMkr(self._cnsvc, self._hksvc, self._bcsvc,
+                             **options), options.get("verbose")
+        wb, vdrname = sm.build_rpts(fn)
         if not wb:
             return None
         # build_rpt checked, check again? because build_rpt do db check
@@ -1051,21 +1138,22 @@ class ShpImptr():
             sht.activate()
             sht.range(xwu.usedrange(sht).last_cell.row,
                       mp["cidxqty"] + 1).select()
+            wb.app.visible = True
             msg = "文件=%s,\n日期=%s，落货纸号=%s\n总件数=%s，总重量=%s" % \
                 (wb.name, nlhdr.date.strftime("%Y-%m-%d"), nlhdr.jmpno,
                 mp["ttlqty"], str(round(mp["ttlwgt"], 2)))
             msg = messagebox.askyesno("确定要将以下资料导入落货系统?", msg)
             if not msg:
-                return
+                return None
             msg = self._do_db(mp)
             if not msg:
-                self._write_mm_in(wb, nlhdr)
+                self._write_mm_in(wb, nlhdr, vdrname)
             else:
                 errs.append("程序错误(%s)" % msg)
         if ttl:
             if errs:
-                sm.write_logs(wb, errs)
-                self._shpsns.get(wb, "sn_err").activate()
+                _SMLogWtr(self._cnsvc, self._sns).write(wb, errs)
+                self._sns.get(wb, "sn_err").activate()
                 ttl = ("检测到错误", "详情请参考Excel")
         xwu.appswitch(_appmgr.acq()[0], {"visible": True})
         if ttl and verbose:
@@ -1073,171 +1161,193 @@ class ShpImptr():
         return ttl or wb
 
     def _check_rpt_error(self, wb):
+        """
+        Check if there is still critical inside sheet("rpt")
+        the returned dict must returned at least below columns:
+            ttl errs
+        then when the ttl is empty(no critical error), should also return
+            cidxqty jns nlhdr nls sht ttlqty ttlwgt
+        """
+        ttl, var = (None,) * 2
         if not wb:
             xwu.appswitch(_appmgr.acq()[0], True)
             ttl = ("文件错误", "文件有误或不存在")
         else:
-            sht, errs = self._shpsns.get(wb, "sn_rpt", False), []
+            sht, errs = self._sns.get(wb, "sn_rpt", False), []
             if not sht:
-                ttl = ("文件错误", "关键页(%s)不存在" % self._shpsns.get_error("sn_rpt")[1])
-            else:
-                nlhdr = NamedList(list2dict("date,jmpno,iono"), self.exacthdr(sht))
-                xwu.appswitch(wb.app, {"visible": True})
-                if self._isimported(nlhdr.jmpno):
-                    var = "JMP#(%s)已导入" % nlhdr.jmpno
-                    errs.append(
-                        self._shpsns.new_err("_记录重复_", "_all_", "ec_jmp", var))
-                    ttl = ("错误", var)
+                ttl = ("文件错误", "关键页(%s)不存在" % self._sns.get_error("sn_rpt")[1])
+        if not ttl:
+            nlhdr = NamedList(list2dict("date,jmpno,iono"), self.exacthdr(sht))
+            xwu.appswitch(wb.app, {"visible": True})
+            if self._isimported(nlhdr.jmpno):
+                var = "JMP#(%s)已导入" % nlhdr.jmpno
+                self._sns.eap(errs, "_记录重复_", "_all_", "ec_jmp", var)
+                ttl = ("错误", var)
+        if not ttl:
+            if nlhdr.jmpno[0] != "J":
+                var = "落货纸#(%s)应该以J开头" % nlhdr.jmpno
+                self._sns.eap(errs, "_落货纸错误_", "_all_", "ec_jmp", var)
+            var = date.today() - nlhdr.date
+            if var.days < 0 or var.days > 20:
+                var = ("来至未来(%s)的资料" if var.days < 0 else
+                       "太早以前(%s)的资料") % nlhdr.date.strftime("%Y-%m-%d")
+                self._sns.eap(errs, "_日期错误_", "_all_", "ec_date", var)
+            mpx = self._check_rpt_detail(sht, errs)
+            # don't send below locals to the caller
+        del var, wb
+        mp = dict(x for x in locals().items() if x[0] not in (
+            "mpx",
+            "self",
+        ) and x[1] is not None)
+        mp.update(mpx)
+        return mp
+
+    def _check_rpt_detail(self, sht, errs):
+        """ check sheet(rpt)'s detail data row by row """
+        nls = [
+            x for x in xwu.NamedRanges(
+                sht.range(1, 1),
+                name_map={
+                    "jono": "工单",
+                    "qty": "件数",
+                    "qtyleft": "此次,",
+                    "running": "run#",
+                    "karat": "成色"
+                })
+        ]
+        ttlqty, ttlwgt, jns, var, cidxqty = 0, 0, set(), 0, 0
+        for nl in nls:
+            if not nl.jono:
+                break
+            if not cidxqty:
+                cidxqty = nl.getcol("qty")
+            if nl.qtyleft < 0:
+                self._sns.eap(errs, nl.jono, nl.jono, "ec_qty", "数量不足")
+            if not nl.wgt or nl.wgt < 0:
+                ttl = ("重量错误", "存在重量不合规记录")
+                if nl.wgt < 0:
+                    self._sns.eap(errs, nl.jono, nl.jono, "ec_wgt_not_sure",
+                                  "重量不确定，请人工复核")
                 else:
-                    if nlhdr.jmpno[0] != "J":
-                        var = "落货纸#(%s)应该以J开头" % nlhdr.jmpno
-                        errs.append(
-                            self._shpsns.new_err("_落货纸错误_", "_all_", "ec_jmp", var))
-                    var = date.today() - nlhdr.date
-                    if var.days < 0 or var.days > 20:
-                        var = ("来至未来(%s)的资料" if var.days < 0 else
-                            "太早以前(%s)的资料") % nlhdr.date.strftime("%Y-%m-%d")
-                        errs.append(
-                            self._shpsns.new_err("_日期错误_", "_all_", "ec_date", var))
-                    nls = [
-                        x for x in xwu.NamedRanges(
-                            sht.range(1, 1),
-                            name_map={
-                                "jono": "工单",
-                                "qty": "件数",
-                                "qtyleft": "此次,",
-                                "running": "run#",
-                                "karat": "成色"
-                            })
-                    ]
-                    ttlqty, ttlwgt, jns, var, cidxqty = 0, 0, set(), 0, 0
-                    for nl in nls:
-                        if not nl.jono:
-                            break
-                        if not cidxqty:
-                            cidxqty = nl.getcol("qty")
-                        if nl.qtyleft < 0:
-                            errs.append(
-                                self._shpsns.new_err(nl.jono, nl.jono, "ec_qty",
-                                                    "数量不足"))
-                        if not nl.wgt or nl.wgt < 0:
-                            ttl = ("重量错误", "存在重量不合规记录")
-                            if nl.wgt < 0:
-                                errs.append(
-                                    self._shpsns.new_err(nl.jono, nl.jono, "ec_wgt_not_sure", "重量不确定，请人工复核"))
-                            else:
-                                errs.append(
-                                    self._shpsns.new_err(nl.jono, nl.jono, "ec_wgt_missing", "欠重量资料"))
-                        if nl.qty:
-                            ttlqty += nl.qty
-                            var = nl.qty
-                        ttlwgt += nl.wgt * (nl.qty if nl.qty else var)
-                        jns.add(nl.jono)
-                    # don't send below locals to the caller
-                    del var, wb
+                    self._sns.eap(errs, nl.jono, nl.jono, "ec_wgt_missing",
+                                  "欠重量资料")
+            if nl.qty:
+                var = nl.qty
+                ttlqty += var
+            ttlwgt += nl.wgt * var
+            jns.add(nl.jono)
+        del var
         return dict(x for x in locals().items() if x[1] is not None)
+
+    def _do_db_prep(self, mp):
+        """ prepare data from db for inserting """
+        maMap, mmMap, gdMap, updjos = {}, {}, {}, {}
+        refid = refno = None
+        nlhdr, errs = tuple(
+            mp.get(x) for x in "nlhdr errs".split())
+        jos = self._cnsvc.getjos(mp["jns"])[0]
+        joqls = {x.name.value: x.qtyleft for x in jos}
+        jos = {x.name.value: x for x in jos}
+        for nl in mp["nls"]:
+            jn = nl.jono
+            if not jn:
+                break
+            jn = JOElement(nl.jono).value
+            nl.jono = jn
+            karat, jo, running = int(nl.karat), jos.get(jn), nl.running
+            nl.karat = karat
+            if running:
+                if jn not in updjos and jo.running != running:
+                    updjos[jn] = jo
+                    jo.running = running
+                    jo.lastupdate = datetime.today()
+                if karat not in maMap:
+                    if not refid:
+                        refid, refno, mmid = self._lastrefid(), self._nextrefno(
+                        ), self._lastmmid()
+                    maMap[karat] = var = MMMa()
+                    refid += 1
+                    var.id, var.name, var.karat, var.refdate, var.tag = refid, refno, karat, nlhdr.date, 0
+            var = jo.id if self._groupsampjo else random.randint(0, 9999999)
+            if nl.qty:
+                mm = mmMap.get(var)
+                if not mm:
+                    mmMap[var] = mm = MM()
+                    mmid += 1
+                    mm.id, mm.jsid, mm.name, mm.refid, mm.qty = mmid, jo.id, nlhdr.jmpno, refid, 0
+                mm.qty += nl.qty
+                # don't change the jo.qtyleft directly because this might cause a double-substract by both me and mm.insert trigger
+                var = joqls[jn] - nl.qty
+                if var < 0:
+                    self._sns.eap(errs, nl.jono, nl.jono, "ec_qty", "数量不足")
+                else:
+                    mm.tag = 0 if var else 4
+                joqls[jn] = var
+            var = "%d/%d" % (mm.id, karat)
+            gd = gdMap.get(var)
+            if not gd:
+                gdMap[var] = gd = MMgd()
+                gd.id, gd.karat, gd.wgt = mm.id, nl.karat, 0
+            gd.wgt += nl.wgt * (nl.qty if nl.qty else mm.qty)
+        return {
+            "errs": errs,
+            "maMap": maMap,
+            "mmMap": mmMap,
+            "gdMap": gdMap,
+            "updjos": updjos,
+            "jos": jos
+        }
 
     def _do_db(self, mp):
         app, tk = _appmgr.acq()
         try:
             xwu.appswitch(app, {"visible": False})
-            refid = refno = None
-            maMap, mmMap, gdMap, updjos = {}, {}, {}, {}
-            nls, nlhdr, errs, jns = tuple(
-                mp.get(x) for x in "nls nlhdr errs jns".split())
             with ResourceCtx((self._cnsvc.sessmgr(),
                               self._hksvc.sessmgr())) as curs:
-                jos = self._cnsvc.getjos(jns)[0]
-                joqls = {x.name.value: x.qtyleft for x in jos}
-                jos = {x.name.value: x for x in jos}
-                for nl in nls:
-                    jn = nl.jono
-                    if not jn:
-                        break
-                    jn = JOElement(nl.jono).value
-                    nl.jono = jn
-                    karat, jo, running = int(nl.karat), jos.get(jn), nl.running
-                    nl.karat = karat
-                    if running:
-                        if jn not in updjos and jo.running != running:
-                            updjos[jn] = jo
-                            jo.running = running
-                            jo.lastupdate = datetime.today()
-                        if karat not in maMap:
-                            if not refid:
-                                refid, refno, mmid = self._lastrefid(
-                                ), self._nextrefno(), self._lastmmid()
-                            maMap[karat] = ma = MMMa()
-                            refid += 1
-                            ma.id, ma.name, ma.karat, ma.refdate, ma.tag = refid, refno, karat, nlhdr.date, 0
-                    ma = maMap.get(karat)
-                    mmmapid = jo.id if self._groupsampjo else random.randint(
-                        0, 9999999)
-                    if nl.qty:
-                        if mmmapid not in mmMap:
-                            mmMap[mmmapid] = mm = MM()
-                            mmid += 1
-                            mm.id, mm.jsid, mm.name, mm.refid, mm.qty = mmid, jo.id, nlhdr.jmpno, refid, 0
-                        else:
-                            mm = mmMap[mmmapid]
-                        mm.qty += nl.qty
-                        # don't change the jo.qtyleft directly because this might cause a double-substract by both me and mm.insert trigger
-                        ql = joqls[jn] - nl.qty
-                        if ql < 0:
-                            errs.append(
-                                self._shpsns.new_err(nl.jono, nl.jono, "ec_qty",
-                                                     "数量不足"))
-                        else:
-                            mm.tag = 0 if ql else 4
-                        joqls[jn] = ql
-                    key = "%d/%d" % (mm.id, karat)
-                    if key not in gdMap:
-                        gdMap[key] = gd = MMgd()
-                        gd.id, gd.karat, gd.wgt = mm.id, nl.karat, 0
-                    else:
-                        gd = gdMap[key]
-                    gd.wgt += nl.wgt * (nl.qty if nl.qty else mm.qty)
-                if not errs:
-                    cncmds, xx = [], curs[0].query(MMMa).filter(
-                        MMMa.tag == 0).all()
-                    if xx:
-                        cncmds.append(xx)
-                        mmid = curs[0].query(func.max(MMMa.tag)).first()
-                        mmid = (mmid[0] if mmid else 0) + 1
-                        for ma in xx:
-                            ma.tag = mmid
-                    cncmds.extend([
-                        tuple(y) for y in (maMap.values(), mmMap.values(),
-                                           gdMap.values(), updjos.values()) if y
-                    ])
-                    hkjos, hkcmds = self._hksvc.getjos(
-                        jns, JOhk.running == 0)[0], []
-                    for jo in hkjos:
-                        if jo.running:
-                            continue
-                        x = jos.get(jo.name.value)
-                        if not (x and x.running):
-                            continue
-                        jo.running = x.running
-                        hkcmds.append(jo)
-                    if cncmds:
-                        for x in cncmds:
-                            for y in x:
-                                curs[0].add(y)
-                            curs[0].flush()
-                        curs[0].commit()
-                    if hkcmds:
-                        for x in hkcmds:
-                            curs[1].add(x)
-                        curs[1].commit()
-        except Exception as exp:
-            return exp
+                mpx = self._do_db_prep(mp)
+                jos = mpx.get("errs")
+                if jos:
+                    return jos
+                # update those tag = 0 to max + 1
+                cncmds, jos = [], curs[0].query(MMMa).filter(
+                    MMMa.tag == 0).all()
+                if jos:
+                    cncmds.append(jos)
+                    hkjos = curs[0].query(func.max(MMMa.tag)).first()
+                    hkjos = (hkjos[0] if hkjos else 0) + 1
+                    for ma in jos:
+                        ma.tag = hkjos
+                # the insert sequence, ma -> mm -> gd -> jo
+                cncmds.extend([
+                    tuple(y.values())
+                    for y in (
+                        mpx.get(x) for x in "maMap mmMap gdMap updjos".split())
+                    if y
+                ])
+                # HK jo running update
+                hkjos = self._hksvc.getjos(mp.get("jns"),
+                                        JOhk.running == 0)[0] or []
+                hkcmds, jos = [], mpx.get("jos")
+                for y, x in ((x, jos.get(x.name.value), ) for x in hkjos):
+                    if not (x and x.running):
+                        continue
+                    y.running = x.running
+                    hkcmds.append(y)
+                for x in cncmds:
+                    for y in x:
+                        curs[0].add(y)
+                    curs[0].flush()
+                curs[0].commit()
+                for x in hkcmds:
+                    curs[1].add(x)
+                curs[1].commit()
+        except:
+            pass
         finally:
-            if tk and app:
-                _appmgr.ret(tk)
+            _appmgr.ret(tk)
         return None
 
-    def _write_mm_in(self, wb, nlhdr, new_wb=True):
+    def _write_mm_in(self, wb, nlhdr, vdrname, new_wb=True):
         """
         write the data for mm import to a new workbook or a sheet inside existing wb
         """
@@ -1256,7 +1366,8 @@ class ShpImptr():
                     "%Y%m%d"
                 ), ".xls" if wb.app.version.major < 12 else ".xlsx", 0
             pfx0 = pfx
-            # TODO: if vendor is C1, append C1 to before prefix
+            if vdrname and vdrname == "c1":
+                pfx0 = "C1 " + pfx0
             while True:
                 fn = path.join(fldr, pfx + ext)
                 if path.exists(fn):
@@ -1267,7 +1378,7 @@ class ShpImptr():
             wb1.save(fn)
             wb = wb1
         else:
-            sht = self._shpsns.get(wb, "mmimptr")
+            sht = self._sns.get(wb, "mmimptr")
             sht.range(1, 1).value = ((nlhdr.iono, nlhdr.jmpno, nlhdr.date))
             sht.autofit("c")
         return wb
@@ -1312,13 +1423,20 @@ class ShpImptr():
             x = cur.query(func.max(MMMa.id)).first()[0]
         return x if x else 0
 
-class _IOHlpr(object):
+
+class _SMIOHlpr(object):
     """ helper class for ShpMkr to get/set the IO sheet """
+
     def __init__(self, *args):
         self._app, self._sts, self._shp_date, self._vdrname = args
-        self._shtio, self._itio, self._ridx = (None, ) * 3
+        self._shtio, self._itio, self._ridx = (None,) * 3
 
     def get(self):
+        """
+        fetch IO data based on the vendor name to a dict
+        The returned dict contains below keys:
+            .n#,date,jmp#,"maxrun#"
+        """
         fn = self._sts.get(triml("Shipment.IO")).value
         wbio, mp = self._app.books.open(fn), {}
         self._shtio = wbio.sheets["master"]
@@ -1353,5 +1471,7 @@ class _IOHlpr(object):
         return mp
 
     def update(self, iorst):
+        """ send the updated result to the last row of IO """
         for knv in iorst.items():
-            self._shtio.range(self._ridx, self._itio.getcol(knv[0]) + 1).value = knv[1]
+            self._shtio.range(self._ridx,
+                              self._itio.getcol(knv[0]) + 1).value = knv[1]

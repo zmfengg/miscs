@@ -115,20 +115,20 @@ class SNFmtr(object):
 
 formatsn = SNFmtr().formatsn
 
-def jesin(jes,objclz):
+def jesin(jes, objclz):
     """ simulate a in operation for jo.name """
-    if not isinstance(jes,Sequence):
+    if not isinstance(jes, (tuple, list, )):
         jes = list(jes)
     q = objclz.name == jes[0]
     for y in jes[1:]:
-        q = or_(objclz.name == y,q)
+        q = or_(objclz.name == y, q)
     return q
 
 #these 4 object for sqlalcehmy's query maker for ids/names
-idsin = lambda ids,objclz: objclz.id.in_(ids)
-idset = lambda ids: set([y.id for y in ids])
-namesin = lambda names,objclz: objclz.name.in_(names)
-nameset =lambda names: set([y.name for y in names])
+idsin = lambda ids, objclz: objclz.id.in_(ids)
+idset = lambda ids: {y.id for y in ids}
+namesin = lambda names, objclz: objclz.name.in_(names)
+nameset = lambda names: {y.name for y in names}
 
 def _getjos(self, objclz, q0, jns, extfltr = None):
     ss = splitjns(jns)
@@ -313,14 +313,14 @@ class HKSvc(SvcBase):
                 if isinstance(e,UnicodeDecodeError):
                     logger.debug("description/edescription/po.description of JO#(%s) contains invalid Big5 character " % jn.value)
         if rc and len(rc) > 1:
-            rc = sorted(rc,key = attrgetter("createdate"), reverse = True)
+            rc = sorted(rc, key=attrgetter("createdate"), reverse=True)
         return rc
 
     def getjowgts(self, jo):
         """ return a PrdWgt object of given JO """
         if not jo:
             return None
-        
+
         with self.sessionctx() as cur:
             if isinstance(jo, str) or isinstance(jo, JOElement):
                 jo = self.getjos([jo])[0]
@@ -335,12 +335,19 @@ class HKSvc(SvcBase):
                     rk = knws[1]
             #only pendant's parts weight should be returned
             if jo.style.name.alpha.find("P") >= 0:
-                lst = cur.query(JI).filter(
-                    and_(JI.joid == jo.id, JI.stname.like("M%T"))).all()
+                # attention, bug of the driver/pyodbc or encoding issue, Query(JI)
+                # returns only one record even if there are several, so get one by one
+                #lst = Query(JI).filter(JI.joid == jo.id, JI.stname.like("M%T%"))
+                lst = Query((JI.remark, JI.stname, JI.unitwgt, )).filter(JI.joid == jo.id, JI.stname.like("M%T%"))
+                lst = lst.with_session(cur).all()
                 if lst:
-                    row = lst[0]
-                    if(row.unitwgt and self._ptnmit.search(row.stname)):
-                        knws[2] = pajcc.WgtInfo(rk.karat, float(row.unitwgt))
+                    for row in lst:
+                        if(row.unitwgt and self._ptnmit.search(row.stname) and row.remark.find("\"") > 0):
+                            kt = rk.karat
+                            if row.remark.find("銀") >= 0 or row.remark.find("925") >= 0:
+                                kt = 925
+                            knws[2] = pajcc.WgtInfo(kt, float(row.unitwgt))
+                            break
         if any(knws):
             return PrdWgt(knws[0], knws[1], knws[2])
 

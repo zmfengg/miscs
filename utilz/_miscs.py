@@ -12,6 +12,7 @@ from math import ceil
 from numbers import Integral
 from os import listdir, path
 from random import random
+from datetime import date, datetime
 import re
 import imghdr
 import struct
@@ -20,11 +21,13 @@ from sys import getfilesystemencoding, version_info
 import tkinter as tk
 
 __all__ = ["NamedList", "NamedLists", "appathsep", "daterange", "deepget", "getfiles", "getvalue", "isnumeric",
-           "imagesize", "list2dict", "lvst_dist", "na", "splitarray", "triml", "trimu", "updateopts", "removews", "easydialog", "easymsgbox"]
+           "imagesize", "list2dict", "lvst_dist", "na", "splitarray", "triml", "trimu", "updateopts", "removews", "easydialog", "easymsgbox", "monthadd"]
 
 na = "N/A"
 
 _jpgsof = {192, 193, 194, 195, 197, 198, 199, 201, 202, 203, 205, 206, 207}
+# max date of a month
+_max_dom = (31, 0, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31, )
 
 def _norm_exp(the_mode):
     if not the_mode:
@@ -242,6 +245,37 @@ def daterange(year, month, day=1):
     del dtm
     return df, dt
 
+def _isleap(year):
+    """ check if given year is a leap year
+    based on https://en.wikipedia.org/wiki/Leap_year
+    """
+    lp = False
+    if year % 4:
+        return False
+    elif year % 100:
+        lp = True
+    elif year % 400:
+        pass
+    else:
+        lp = True
+    return lp
+
+def monthadd(d0, months):
+    """
+    add months(negative/postive) to given date(d0), attention, add 1 month
+    to dates like 2018/01/31 will return 2018/02/31, which is not a valid date
+    Here I follow VBA's result, return 2018/02/28
+    """
+    m = d0.month - 1 + months
+    y, m = d0.year + m // 12, m % 12 + 1
+    d = _max_dom[m - 1]
+    if not d:
+        d = 29 if _isleap(y) else 28
+    d = min(d, d0.day)
+    if isinstance(d0, date):
+        return date(y, m, d)
+    return d0.replace(year=y, month=m, day=d)
+
 
 def removews(s0):
     """
@@ -336,6 +370,16 @@ class NamedList(object):
         self._data = val
         return self
 
+    def newdata(self, setme=True):
+        """
+        new an list of None that can be handle by me.
+        @param setme: send the data to myself
+        """
+        rc = [None, ] * len(self._nmap)
+        if setme:
+            self.setdata(rc)
+        return rc
+
     def _checkarg(self, name):
         if not (self._dtype and (self._dtype != 1 or name in self._nmap)):
             raise AttributeError("no attribute(%s) found or data not set" % name)
@@ -424,7 +468,6 @@ class NamedList(object):
         return the internal list/tuple
         """
         return self._data
-
 
     def __str__(self):
         return self.__repr__()
@@ -533,9 +576,9 @@ def lvst_dist(s, t):
     calculate the minimum movement steps(LevenshteinDistance) from string s to string t
     """
     if not s:
-        return t
+        return len(t) if t else 0
     if not t:
-        return s
+        return len(s) if s else 0
     n, m = len(s), len(t)
     p = [x + 1 for x in range(n + 1)] #'previous' cost array, horizontally
     d = [0] * (n + 1) # cost array, horizontally

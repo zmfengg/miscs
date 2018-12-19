@@ -107,7 +107,7 @@ class PajBomHhdlr(object):
         }
     }
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, **kwargs):
         self._part_chk_ver = getvalue(kwargs, "part_chk_ver")
 
     def _parse_karat(self, mat, wis=None, ispol=True):
@@ -876,9 +876,7 @@ class PajShpHdlr(object):
                             continue
                         dct["fn"] = _removenonascii(dct["fn"])
                         dct["joid"] = jns[je].id
-                        # "mtlwgt" is a list of WgtInfo Object
-                        dct["mtlwgt"] = sum(
-                            [x.wgt for x in dct["mtlwgt"].wgts if x])
+                        dct["mtlwgt"] = dct["mtlwgt"].metal_jc
                         # the stone weight field might be str only, set it to zero
                         shp = PajShp()
                         for x in dct.items():
@@ -922,7 +920,7 @@ class PajShpHdlr(object):
         try:
             # when excel open a file, the file's modified date will be changed, so, in
             # order to get the actual modified date, get it first
-            fmds = dict([(x, self._getfmd(x)) for x in fns])
+            fmds = {x: self._getfmd(x) for x in fns}
             fns = sorted([(x, self.get_shp_date(x)) for x in fns],
                          key=lambda x: x[1])
             fns = [x[0] for x in fns]
