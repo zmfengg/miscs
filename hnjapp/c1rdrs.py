@@ -448,7 +448,7 @@ class C1JCMkr(object):
                                 (actname, runn))
                     continue
                 prdwgt = invs.get(nl.jobno[1:]).mtlwgt #a ' should be skipped
-                prdwgt = (prdwgt.main,prdwgt.aux,prdwgt.part)
+                prdwgt = (prdwgt.main, prdwgt.aux, prdwgt.part)
                 for idx in range(len(prdwgt)):
                     wi = prdwgt[idx]
                     #unitwgt to total wgt

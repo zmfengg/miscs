@@ -236,6 +236,24 @@ class HKSvc(SvcBase):
             jos = self.getjos([jeorrunn])
         return jos[0][0] if jos else None
 
+    def getjocatetory(self, jo):
+        """ return the product category, for example, RING, of the JO """
+        sa, rc = jo.style.name.alpha, None
+        if sa.find("E") >= 0:
+            rc = "EARRING"
+        elif sa.find("W") >= 0:
+            rc = "WATCH"
+        elif sa.find("P") >= 0:
+            rc = "PENDANT"
+        elif sa.find("N") >= 0:
+            rc = "NECKLACE"
+        elif sa.find("R") >= 0 or sa.find("T") >= 0:
+            rc = "RING"
+        elif sa.find("B") >= 0:
+            sa = jo.description
+            rc = "BRACELET" if [1 for x in "鏈 鍊".split() if sa.find(x) >= 0] else "BANGLE" #big5
+        return rc
+
     def getrevcns(self, pcode, limit=0):
         """ return a list of revcns order by the affected date desc        
         The current revcn is located at [0]
@@ -342,7 +360,7 @@ class HKSvc(SvcBase):
                 lst = lst.with_session(cur).all()
                 if lst:
                     for row in lst:
-                        if(row.unitwgt and self._ptnmit.search(row.stname) and row.remark.find("\"") > 0):
+                        if row.unitwgt and self._ptnmit.search(row.stname) and [1 for x in "\" 寸 吋".split() if row.remark.find(x) >= 0]:
                             kt = rk.karat
                             if row.remark.find("銀") >= 0 or row.remark.find("925") >= 0:
                                 kt = 925

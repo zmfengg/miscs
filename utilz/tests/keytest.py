@@ -78,6 +78,8 @@ class KeySuite(TestCase):
     def testStsize(self):
         """ test for stone size parser
         """
+        self.assertEqual(None, stsizefmt(None), "An invalid size")
+        self.assertEqual(None, stsizefmt("."), "An invalid size")
         self.assertEqual("N/A", stsizefmt("N/A"), "Not a valid stone size")
         self.assertEqual("N/A", stsizefmt("n/a"), "Not a valid stone size")
         self.assertEqual("0300", stsizefmt("3tk"), "Not a valid stone size")
@@ -145,7 +147,7 @@ class KeySuite(TestCase):
                          "same fineness, different karat")
         k1 = ks.getfamily(k1)
         self.assertEqual(k0, k1, "9KR's family is 9K")
-        self.assertTrue(ks.issamecategory(9, 91), "9K and 9KW are all gold")
+        self.assertTrue(ks.issamecategory(9, 98), "9K and 9KW are all gold")
         self.assertTrue(ks.issamecategory(9, "9KW"), "9K and 9KW are all gold")
         self.assertFalse(ks.issamecategory(9, 200), "gold is not bronze")
         self.assertTrue(ks.compare(k0, k0) == 0, "the same karat")

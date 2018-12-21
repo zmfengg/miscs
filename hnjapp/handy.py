@@ -67,7 +67,7 @@ class CadDeployer(object):
 
     def _exists(self, styno):
         #FIXME: check if styno exists current folder or child folders
-        return None
+        return []
 
     def addlist(self, stynos):
         """

@@ -36,6 +36,8 @@ def stsizefmt(sz, shortform=False):
         "0300X0500X0400" -> "5X4X3"
     """
 
+    if not sz:
+        return None
     def _inc(segs):
         segs.append("")
         return len(segs) - 1
@@ -43,16 +45,19 @@ def stsizefmt(sz, shortform=False):
     def _fmtpart(s0, shortform):
         if not s0:
             return None
-        ln = len(s0)
-        if ln < 4 or s0.find(".") >= 0:
-            s0 = "%04d" % (float(s0) * 100)
-            if shortform:
-                s0 = "%d" % (int(s0) / 100)
-        else:
-            s0 = splitarray(s0, 4)
-            if shortform:
-                for ii, it in enumerate(s0):
-                    s0[ii] = "%d" % (int(it) / 100)
+        try:
+            ln = len(s0)
+            if ln < 4 or s0.find(".") >= 0:
+                s0 = "%04d" % (float(s0) * 100)
+                if shortform:
+                    s0 = "%d" % (int(s0) / 100)
+            else:
+                s0 = splitarray(s0, 4)
+                if shortform:
+                    for ii, it in enumerate(s0):
+                        s0[ii] = "%d" % (int(it) / 100)
+        except:
+            s0 = None
         return s0
 
     sz = trimu(sz) if isinstance(sz, str) else str(sz)
@@ -73,11 +78,13 @@ def stsizefmt(sz, shortform=False):
         return sz
     for x in [x for x in segs if x]:
         x = _fmtpart(x, shortform)
+        if not x:
+            continue
         if isinstance(x, str):
             parts.append(x)
         else:
             parts.extend(x)
-    return ("-" if rng else "X").join(sorted(parts, reverse=True))
+    return ("-" if rng else "X").join(sorted(parts, reverse=True)) if parts else None
 
 
 Karat = namedtuple("Karat", "karat,name,fineness,category,color")
@@ -89,6 +96,12 @@ class KaratSvc(object):
     CATEGORY_SILVER = "SILVER"
     CATEGORY_BRONZE = "BRONZE"
     CATEGORY_BONDEDGOLD = "BG"
+
+    COLOR_WHITE = "WHITE"
+    COLOR_YELLOW = "YELLOW"
+    COLOR_ROSE = "ROSE"
+    COLOR_BLACK = "BLACK"
+    COLOR_BLUE = "BLUE"
 
     _priorities = {
         CATEGORY_BRONZE: -100,
