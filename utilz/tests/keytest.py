@@ -9,10 +9,11 @@
 import datetime
 import logging
 import random
+from datetime import date, datetime
+from time import clock
 from functools import cmp_to_key
 from os import listdir, path
 from unittest import TestCase, main
-from datetime import datetime, date
 
 from sqlalchemy import VARCHAR, Column, ForeignKey, Integer
 from sqlalchemy.engine import create_engine
@@ -20,10 +21,10 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from xlwings.constants import LookAt
 
-from utilz import imagesize, karatsvc, stsizefmt, xwu, getvalue
+from utilz import getvalue, imagesize, karatsvc, stsizefmt, xwu
 from utilz._jewelry import RingSizeSvc
-from utilz._miscs import (NamedList, NamedLists, appathsep, getfiles, list2dict,
-                          lvst_dist, daterange, monthadd)
+from utilz._miscs import (NamedList, NamedLists, appathsep, daterange, getfiles,
+                          list2dict, lvst_dist, monthadd)
 from utilz.resourcemgr import ResourceCtx, ResourceMgr, SessionMgr
 
 from .main import logger, thispath
@@ -106,10 +107,14 @@ class KeySuite(TestCase):
         """ the getvalue function for the dict, convenience way for upper/lower case """
         mp = {"abc": 123, "ABC": 456, "Abc": 457, "def": 567}
         self.assertEqual(123, getvalue(mp, "abc"), "return the extract one")
-        self.assertEqual(456, getvalue(mp, "ABC"), "return the extract one again")
-        self.assertEqual(457, getvalue(mp, "Abc"), "return the extract one again")
-        self.assertEqual(567, getvalue(mp, "DEF"), "get using the lower case in second attempt")
-        self.assertEqual(123, getvalue(mp, "abc,def"), "get using the lower case in second attempt")
+        self.assertEqual(456, getvalue(mp, "ABC"),
+                         "return the extract one again")
+        self.assertEqual(457, getvalue(mp, "Abc"),
+                         "return the extract one again")
+        self.assertEqual(567, getvalue(mp, "DEF"),
+                         "get using the lower case in second attempt")
+        self.assertEqual(123, getvalue(mp, "abc,def"),
+                         "get using the lower case in second attempt")
 
     def testAppathSep(self):
         """ tes for appathsep, early stage function of my python programming,
@@ -189,7 +194,7 @@ class KeySuite(TestCase):
         self.assertEqual(0, lvst_dist("I'm", "I'm"), "same string")
         self.assertEqual(1, lvst_dist("I'mx", "I'm"), "same string")
         self.assertEqual(2, lvst_dist("'mI", "I'm"), "same string")
-    
+
     def testDateX(self):
         """ test for the daterange/monthadd function """
         drs = daterange(1998, 1)
@@ -206,6 +211,7 @@ class KeySuite(TestCase):
         self.assertEqual(date(2018, 2, 28), monthadd(date(2018, 1, 29), 1))
         self.assertEqual(date(2016, 2, 29), monthadd(date(2016, 1, 29), 1))
         self.assertEqual(date(2016, 2, 29), monthadd(date(2016, 1, 30), 1))
+
 
 class NamedListSuite(TestCase):
     """ usages of namedlist class """
@@ -504,6 +510,35 @@ class XwuSuite(TestCase):
         # try a blank range, should return none
         nls = xwu.NamedRanges(sht.range(1000, 1000))
         self.assertIsNone(nls, "Nothing should be returned")
+
+    def testGetHidden(self):
+        """ get the hidden row/columns inside a sheet """
+        app, tk = xwu.appmgr.acq()
+        try:
+            app.visible = True
+            wb = app.books.open(path.join(thispath, "res", "hidden_r_c.xlsx"))
+            mp = {
+                "Spread": (True, [
+                    y for x in (range(3, 11), range(14, 19), range(24, 10000))
+                    for y in x
+                ]),
+                "Header": (True, [x for x in range(1, 10)]),
+                "NoHidden": (True, None),
+                "AllHidden": (True, [x for x in range(1, 13)]),
+                "Spread_Col": (False, [x for x in range(3, 6)])
+            }
+            tc = clock()
+            for idx in range(20):
+                print("doing loop %d" % idx)
+                for sn, exps in mp.items():
+                    lsts, exps = xwu.gethidden(wb.sheets(sn), exps[0]), exps[1]
+                    if isinstance(exps, (tuple, list)):
+                        self.assertListEqual(exps, lsts, "Sheet(%s)" % sn)
+                    else:
+                        self.assertEqual(exps, lsts, "Sheets(%s)" % sn)
+            print("using %fs to complished %d loops" % (clock() - tc, idx + 1))
+        finally:
+            xwu.appmgr.ret(tk)
 
 
 BaseClass = declarative_base()

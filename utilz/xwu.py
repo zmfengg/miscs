@@ -15,7 +15,7 @@ from ._miscs import NamedLists, getvalue, list2dict, updateopts
 from .resourcemgr import ResourceMgr
 
 __all__ = [
-    "app", "appmgr", "find", "fromtemplate", "list2dict", "usedrange",
+    "app", "appmgr", "find", "fromtemplate", "gethidden", "list2dict", "usedrange",
     "safeopen"
 ]
 _validappsws = set(
@@ -343,6 +343,63 @@ def escapetitle(pg):
     s0 = "".join(ss)
     return s0
 
+def col_idx(colname):
+    """ TODO:: column id to colname """
+    return ord(colname) - ord("A") + 1
+
+def _a2(addr):
+    addr = addr.split("$")[1:]
+    return addr[0], int(addr[1])
+
+def _addr_rows(addr, row=True):
+    lsts = []
+    for x in addr.split(","):
+        ss = x.split(":")
+        if len(ss) == 2:
+            if row:
+                rx = range(_a2(ss[0])[1], _a2(ss[1])[1] + 1)
+            else:
+                rx = range(col_idx(_a2(ss[0])[0]), col_idx(_a2(ss[1])[0]) + 1)
+            lsts.extend([x for x in rx])
+        else:
+            var = _a2(ss[0])
+            lsts.append(var[1] if row else col_idx(var[0]))
+    return lsts
+
+def gethidden(sht, row=True):
+    """ return the hidden row/column inside a sheet's used ranged """
+    lsts, rng0 = [], sht.used_range
+    if not rng0:
+        return None
+    _rc = lambda rg, row: rg.row if row else rg.column
+    idx, midx = 1, _rc(rng0.last_cell, row)
+    ridxs = _rc(rng0, row)
+    if idx < ridxs:
+        if row:
+            r = [x.row for x in sht.range(sht.cells(idx, 1), sht.cells(ridxs - 1, 1)) if x.api.entirerow.hidden]
+        else:
+            r = [x.column for x in sht.range(sht.cells(1, idx), sht.cells(1, ridxs - 1)) if x.api.entirecolumn.hidden]
+        if r:
+            lsts.extend(r)
+        idx = ridxs
+    try:
+        rng, ridxs = apirange(rng0.api.SpecialCells(12)), None#xlCellTypeVisible
+        ridxs = _addr_rows(rng.address, row)
+    except:
+        rng = None
+    if rng is None:
+        return lsts or [x for x in range(idx, midx + 1)]
+
+    _ended = lambda arr, s: arr[-1] - arr[s] == len(arr) - s - 1
+    for a, r in enumerate(ridxs):
+        if r > idx:
+            lsts.extend([x for x in range(idx, r)])
+        idx = r + 1
+        if _ended(ridxs, a):
+            break
+    if idx < midx:
+        lsts.extend([x for x in range(idx, midx + 1)])
+    return lsts if lsts else None
 
 # an appmgr factory, instead of using app(), use appmgr.acq()/appmgr.ret()
 appmgr = _newappmgr()
