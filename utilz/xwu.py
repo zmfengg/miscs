@@ -10,12 +10,13 @@ import os
 import xlwings
 import xlwings.constants as const
 from xlwings import Range, xlplatform
+from xlwings.utils import col_name
 
 from ._miscs import NamedLists, getvalue, list2dict, updateopts
 from .resourcemgr import ResourceMgr
 
 __all__ = [
-    "app", "appmgr", "find", "fromtemplate", "gethidden", "list2dict", "usedrange",
+    "app", "appmgr", "col", "find", "fromtemplate", "hidden", "list2dict", "usedrange",
     "safeopen"
 ]
 _validappsws = set(
@@ -84,9 +85,9 @@ def appswitch(app0, sws=None):
     if not app0:
         return None
     if sws is None:
-        sws = dict([(x, True) for x in _validappsws])
+        sws = {x: True for x in _validappsws}
     elif isinstance(sws, bool):
-        sws = dict([(x, sws) for x in _validappsws])
+        sws = {x: sws for x in _validappsws}
     mp = {}
     for knv in sws.items():
         if knv[0] not in _validappsws:
@@ -343,15 +344,36 @@ def escapetitle(pg):
     s0 = "".join(ss)
     return s0
 
-def col_idx(colname):
-    """ TODO:: column id to colname """
-    return ord(colname) - ord("A") + 1
+_col_idx = lambda chr: ord(chr) - 64 #ord('A') is 65
+_col_pow = (1, 26, 26**2, 26**3, )
+
+def col(c_i):
+    """ given a colname or an index, return the related idx or name,
+    examples:
+        col(1) == 'A'
+        col('A') == 1
+        col('AA') = 27
+    """
+    if isinstance(c_i, str):
+        if len(c_i) == 1:
+            return _col_idx(c_i)
+        s = 0
+        for idx, ch in enumerate(c_i[::-1]):
+            s += _col_pow[idx] * _col_idx(ch)
+    else:
+        s = col_name(c_i)
+    return s
 
 def _a2(addr):
     addr = addr.split("$")[1:]
     return addr[0], int(addr[1])
 
-def _addr_rows(addr, row=True):
+def _rows_or_cols(addr, row=True):
+    """
+    return the rows or cols inside the given address or range
+    """
+    if not isinstance(addr, str):
+        addr = addr.address
     lsts = []
     for x in addr.split(","):
         ss = x.split(":")
@@ -359,36 +381,33 @@ def _addr_rows(addr, row=True):
             if row:
                 rx = range(_a2(ss[0])[1], _a2(ss[1])[1] + 1)
             else:
-                rx = range(col_idx(_a2(ss[0])[0]), col_idx(_a2(ss[1])[0]) + 1)
+                rx = range(col(_a2(ss[0])[0]), col(_a2(ss[1])[0]) + 1)
             lsts.extend([x for x in rx])
         else:
             var = _a2(ss[0])
-            lsts.append(var[1] if row else col_idx(var[0]))
-    return lsts
+            lsts.append(var[1] if row else col(var[0]))
+    return sorted(tuple(set(lsts)))
 
-def gethidden(sht, row=True):
+def hidden(sht, row=True):
     """ return the hidden row/column inside a sheet's used ranged """
     lsts, rng0 = [], sht.used_range
     if not rng0:
         return None
     _rc = lambda rg, row: rg.row if row else rg.column
     idx, midx = 1, _rc(rng0.last_cell, row)
-    ridxs = _rc(rng0, row)
+    rng, ridxs = None, _rc(rng0, row)
+    # first several rows not in the used-ranged, append them
     if idx < ridxs:
-        if row:
-            r = [x.row for x in sht.range(sht.cells(idx, 1), sht.cells(ridxs - 1, 1)) if x.api.entirerow.hidden]
-        else:
-            r = [x.column for x in sht.range(sht.cells(1, idx), sht.cells(1, ridxs - 1)) if x.api.entirecolumn.hidden]
-        if r:
-            lsts.extend(r)
-        idx = ridxs
+        rng0 = sht.range(sht.cells(1, 1), rng0.last_cell)
     try:
+        # specialCells failed when the rng0 at the end or some other criteria
         rng, ridxs = apirange(rng0.api.SpecialCells(12)), None#xlCellTypeVisible
-        ridxs = _addr_rows(rng.address, row)
+        ridxs = _rows_or_cols(rng.address, row)
     except:
         rng = None
+
     if rng is None:
-        return lsts or [x for x in range(idx, midx + 1)]
+        return lsts or [x for x in range(idx, midx + 1)] if idx < midx else None
 
     _ended = lambda arr, s: arr[-1] - arr[s] == len(arr) - s - 1
     for a, r in enumerate(ridxs):
@@ -397,7 +416,7 @@ def gethidden(sht, row=True):
         idx = r + 1
         if _ended(ridxs, a):
             break
-    if idx < midx:
+    if idx <= midx:
         lsts.extend([x for x in range(idx, midx + 1)])
     return lsts if lsts else None
 

@@ -11,6 +11,7 @@ resource manager for the ResourceCtx using for cross-method session sharing
 import threading
 from collections import Iterable
 from logging import DEBUG
+from copy import copy
 
 from sqlalchemy.orm import sessionmaker
 
@@ -172,6 +173,11 @@ class ResourceCtx(object):
     def __init__(self, ResourceMgrs):
         self._src = list(ResourceMgrs) if isinstance(ResourceMgrs, Iterable) else [ResourceMgrs]
         self._closes, self._ress = (None,) * 2
+    
+    @property
+    def resources(self):
+        ''' return the internal resources as tuple '''
+        return list(self._src) if isinstance(self._src) else [self._src, ]
 
     def __enter__(self):
         self._closes, self._ress, ii = [], [], 0

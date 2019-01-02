@@ -33,7 +33,7 @@ from hnjcore.utils.consts import NA
 from utilz import splitarray, ResourceCtx
 
 from . import pajcc
-from .pajcc import MPS, PrdWgt, WgtInfo
+from .pajcc import MPS, PrdWgt, WgtInfo, addwgt
 from .common import _logger as logger, splitjns
 
 __all__ = ["CNSvc", "formatsn", "HKSvc", "idsin", "idset", "jesin", "namesin", "nameset"]
@@ -346,7 +346,7 @@ class HKSvc(SvcBase):
                     return None
                 jo = jo[0]
             knws = [WgtInfo(jo.orderma.karat, jo.wgt), None, None]
-            rk = knws[0]
+            rk, oth_chn = knws[0], []
             if jo.auxwgt:
                 knws[1] = WgtInfo(jo.auxkarat, float(jo.auxwgt))
                 if(knws[1].karat == 925):  # most of 925's parts is 925
@@ -364,10 +364,19 @@ class HKSvc(SvcBase):
                             kt = rk.karat
                             if row.remark.find("銀") >= 0 or row.remark.find("925") >= 0:
                                 kt = 925
-                            knws[2] = pajcc.WgtInfo(kt, float(row.unitwgt))
-                            break
+                            kt = pajcc.WgtInfo(kt, float(row.unitwgt))
+                            if not knws[2]:
+                                knws[2] = kt
+                            else:
+                                oth_chn.append(kt)
         if any(knws):
-            return PrdWgt(knws[0], knws[1], knws[2])
+            kt = PrdWgt(knws[0], knws[1], knws[2])
+            if oth_chn:
+                for row in oth_chn:
+                    kt = addwgt(kt, row, True, True)
+        else:
+            kt = None
+        return kt
 
     def calchina(self, je):
         """ get the weight of given JO# and calc the china

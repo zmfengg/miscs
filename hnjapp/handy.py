@@ -18,6 +18,7 @@ from sqlalchemy.orm import Query
 
 from hnjapp.c1rdrs import _fmtbtno
 from hnjapp.pajrdrs import PajBomHhdlr
+from hnjcore import JOElement
 from hnjcore.models.hk import JO, Orderma, PajShp, Style
 from utilz import ResourceCtx, getfiles, trimu
 from utilz.xwu import (NamedLists, appmgr, find, usedrange, NamedRanges)
@@ -162,7 +163,7 @@ def makecrab(act="MAKE"):
     if act == "MAKE":
         app, tk = appmgr.acq()
 
-        _jn_str = lambda x: "%d" % int(x) if isinstance(x, Number) else x
+        _jn_str = JOElement.tostr
         opmap = {52377: "工单图", 65535: "款图", 16777215: "SN及配件"}
         try:
             wb = app.books.open(fn)

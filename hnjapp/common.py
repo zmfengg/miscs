@@ -10,7 +10,6 @@
 import inspect
 import logging
 import os
-from numbers import Number
 
 from hnjcore import JOElement
 
@@ -47,6 +46,4 @@ def splitjns(jns):
 
 def _getdefkarat(jn):
     """ return the jo#'s default main karat """
-    if isinstance(jn, Number):
-        jn = "%d" % int(jn)
-    return _dfkt.get(jn[0])
+    return _dfkt.get(JOElement.tostr(jn)[0])

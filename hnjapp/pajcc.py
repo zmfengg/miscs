@@ -68,7 +68,6 @@ def addwgt(prdwgt, wi, isparts=False, autoswap=True):
 
     return prdwgt
 
-
 def cmpwgt(expected, actual, tor=5, strictkt=False):
     """
     tor is the toralent, positive stands for percentage, negative for actual wgt
@@ -93,13 +92,18 @@ def cmpwgt(expected, actual, tor=5, strictkt=False):
                     #xw = min(exp.wgt, act.wgt)
                     xw = exp.wgt
                     flag = round(abs(
-                        (exp.wgt - act.wgt) / xw), 2) <= tor if xw else False
+                        (_adj_wgt(exp.wgt) - _adj_wgt(act.wgt)) / xw), 2) <= tor if xw else False
                 else:
-                    flag = round(abs(exp.wgt - act.wgt), 2) <= -tor
+                    flag = round(abs(_adj_wgt(exp.wgt) - _adj_wgt(act.wgt)), 2) <= -tor
             if not flag:
                 break
     return flag
 
+def _adj_wgt(wgt):
+    ''' for the wgt < 0, turn it to actual value '''
+    if not wgt or wgt > 0:
+        return wgt
+    return wgt / -100.0
 
 class WgtInfo(namedtuple("WgtInfo", "karat,wgt")):
     """

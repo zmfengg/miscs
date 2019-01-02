@@ -461,7 +461,7 @@ class XwuSuite(TestCase):
         nl = NamedLists(rng.value, {"Edate": "enter,"})
         emp = nl.__next__()
         self.assertEqual(
-            datetime.datetime(1998, 1, 3, 0, 0), emp["edate"],
+            datetime(1998, 1, 3, 0, 0), emp["edate"],
             "get date use translated name")
 
         # test the find's all function
@@ -511,32 +511,48 @@ class XwuSuite(TestCase):
         nls = xwu.NamedRanges(sht.range(1000, 1000))
         self.assertIsNone(nls, "Nothing should be returned")
 
+    def testCol(self):
+        """ test for the column idx/name translation function
+        """
+        mp = {'A': 1, 'AA': 27, 'AZA': 1353, 'XFD': 16384}
+        for k, v in mp.items():
+            self.assertEqual(v, xwu.col(k))
+            self.assertEqual(k, xwu.col(v))
+
     def testGetHidden(self):
         """ get the hidden row/columns inside a sheet """
         app, tk = xwu.appmgr.acq()
         try:
             app.visible = True
             wb = app.books.open(path.join(thispath, "res", "hidden_r_c.xlsx"))
-            mp = {
-                "Spread": (True, [
+            nl = NamedList("sn,row,exps")
+            mp = (
+                ("Spread", True, [
                     y for x in (range(3, 11), range(14, 19), range(24, 10000))
                     for y in x
                 ]),
-                "Header": (True, [x for x in range(1, 10)]),
-                "NoHidden": (True, None),
-                "AllHidden": (True, [x for x in range(1, 13)]),
-                "Spread_Col": (False, [x for x in range(3, 6)])
-            }
-            tc = clock()
-            for idx in range(20):
+                ("Header", True, [x for x in range(1, 10)]),
+                ("NoHidden", True, None),
+                ("AllHidden", True, [x for x in range(1, 13)]),
+                ("Spread_Col", True, None),
+                ("Spread_Col", False, [x for x in range(3, 6)]),
+                ("Row_Col", True, [y for x in (range(2, 1000), range(1001, 9998), range(9999, 10000), range(10001, 10002)) for y in x]),
+                ("Row_Col", False, [y for x in (range(2, 57), range(59, 67),) for y in x]),
+            )
+            # mp = (("Row_Col", False, [y for x in (range(2, 57), range(59, 67),) for y in x]),)
+            tc, loops = clock(), 5
+            for idx in range(loops):
                 print("doing loop %d" % idx)
-                for sn, exps in mp.items():
-                    lsts, exps = xwu.gethidden(wb.sheets(sn), exps[0]), exps[1]
+                for val in mp:
+                    nl.setdata(val)
+                    lsts, exps = xwu.hidden(wb.sheets(nl.sn), nl.row), nl.exps
+                    msg = "Sheet(%s), %s" % (nl.sn, "row" if nl.row else "col")
                     if isinstance(exps, (tuple, list)):
-                        self.assertListEqual(exps, lsts, "Sheet(%s)" % sn)
+                        self.assertListEqual(exps, lsts, msg)
                     else:
-                        self.assertEqual(exps, lsts, "Sheets(%s)" % sn)
-            print("using %fs to complished %d loops" % (clock() - tc, idx + 1))
+                        self.assertEqual(exps, lsts, msg)
+            tc = clock() - tc
+            print("using %4.2fs for each loop, total loops = %d, total time = %4.2f" % (tc / loops, loops, tc, ))
         finally:
             xwu.appmgr.ret(tk)
 
@@ -668,3 +684,4 @@ class CatalogTest(TestCase):
 
 if __name__ == "__main__":
     main()
+

@@ -27,6 +27,11 @@ class JOElement(object):
     """
     __minlen__ = 5
 
+    @staticmethod
+    def tostr(jn):
+        ''' conver the JO# to string if is a number, this occur in some excel data '''
+        return "%d" % int(jn) if isinstance(jn, Number) else jn
+
     def __init__(self, *args):
         cnt = len(args)
         if cnt == 1:
@@ -43,9 +48,7 @@ class JOElement(object):
             self._reset()
             return
         stg, strs = 0, ["", "", ""]
-        if isinstance(jono, Number):
-            jono = "%d" % jono
-        jono = jono.strip()
+        jono = JOElement.tostr(jono).strip()
         for idx, ch in enumerate(jono):
             if ch.isalpha():
                 if stg == 0:
