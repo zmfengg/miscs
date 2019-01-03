@@ -230,15 +230,66 @@ class TechTests(TestCase):
         self.assertEqual(0, len(lsts[1]))
 
     def testAccessChain(self):
-        ''' the describer sequence should be
-        .defined property
-        .__getattribute__() method
+        ''' all accesses are controlled __getattribute__(), below is the access proority(high to low):
+        .class property
+        .data descriptor
+        .instance property
+        .non-data descriptor
         .__getattr__() method
         .AttributeError raised
         '''
+        class NullDev(object):
+            ''' data descriptor that will get/set None '''
+
+            def __init__(self, name):
+                    self.name = name
+
+            def __get__(self, instance, owner):
+                print("(%s) invoking get method, inst = %r, owner = %r" % (self.name, instance, owner))
+                return None
+
+            def __set__(self, instance, value):
+                print("(%s) involing set method with value %r" % (self.name, value))
+                instance.fxfx = value
+
+        class Foo(object):
+            cls_prop = "cls_prop"
+            data_dsc = NullDev("clz_level")
+            def __init__(self):
+                self.inst_prop = "inst_prop"                
+                self.data_dsc1 = NullDev("inst_level")
+
+            def doit(self):
+                return "hello"
+
+        fo = Foo()
+        # descriptor's setter has instance, no owner because if you assign value to a descriptor in class
+        # level, it will be killed
+        Foo.data_dsc = 'x'
+        self.assertEqual('x', Foo.data_dsc)
+        self.assertEqual('x', fo.data_dsc)
+        Foo.data_dsc = NullDev("clz_level")
+        # it's restored
+        self.assertFalse(hasattr(fo, 'fxfx'))
+        # fo's fxfx property created by the __set__() method
+        fo.data_dsc = 'x'
+        self.assertEqual('x', fo.fxfx)
+        self.assertTrue(fo.data_dsc != 'x', "it's not replaced, just the __set__() was called")
+        fo.data_dsc1 = 'x'
+        self.assertTrue('x' == fo.data_dsc1, "descriptor as instance property will be override")
+        # so, don't use descriptor in instance, just in class
+        fo.doit = "y"
+        self.assertEqual("y", fo.doit)
+        del fo.doit
+        self.assertEqual("hello", fo.doit())
+
+        
+
         mi = ManyInterfaces()
         self.assertListEqual([1, 2, 3], list(mi._lst_data), 'defined property')
-        self.assertEqual(3, mi.data_len, 'by descriptor, which overide any __getattxx__')
+        self.assertEqual("_data_len", mi.data_len, 'by descriptor, which overide any __getattxx__')
+        mi.data_len = _LenDescriptor()
+        self.assertEqual("_data_len", mi.data_len, 'by descriptor, which overide any __getattxx__')
         self.assertEqual('__getattribute__(y)', mi.y, 'by __getattribute__()')
         self.assertEqual('__getattr__(z)', mi.z, 'by __getattr__()')
         with self.assertRaises(AttributeError, msg='k not defined, and no __getattribute__/__getattr__ reponse') as err:
@@ -279,6 +330,9 @@ class TechTests(TestCase):
         self.assertEqual(1, mi.next(), 'the generator')
 
 class _LenDescriptor():
+    ''' this is called data-descriptor, method/function,
+    on the other hand, is called non-data-descriptor
+    '''
     def __get__(self, instance, owner):
         return len(instance._lst_data)
     
@@ -287,7 +341,7 @@ class _LenDescriptor():
 
 class ManyInterfaces(object):
     """ this class try to implement many system-level interface for practice purpose """
-    data_len = _LenDescriptor()
+    data_len = "_data_len"
     
     def __init__(self, *args, **kwds):
         ''' arguments as list and named-map '''
