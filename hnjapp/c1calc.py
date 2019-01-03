@@ -10,10 +10,11 @@ c1 calculation excel data filler and so on...
 '''
 from datetime import datetime
 from numbers import Number
+from decimal import Decimal
 from os import listdir, path
 from re import compile as cmpl
 
-from sqlalchemy import func
+from sqlalchemy import func, and_
 from sqlalchemy.orm import Query
 from xlwings.constants import LookAt
 
@@ -23,7 +24,7 @@ from hnjcore.models.cn import Plating, StoneMaster, Style
 from hnjcore.models.hk import JO, POItem
 from hnjcore.models.hk import JOItem as JI
 from utilz import (NamedList, ResourceCtx, SessionMgr, karatsvc, na, splitarray,
-                   stsizefmt, trimu)
+                   stsizefmt, trimu, getvalue)
 from utilz.xwu import NamedRanges, appmgr, find, hidden
 
 from .common import _logger as logger
@@ -123,7 +124,7 @@ class _Utilz(object):
             var = 0
         for nl in nls:
             jn = nl.jono
-            if isinstance(nl, Number):
+            if isinstance(jn, Number):
                 nl.jono = JOElement.tostr(jn)
             if not var:
                 continue
@@ -153,35 +154,43 @@ class _Utilz(object):
                 continue
             skmp.update({x.name.value: x.skuno for x in q})
         return skmp or None
-    
+
     def fetch_ca_jos(self, cur, jnskump):
-        ''' return {skuno: c1jc} map '''
+        ''' return {skuno: c1jc} map,
+        TODO::subquery's group by seems non-reasonable, but don't know how
+        my original query need to get argument from master query
+        '''
         if not (jnskump and cur):
             return
         skus = [x for x in jnskump.values() if x and x != na]
-        q = Query(C1JC).filter(C1JC.skuno.in_(skus))
-        sq = Query(func.max(C1JC.lastmodified).label("mdate")).group_by(C1JC.skuno).subquery()
+        q = Query(C1JC)
+        sq = Query((C1JC.skuno, func.max(C1JC.docno).label("mdocno"),)).group_by(C1JC.skuno).subquery()
         mp = {}
         for sku in splitarray(skus):
-            lst = q.join((sq, C1JC.labcost == sq.c.mdate)).with_session(cur).all()
+            x = q.join(sq, and_(C1JC.skuno == sq.c.skuno, C1JC.docno == sq.c.mdocno)).filter(C1JC.skuno.in_(sku))
+            lst = x.with_session(cur).all()
             if not lst:
                 continue
             for x in lst:
                 if x in mp:
                     continue
                 mp[x.skuno] = x
-        return mp
+        return {x[0]: mp[x[1]] for x in jnskump.items() if x[1] and x[1] != na and x[1] in mp}
 
 
 class Writer(object):
-    """ read/write data from excel """
+    """ read/write data from excel
+    @param hksvc: the services help to handle HK data
+    @param cnsvc: the services help to handle CN data
+    @param his_engine|engine: the creator function help to create the history engine
+    """
 
     _ptn_pk = cmpl(r"([A-Z]{2})-([A-Z@])-([A-Z\d]{1,4})-([A-Z\d])")
 
-    def __init__(self, hksvc, cnsvc, eng_crtr):
-        self._hksvc = hksvc
-        self._cnsvc = cnsvc
-        self._sm_loc = SessionMgr(eng_crtr())
+    def __init__(self, hksvc, cnsvc, **kwds):
+        self._hksvc, self._cnsvc = hksvc, cnsvc
+        his_eng = getvalue(kwds, "his_engine eng_crtr engine")
+        self._sm_loc = SessionMgr(his_eng()) if his_eng else None
         self._nl = None
 
         # vermail color detection map
@@ -210,7 +219,7 @@ class Writer(object):
         self._st_fixed = {y: x[1] for x in mp.items() for y in x[0].split()}
         self._utilz = _Utilz()
         self._init_stx()
-    
+
     @property
     def _loc_sess_ctx(self):
         return ResourceCtx(self._sm_loc)
@@ -261,11 +270,38 @@ class Writer(object):
             sht.api.paste
         rng0 = find(sht, self._utilz.CN_JONO, lookat=LookAt.xlWhole)
         rng0.offset(1, 0).value = lsts
-        sht.cells.last_cell.select()
+        rng0.select()
 
-    def _from_his(self, nl, his, **kwds):
+    def _from_his(self, c1jc, **kwds):
         """ return a list of list with filled data from history """
-        return None
+        def _dec_2_flt(arr):
+            for idx, val in enumerate(arr):
+                if isinstance(val, Decimal):
+                    arr[idx] = float(val)
+        nl = self._nl
+        nl.styno = c1jc.styno + "_" + c1jc.docno[2:-2]
+        with self._loc_sess_ctx as cur:
+            lst = cur.query(C1JCFeature).filter(C1JCFeature.jcid == c1jc.id).all()
+            if lst:
+                for x in lst:
+                    nl["f_" + x.name] = x.value.v
+            lst = cur.query(C1JCStone).filter(C1JCStone.jcid == c1jc.id).all()
+            if lst:
+                var = lambda x: (x[0], x[-1])
+                x1 = dict(var(x.split(":")) for x in "stone shape stsize:size stqty:qty stwgt:wgt setting".split())
+                # stone data does not contains MainStone data, so don't sort them
+                var = []
+                for x in lst:
+                    for y in x1.items():
+                        if y[0] == 'stsize':
+                            nl[y[0]] = "'" + getattr(x, y[1])
+                        else:
+                            nl[y[0]] = getattr(x, y[1])
+                    _dec_2_flt(nl.data)
+                    var.append(nl.newdata(True))
+                return var[:-1]
+            _dec_2_flt(nl.data)
+        return []
 
     def _from_jo(self, jo, **kwds):
         """
@@ -503,17 +539,14 @@ class Writer(object):
 
     def _fetch_data(self, jns):
         """ fetch data from db to an list """
-        with ResourceCtx(self._hksvc.resources.append(self._sm_loc)) as xx:
-            pass
-        with self._hksvc.sessionctx() as cur:
+        with ResourceCtx((self._hksvc.sessmgr(), self._sm_loc, )) as curs:
             jos, jerrs = self._hksvc.getjos(jns)
-            skmp = self._utilz.fetch_jo_skunos(cur, jns)
+            skmp = self._utilz.fetch_jo_skunos(curs[0], [JOElement(x) for x in jns])
             if skmp:
-                skmp = self._utilz.fetch_ca_jos(skmp)
-            if skmp:
-                # shrink the jos set because I don't need JI data any more
-                pass
-            dtls = Query((
+                skmp = self._utilz.fetch_ca_jos(curs[1], skmp)
+            if skmp is None:
+                skmp = {}
+            jo = Query((
                 JO.id,
                 JI.stname,
                 JI.stsize,
@@ -522,10 +555,11 @@ class Writer(object):
                 JI.unitwgt.label("wgt"),
                 JI.remark,
             )).join(JI)
-            dtls, lsts = dtls.filter(idsin(idset(jos),
-                                           JO)).with_session(cur).all(), {}
-            for jo in dtls:
-                lsts.setdefault(jo.id, []).append(jo)
+            dtls, lsts = [x for x in jos if x.name.value not in skmp], {}
+            if dtls:
+                dtls = jo.filter(idsin(idset(dtls), JO)).with_session(curs[0]).all()
+                for jo in dtls:
+                    lsts.setdefault(jo.id, []).append(jo)
             dtls, lsts, nl = lsts, [], self._nl
             handlers = {True: self._from_his, False: self._from_jo}
             jos = sorted(
@@ -550,6 +584,17 @@ class Writer(object):
         if not sht:
             return
         self._nl = sht[-1]
+
+        if False:
+            jnskump, lsts = {1: '1401934', 2: '3415988'}, []
+            with self._loc_sess_ctx as cur:
+                jnskmp = self._utilz.fetch_ca_jos(cur, jnskump)
+                for his in jnskmp.values():
+                    lsts.append(self._nl.newdata(True))
+                    lst = self._from_his(his)
+                    lsts.extend(lst)
+            print(lsts)
+            return
         # read the JO#s
         nls = {
             JOElement.tostr(nl.jono)

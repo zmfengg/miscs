@@ -170,25 +170,34 @@ class ResourceCtx(object):
     class wrap resource manager(s) as context manager, which support with statement
     """
 
-    def __init__(self, ResourceMgrs):
-        self._src = list(ResourceMgrs) if isinstance(ResourceMgrs, Iterable) else [ResourceMgrs]
-        self._closes, self._ress = (None,) * 2
-    
+    def __init__(self, resmgrs):
+        self._src, self._closes, self._ress = (None,) * 3
+        if resmgrs:
+            self._src = list(resmgrs) if isinstance(resmgrs, Iterable) else [resmgrs]
+
     @property
     def resources(self):
         ''' return the internal resources as tuple '''
         return list(self._src) if isinstance(self._src) else [self._src, ]
 
     def __enter__(self):
+        if not self._src:
+            return None
         self._closes, self._ress, ii = [], [], 0
         for res in self._src:
-            self._closes.append(True)
-            r = res.acq() #(*res.acq(), ii) only works in 3.5+
-            self._ress.append((r[0], r[1], ii))
+            if res:
+                self._closes.append(True)
+                r = res.acq() #(*res.acq(), ii) only works in 3.5+
+                self._ress.append((r[0], r[1], ii))
+            else:
+                self._closes.append(False)
+                self._ress.append((None, None, ii))
             ii += 1
         return self._ress[0][0] if len(self._ress) == 1 else [x[0] for x in self._ress]
 
     def __exit__(self, exc_type, exc_value, traceback):
+        if not self._src:
+            return None
         cnt = len(self._closes)
         for ii in range(cnt - 1, -1, -1):
             if self._closes[ii]:

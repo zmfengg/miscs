@@ -71,10 +71,20 @@ class KeySuite(TestCase):
                 self.assertTrue(r.run() == r.name,
                                 "Yes, it's the object expected")
 
+        # multi resources into one resource context
         mgr1 = ResourceMgr(_newres, _dispose)
         with ResourceCtx([mgr, mgr1]) as r:
             r[0].run()
             r[1].run()
+        
+        # Resource is None
+        with ResourceCtx(None) as cur:
+            self.assertTrue(cur is None)
+        
+        with ResourceCtx((None, None)) as curs:
+            self.assertEqual(2, len(curs))
+            self.assertTrue(curs[0] is None)
+            self.assertTrue(curs[1] is None)
 
     def testStsize(self):
         """ test for stone size parser
@@ -538,6 +548,7 @@ class XwuSuite(TestCase):
                 ("Spread_Col", False, [x for x in range(3, 6)]),
                 ("Row_Col", True, [y for x in (range(2, 1000), range(1001, 9998), range(9999, 10000), range(10001, 10002)) for y in x]),
                 ("Row_Col", False, [y for x in (range(2, 57), range(59, 67),) for y in x]),
+                ("Row_Col_Huge", True, [y for x in (range(1, 100001), range(100002, 500001),) for y in x])
             )
             # mp = (("Row_Col", False, [y for x in (range(2, 57), range(59, 67),) for y in x]),)
             tc, loops = clock(), 5
@@ -545,6 +556,7 @@ class XwuSuite(TestCase):
                 print("doing loop %d" % idx)
                 for val in mp:
                     nl.setdata(val)
+                    print("doing sheet(%s)'s %s" % (nl.sn, "Row" if nl.row else "Col"))
                     lsts, exps = xwu.hidden(wb.sheets(nl.sn), nl.row), nl.exps
                     msg = "Sheet(%s), %s" % (nl.sn, "row" if nl.row else "col")
                     if isinstance(exps, (tuple, list)):

@@ -58,7 +58,8 @@ def getvalue(dct, key, def_val=None):
     get the dict value by below seq:
         normal -> trimu -> triml
     """
-    for kw in key.split(","):
+    dev = ',' if key.find(',') > 0 else ' '
+    for kw in key.split(dev):
         i = 0
         while i < 3:
             if kw in dct:
