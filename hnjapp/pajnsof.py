@@ -110,7 +110,7 @@ class JOImgOcr(object):
         """
         extract the images from folder contains pdf
         """
-        pdfs, d0, fn, ptn = getfiles(pdf_fldr, "pdf"), 0, None, re.compile(r"\d8")
+        pdfs, d0, fn, ptn = getfiles(pdf_fldr, "pdf"), 0, None, re.compile(r"\d{8}")
         var = {x: path.getmtime(x) for x in pdfs if ptn.search(path.basename(x))}
         for fd in var.items():
             if fd[1] > d0:

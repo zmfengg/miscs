@@ -67,8 +67,8 @@ def app(vis=True, dspalerts=False):
     dispose() it
     """
 
-    flag = xlwings.apps.count == 0
-    app0 = xlwings.apps.active if not flag else xlwings.App(
+    flag = xlwings.apps.count
+    app0 = xlwings.apps.active if flag else xlwings.App(
         visible=vis, add_book=False)
     if app0:
         app0.display_alerts = bool(dspalerts)
@@ -374,19 +374,23 @@ def _rows_or_cols(addr, row=True):
     """
     if not isinstance(addr, str):
         addr = addr.address
-    lsts = []
+    lsts, keys = [], set()
     for x in addr.split(","):
         ss = x.split(":")
+        var = _a2(ss[0])
+        var = var[1] if row else col(var[0])
+        if var in keys:
+            continue
+        keys.add(var)
         if len(ss) == 2:
             if row:
-                rx = range(_a2(ss[0])[1], _a2(ss[1])[1] + 1)
+                rx = (_a2(ss[0])[1], _a2(ss[1])[1])
             else:
-                rx = range(col(_a2(ss[0])[0]), col(_a2(ss[1])[0]) + 1)
-            lsts.extend([x for x in rx])
+                rx = (col(_a2(ss[0])[0]), col(_a2(ss[1])[0]))
+            lsts.append(rx)
         else:
-            var = _a2(ss[0])
-            lsts.append(var[1] if row else col(var[0]))
-    return sorted(tuple(set(lsts)))
+            lsts.append((var, ) * 2)
+    return lsts
 
 def hidden(sht, row=True):
     """ return the hidden row/column inside a sheet's used ranged """
@@ -407,17 +411,14 @@ def hidden(sht, row=True):
         rng = None
 
     if rng is None:
-        return lsts or [x for x in range(idx, midx + 1)] if idx < midx else None
+        return lsts or [(idx, midx), ] if idx < midx else None
 
-    _ended = lambda arr, s: arr[-1] - arr[s] == len(arr) - s - 1
-    for a, r in enumerate(ridxs):
-        if r > idx:
-            lsts.extend([x for x in range(idx, r)])
-        idx = r + 1
-        if _ended(ridxs, a):
-            break
+    for r in ridxs:
+        if r[0] > idx:
+            lsts.append((idx, r[0] - 1))
+        idx = r[1] + 1
     if idx <= midx:
-        lsts.extend([x for x in range(idx, midx + 1)])
+        lsts.append((idx, midx))
     return lsts if lsts else None
 
 # an appmgr factory, instead of using app(), use appmgr.acq()/appmgr.ret()

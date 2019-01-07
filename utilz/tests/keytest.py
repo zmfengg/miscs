@@ -97,21 +97,25 @@ class KeySuite(TestCase):
         self.assertEqual("0500X0400X0300", stsizefmt("3x4x5mm"), "Size format")
         self.assertEqual("0500X0400X0300", stsizefmt("3x4x5"), "Size format")
         self.assertEqual("0530X0400X0350", stsizefmt("3.5x4.0x5.3"),
-                         "Size format")
+                        "Size format")
         self.assertEqual("0400", stsizefmt("4"), "Size format")
         self.assertEqual("0530X0400X0350", stsizefmt("053004000350"),
-                         "Size format")
+                        "Size format")
         self.assertEqual("0530X0400X0350", stsizefmt("040005300350"),
-                         "Size format")
+                        "Size format")
         self.assertEqual("0530X0400X0350", stsizefmt("0400X0530X0350"),
-                         "Size format")
+                        "Size format")
         self.assertEqual("0400", stsizefmt("4m"), "Size format")
         self.assertEqual("0400-0350", stsizefmt("4m-3.5m"), "Size format")
         self.assertEqual("5X4X3", stsizefmt("3x4x5", True), "Size format")
         self.assertEqual("5X4X3", stsizefmt("0500X0400X0300", True),
-                         "Size format")
+                        "Size format")
         self.assertEqual("5X4X3", stsizefmt("0300X0500X0400", True),
-                         "Size format")
+                        "Size format")
+        self.assertEqual("1-0", stsizefmt("0~1", True))
+        self.assertEqual("1", stsizefmt("1.0", True))
+        self.assertEqual("1", stsizefmt("1", True))
+        self.assertEqual("1.5", stsizefmt("1.5", True))
 
     def testGetValue(self):
         """ the getvalue function for the dict, convenience way for upper/lower case """
@@ -537,21 +541,18 @@ class XwuSuite(TestCase):
             wb = app.books.open(path.join(thispath, "res", "hidden_r_c.xlsx"))
             nl = NamedList("sn,row,exps")
             mp = (
-                ("Spread", True, [
-                    y for x in (range(3, 11), range(14, 19), range(24, 10000))
-                    for y in x
-                ]),
-                ("Header", True, [x for x in range(1, 10)]),
+                ("Spread", True, [(3, 10), (14, 18), (24, 9999)]),
+                ("Header", True, [(1, 9), ]),
                 ("NoHidden", True, None),
-                ("AllHidden", True, [x for x in range(1, 13)]),
+                ("AllHidden", True, [(1, 12), ]),
                 ("Spread_Col", True, None),
-                ("Spread_Col", False, [x for x in range(3, 6)]),
-                ("Row_Col", True, [y for x in (range(2, 1000), range(1001, 9998), range(9999, 10000), range(10001, 10002)) for y in x]),
-                ("Row_Col", False, [y for x in (range(2, 57), range(59, 67),) for y in x]),
-                ("Row_Col_Huge", True, [y for x in (range(1, 100001), range(100002, 500001),) for y in x])
+                ("Spread_Col", False, [(3, 5), ]),
+                ("Row_Col", True, [(2, 999), (1001, 9997), (9999, 9999), (10001, 10001)]),
+                ("Row_Col", False, [(2, 56), (59, 66)]),
+                ("Row_Col_Huge", True, [(1, 100000), (100002, 500000)])
             )
-            # mp = (("Row_Col", False, [y for x in (range(2, 57), range(59, 67),) for y in x]),)
-            tc, loops = clock(), 5
+            # mp = (("AllHidden", True, [(1, 12), ]), )
+            tc, loops = clock(), 2
             for idx in range(loops):
                 print("doing loop %d" % idx)
                 for val in mp:

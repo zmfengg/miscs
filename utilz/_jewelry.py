@@ -38,9 +38,16 @@ def stsizefmt(sz, shortform=False):
 
     if not sz:
         return None
+    if sz.find("~") > 0:
+        sz = sz.replace("~", "-")
     def _inc(segs):
         segs.append("")
         return len(segs) - 1
+
+    def _fmt_no_digit(val):
+        if int(val) == val:
+            return "%d" % val
+        return "%r" % val
 
     def _fmtpart(s0, shortform):
         if not s0:
@@ -48,14 +55,13 @@ def stsizefmt(sz, shortform=False):
         try:
             ln = len(s0)
             if ln < 4 or s0.find(".") >= 0:
-                s0 = "%04d" % (float(s0) * 100)
-                if shortform:
-                    s0 = "%d" % (int(s0) / 100)
+                s0 = float(s0) * 100
+                s0 = _fmt_no_digit(s0 / 100) if shortform else "%04d" % s0
             else:
                 s0 = splitarray(s0, 4)
                 if shortform:
                     for ii, it in enumerate(s0):
-                        s0[ii] = "%d" % (int(it) / 100)
+                        s0[ii] = _fmt_no_digit(int(it) / 100)
         except:
             s0 = None
         return s0

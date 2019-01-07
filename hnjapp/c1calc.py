@@ -9,6 +9,7 @@ c1 calculation excel data filler and so on...
 
 '''
 from datetime import datetime
+from time import time
 from numbers import Number
 from decimal import Decimal
 from os import listdir, path
@@ -23,7 +24,7 @@ from hnjcore.models.cn import JO as JOcn
 from hnjcore.models.cn import Plating, StoneMaster, Style
 from hnjcore.models.hk import JO, POItem
 from hnjcore.models.hk import JOItem as JI
-from utilz import (NamedList, ResourceCtx, SessionMgr, karatsvc, na, splitarray,
+from utilz import (NamedList, ResourceCtx, karatsvc, na, splitarray,
                    stsizefmt, trimu, getvalue)
 from utilz.xwu import NamedRanges, appmgr, find, hidden
 
@@ -113,8 +114,8 @@ class _Utilz(object):
         var = find(sht[0], "RMB对USD:")
         if not var:
             for x in hidden(sht[0]):
-                sht[0].cells(x, 1).api.entirerow.hidden = False
-                if x > 10:
+                sht[0].range("A%d:A%d" % x).api.entirerow.hidden = False
+                if x[1] > 10:
                     break
             var = find(sht[0], "RMB对USD:")
         var = var.end("right").value
@@ -152,7 +153,7 @@ class _Utilz(object):
             q = q0.filter(jesin(jn, JO)).with_session(cur).all()
             if not q:
                 continue
-            skmp.update({x.name.value: x.skuno for x in q})
+            skmp.update({x.name.value: trimu(x.skuno) for x in q})
         return skmp or None
 
     def fetch_ca_jos(self, cur, jnskump):
@@ -189,8 +190,7 @@ class Writer(object):
 
     def __init__(self, hksvc, cnsvc, **kwds):
         self._hksvc, self._cnsvc = hksvc, cnsvc
-        his_eng = getvalue(kwds, "his_engine eng_crtr engine")
-        self._sm_loc = SessionMgr(his_eng()) if his_eng else None
+        self._cache_sm = getvalue(kwds, "cache engine")
         self._nl = None
 
         # vermail color detection map
@@ -222,7 +222,7 @@ class Writer(object):
 
     @property
     def _loc_sess_ctx(self):
-        return ResourceCtx(self._sm_loc)
+        return ResourceCtx(self._cache_sm)
 
     def _init_stx(self):
         """ load stone data from workflow """
@@ -270,7 +270,8 @@ class Writer(object):
             sht.api.paste
         rng0 = find(sht, self._utilz.CN_JONO, lookat=LookAt.xlWhole)
         rng0.offset(1, 0).value = lsts
-        rng0.select()
+        sht.book.app.api.CutCopyMode = False
+        rng0.offset(1, 0).select()
 
     def _from_his(self, c1jc, **kwds):
         """ return a list of list with filled data from history """
@@ -294,7 +295,9 @@ class Writer(object):
                 for x in lst:
                     for y in x1.items():
                         if y[0] == 'stsize':
-                            nl[y[0]] = "'" + getattr(x, y[1])
+                            sz = getattr(x, y[1]) or ""
+                            if sz:
+                                nl[y[0]] = "'" + stsizefmt(sz, True)
                         else:
                             nl[y[0]] = getattr(x, y[1])
                     _dec_2_flt(nl.data)
@@ -334,17 +337,19 @@ class Writer(object):
                     nl[x] = nl1[x]
                 lsts.append(nl.newdata(True))
             if pt:
-                nl.setdata(mstr).f_parts = {
-                    925: "银迫",
-                    9: "9K迫"
-                }.get(kt.karat, "9KRW迫")
+                nl.setdata(mstr)
+                kt = karatsvc.getkarat(kt.karat)
+                if kt.karat == 925 or kt.category == karatsvc.CATEGORY_BRONZE:
+                    nl.f_parts = "银迫"
+                else:
+                    nl.f_parts = "9K迫" if kt.color == karatsvc.COLOR_YELLOW else "9KRW迫"
             return lsts[:-1]
         return []
 
     def _mstr_BL(self, jo, pw, kt, cat):
         """ the business logic of master record """
         nl = self._nl
-        if pw.part and pw.part.wgt:
+        if pw.part and pw.part.wgt and karatsvc.getkarat(pw.main.karat).category == karatsvc.CATEGORY_SILVER:
             nl.f_chain = "是"
         if pw.main and pw.aux:
             nl.f_mtl2 = 1  #at least one
@@ -410,7 +415,11 @@ class Writer(object):
         pts = [x for x in mt.groups()]
         if pts[2].isnumeric():
             pts[2] = "%04d" % int(pts[2])
-        return "".join(pts)
+        mt = "".join(pts)
+        # CZ need special care, don't return PK#
+        if mt and mt[:2] == "CZ":
+            mt = None
+        return mt
 
     def _extract_ji(self, ji, nl_ji):
         """ extract the JOItem to the given NamedList """
@@ -430,13 +439,15 @@ class Writer(object):
             sto = st
         if sz == ".":
             sz = None
+        if sz:
+            sz = "'" + stsizefmt(sz, True)
         nl_ji.setdata(
             [st, shp, sz, qty, wgt, ji.remark,
              stsizefmt(sz), None, sto, shpo])
 
     def _extract_jis(self, jo, cat, jis):
         """ calc the main/side stone, sort and calc the BL """
-        # the last one is mainstone sign, can be one of M/S/None
+        # ms is mainstone sign, can be one of M/S/None
         nl_ji = NamedList(
             "stone shape stsize stqty stwgt setting szcal ms sto shpo".split())
         sts, mns, discards, is_ds = [], [], set(), (
@@ -514,7 +525,7 @@ class Writer(object):
             if self._is_st_microset(cat, qty):
                 rc = "手微(圆钻)"
             else:
-                rc = ("腊" if qty >= 5 else "手") + "爪/钉(圆钻)"
+                rc = ("腊" if qty >= 6 else "手") + "爪/钉(圆钻)"
         else:
             if nl.ms == "M":
                 # main
@@ -525,7 +536,7 @@ class Writer(object):
                     if self._is_st_microset(cat, qty) and sz <= "0300":
                         rc = "手微(CZ 3mm或下)"
                     else:
-                        rc = ("腊爪/钉" if qty >= 5 else "手爪")
+                        rc = ("腊爪/钉" if qty >= 6 else "手爪")
                         rc += "(CZ 3mm%s)" % ("以上" if sz > "0300" else "或下")
                 else:
                     rc = "手爪(副石)3mm或下" if sz <= "0300" else "手爪(副石)6x4mm或下"
@@ -539,13 +550,17 @@ class Writer(object):
 
     def _fetch_data(self, jns):
         """ fetch data from db to an list """
-        with ResourceCtx((self._hksvc.sessmgr(), self._sm_loc, )) as curs:
+        with ResourceCtx((self._hksvc.sessmgr(), self._cache_sm, )) as curs:
+            tc = time()
+            logger.debug("begin to fetch data from HK JO system, might take quite a long time")
             jos, jerrs = self._hksvc.getjos(jns)
+            logger.debug("using %4.2f seconds to get %d jos from HK JO system" % ((time() - tc), len(jos)))
             skmp = self._utilz.fetch_jo_skunos(curs[0], [JOElement(x) for x in jns])
             if skmp:
                 skmp = self._utilz.fetch_ca_jos(curs[1], skmp)
             if skmp is None:
                 skmp = {}
+            logger.debug("%d history records returned from cache" % len(skmp))
             jo = Query((
                 JO.id,
                 JI.stname,
@@ -557,7 +572,10 @@ class Writer(object):
             )).join(JI)
             dtls, lsts = [x for x in jos if x.name.value not in skmp], {}
             if dtls:
+                logger.debug("%d jos need jo detail info. from HK, might take quite a long time" % len(dtls))
+                tc = time()
                 dtls = jo.filter(idsin(idset(dtls), JO)).with_session(curs[0]).all()
+                logger.debug("using %4.2f seconds to get %d jo detail info. records from HK JO system" % ((time() - tc), len(dtls)))
                 for jo in dtls:
                     lsts.setdefault(jo.id, []).append(jo)
             dtls, lsts, nl = lsts, [], self._nl
@@ -577,11 +595,16 @@ class Writer(object):
                 nl.jono = jo
         return lsts
 
+    def find_sheet(self, wb):
+        ''' find the target sheet inside the given workbook, for foreignor book checking purpose '''
+        return self._utilz.find_sheet(wb)
+
     def run(self, wb):
         """ read JOs and write report back """
         # there is at the most one data sheet in the book
-        sht = self._utilz.find_sheet(wb)
+        sht = self.find_sheet(wb)
         if not sht:
+            logger.debug("workbook(%s) is not a valid workbook" % wb.name)
             return
         self._nl = sht[-1]
 
@@ -600,8 +623,9 @@ class Writer(object):
             JOElement.tostr(nl.jono)
             for nl in NamedRanges(sht[1], alias=self._utilz.alias)
             if nl.jono
-        }
+        }        
         if nls:
+            logger.debug("totally %d JOs need calculation" % len(nls))
             nls = self._fetch_data(nls)
             self._write(nls, sht[0])
 
@@ -610,16 +634,12 @@ class HisMgr(object):
     """
     read/save/query c1 cost history
     """
-    _utilz = _Utilz()
-
-    def __init__(self, eng_crtr, hksvc):
-        self._eng_crtr = eng_crtr
-        self._sessmgr, self._hksvc = None, hksvc
+    def __init__(self, cache_sm, hksvc):
+        self._sessmgr, self._hksvc = cache_sm, hksvc
+        self._utilz = _Utilz()
 
     @property
     def _sessionctx(self):
-        if not self._sessmgr:
-            self._sessmgr = SessionMgr(self._eng_crtr())
         return ResourceCtx(self._sessmgr)
 
     @classmethod
