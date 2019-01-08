@@ -164,7 +164,7 @@ class KaratSvc(object):
             if karat.isdigit():
                 karat = int(karat)
             else:
-                karat = trimu(karat)
+                karat = trimu(karat).replace("KY", "K")
         for x in (self._byid, self._byname):
             if karat in x:
                 return x[karat]
