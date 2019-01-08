@@ -116,6 +116,9 @@ class KeySuite(TestCase):
         self.assertEqual("1", stsizefmt("1.0", True))
         self.assertEqual("1", stsizefmt("1", True))
         self.assertEqual("1.5", stsizefmt("1.5", True))
+        self.assertEqual("00", stsizefmt("00", True))
+        self.assertEqual("00-000", stsizefmt("000-00", True))
+        self.assertEqual("0-0000", stsizefmt("0000-0", True))
 
     def testGetValue(self):
         """ the getvalue function for the dict, convenience way for upper/lower case """

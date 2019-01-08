@@ -18,6 +18,80 @@ from .common import thispath
 __all__ = ["Karat", "KaratSvc", "RingSizeSvc", "stsizefmt"]
 
 
+class _SzFmt(object):
+    ''' helper class for stsizefmt function '''
+    _don_touch = {"0000": 0.69, "000": 0.79, "00": 0.89, "0": 0.99}
+    def format(self, sz, shortform=False):
+        ''' @refer to stsizefmt function '''
+        if not sz:
+            return None
+        if sz.find("~") > 0:
+            sz = sz.replace("~", "-")
+
+        sz = trimu(sz) if isinstance(sz, str) else str(sz)
+        segs, parts, idx, rng = [""], [], 0, False
+        for x in sz:
+            if x.isdigit() or x == ".":
+                segs[idx] += x
+            elif x == "-":
+                idx = self._inc(segs)
+                rng = True
+            elif x in ("X", "*"):
+                idx = self._inc(segs)
+                if rng:
+                    break
+            elif rng:
+                break
+        if not any(segs):
+            return sz
+        for x in [x for x in segs if x]:
+            x = self._fmtpart(x, shortform)
+            if not x:
+                continue
+            if isinstance(x, str):
+                parts.append(x)
+            else:
+                parts.extend(x)
+        return ("-" if rng else "X").join(sorted(
+            parts, key=self._part_power, reverse=True)) if parts else None
+
+    @classmethod
+    def _inc(cls, segs):
+        segs.append("")
+        return len(segs) - 1
+
+    @classmethod
+    def _fmt_no_digit(cls, val):
+        if int(val) == val:
+            return "%d" % val
+        return "%r" % val
+
+    @classmethod
+    def _fmtpart(cls, s0, shortform):
+        if not s0 or s0 in cls._don_touch:
+            return s0
+        try:
+            ln = len(s0)
+            if ln < 4 or s0.find(".") >= 0:
+                s0 = float(s0) * 100
+                s0 = cls._fmt_no_digit(s0 / 100) if shortform else "%04d" % s0
+            else:
+                s0 = splitarray(s0, 4)
+                if shortform:
+                    for ii, it in enumerate(s0):
+                        s0[ii] = cls._fmt_no_digit(int(it) / 100)
+        except:
+            s0 = None
+        return s0
+    
+    @classmethod
+    def _part_power(cls, s0):
+        return cls._don_touch.get(s0) or float(s0)
+
+
+_st_fmtr = _SzFmt()
+
+
 def stsizefmt(sz, shortform=False):
     """ format a stone size into long or short form, with big -> small sorting, some examples are
     @param sz: the string to format
@@ -34,63 +108,10 @@ def stsizefmt(sz, shortform=False):
         "3x4x5", False, True -> "5X4X3"
         "0500X0400X0300" -> "5X4X3"
         "0300X0500X0400" -> "5X4X3"
+        "0000" -> "0000"
+        "000" -> "000"
     """
-
-    if not sz:
-        return None
-    if sz.find("~") > 0:
-        sz = sz.replace("~", "-")
-    def _inc(segs):
-        segs.append("")
-        return len(segs) - 1
-
-    def _fmt_no_digit(val):
-        if int(val) == val:
-            return "%d" % val
-        return "%r" % val
-
-    def _fmtpart(s0, shortform):
-        if not s0:
-            return None
-        try:
-            ln = len(s0)
-            if ln < 4 or s0.find(".") >= 0:
-                s0 = float(s0) * 100
-                s0 = _fmt_no_digit(s0 / 100) if shortform else "%04d" % s0
-            else:
-                s0 = splitarray(s0, 4)
-                if shortform:
-                    for ii, it in enumerate(s0):
-                        s0[ii] = _fmt_no_digit(int(it) / 100)
-        except:
-            s0 = None
-        return s0
-
-    sz = trimu(sz) if isinstance(sz, str) else str(sz)
-    segs, parts, idx, rng = [""], [], 0, False
-    for x in sz:
-        if x.isdigit() or x == ".":
-            segs[idx] += x
-        elif x == "-":
-            idx = _inc(segs)
-            rng = True
-        elif x in ("X", "*"):
-            idx = _inc(segs)
-            if rng:
-                break
-        elif rng:
-            break
-    if not any(segs):
-        return sz
-    for x in [x for x in segs if x]:
-        x = _fmtpart(x, shortform)
-        if not x:
-            continue
-        if isinstance(x, str):
-            parts.append(x)
-        else:
-            parts.extend(x)
-    return ("-" if rng else "X").join(sorted(parts, reverse=True)) if parts else None
+    return _st_fmtr.format(sz, shortform)
 
 
 Karat = namedtuple("Karat", "karat,name,fineness,category,color")

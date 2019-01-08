@@ -145,7 +145,8 @@ class _Utilz(object):
         sns, shp = (shp[0], shp[1]) if shp else (sns[1:], sns[0])
         return sns, shp
 
-    def fetch_jo_skunos(self, cur, jes):
+    @classmethod
+    def fetch_jo_skunos(cls, cur, jes):
         ''' return a {JO#: sku#} map '''
         skmp = {}
         q0 = Query((JO.name, POItem.skuno, )).join(POItem)
@@ -156,13 +157,14 @@ class _Utilz(object):
             skmp.update({x.name.value: trimu(x.skuno) for x in q})
         return skmp or None
 
-    def fetch_ca_jos(self, cur, jnskump):
+    @classmethod
+    def fetch_ca_jos(cls, cur, jnskump):
         ''' return {skuno: c1jc} map,
         TODO::subquery's group by seems non-reasonable, but don't know how
         my original query need to get argument from master query
         '''
         if not (jnskump and cur):
-            return
+            return None
         skus = [x for x in jnskump.values() if x and x != na]
         q = Query(C1JC)
         sq = Query((C1JC.skuno, func.max(C1JC.docno).label("mdocno"),)).group_by(C1JC.skuno).subquery()
@@ -186,12 +188,11 @@ class Writer(object):
     @param his_engine|engine: the creator function help to create the history engine
     """
 
-    _ptn_pk = cmpl(r"([A-Z]{2})-([A-Z@])-([A-Z\d]{1,4})-([A-Z\d])")
-
     def __init__(self, hksvc, cnsvc, **kwds):
         self._hksvc, self._cnsvc = hksvc, cnsvc
         self._cache_sm = getvalue(kwds, "cache engine")
         self._nl = None
+        self._ptn_pk = cmpl(r"([A-Z]{2})-([A-Z@])-([A-Z\d]{1,4})-([A-Z\d])")
 
         # vermail color detection map
         #VWhite and #VBlue
@@ -242,11 +243,13 @@ class Writer(object):
                 self._st_dd = {x.name for x in lst}
         self._st_fixed[kw] = 1
 
-    def _getf_other(self, jo):
+    @classmethod
+    def _getf_other(cls, jo):
         """ the _specified items, return _specified result """
         return None
 
-    def _karat_cvt(self, karat):
+    @classmethod
+    def _karat_cvt(cls, karat):
         """ karat to the excel's term """
         return karatsvc.getfamily(karat).name
 
@@ -331,7 +334,7 @@ class Writer(object):
             pt = False
             for var in nls:
                 nl1.setdata(var)
-                if mstr and nl1.setting.find("耳迫") >= 0:  # big5
+                if mstr and nl1.setting and nl1.setting.find("耳迫") >= 0:  # big5
                     pt = True
                 for x in nl1.colnames:
                     nl[x] = nl1[x]
@@ -479,9 +482,17 @@ class Writer(object):
             mns = sorted(mns, key=lambda x: x[pk], reverse=True)
             for x in mns[1:]:
                 nl_ji.setdata(x)["ms"] = "S"
+        _ms_chk = False
         for ji in sts:
             nl_ji.setdata(ji)
-            nl_ji.setting = self._calc_stset(cat, nl_ji) or nl_ji.setting
+            pk = self._calc_st_set(cat, nl_ji)
+            if pk and not _ms_chk and pk.find("腊") >= 0:
+                _ms_chk = (nl_ji.stone, nl_ji.shape, )
+            nl_ji.setting = pk or nl_ji.setting
+        # when one wax, all should be wax, in the case of DDR/CZR, an example
+        # is 463783
+        if _ms_chk and len(sts) > 1:
+            self._st_waxset_check(cat, sts, nl_ji, _ms_chk)
         mns = {"M": "0", "S": "1"}
 
         def srt_key(data):
@@ -511,7 +522,7 @@ class Writer(object):
         for x in enumerate(fields):
             nl_ji[x[1]] = var[x[0]]
 
-    def _calc_stset(self, cat, nl):
+    def _calc_st_set(self, cat, nl, hints=None):
         """ calculate the setting by given arguments """
         if not (nl.stqty and nl.stone):
             return None
@@ -525,7 +536,7 @@ class Writer(object):
             if self._is_st_microset(cat, qty):
                 rc = "手微(圆钻)"
             else:
-                rc = ("腊" if qty >= 6 else "手") + "爪/钉(圆钻)"
+                rc = ("腊" if self._is_st_waxset(st, shp, qty, hints) else "手") + "爪/钉(圆钻)"
         else:
             if nl.ms == "M":
                 # main
@@ -536,17 +547,36 @@ class Writer(object):
                     if self._is_st_microset(cat, qty) and sz <= "0300":
                         rc = "手微(CZ 3mm或下)"
                     else:
-                        rc = ("腊爪/钉" if qty >= 6 else "手爪")
+                        rc = ("腊爪/钉" if self._is_st_waxset(st, shp, qty, hints) else "手爪")
                         rc += "(CZ 3mm%s)" % ("以上" if sz > "0300" else "或下")
                 else:
                     rc = "手爪(副石)3mm或下" if sz <= "0300" else "手爪(副石)6x4mm或下"
         return rc
+
+    def _st_waxset_check(self, cat, sts, nl, hints):
+        if not sts:
+            return
+        for x in sts:
+            nl.setdata(x)
+            st = nl.setting
+            if  st and nl.stone == hints[0] and nl.shape == hints[1] and st.find("腊") < 0 and st.find("碟") < 0:
+                nl.setting = self._calc_st_set(cat, nl, True)
 
     @classmethod
     def _is_st_microset(cls, cat, qty):
         """ is microset ? """
         return qty >= 40 and cat in ("RING", "EARRING", "PENDANT") or (
             qty >= 50 and cat == "BANGLE")
+
+    def _is_st_waxset(self, st, shp, qty, hints=None):
+        ''' determine if given stone should be wax-set '''
+        if hints:
+            return True
+        if st in self._st_dd and shp == "R":
+            return qty >= 6
+        if st == "CZ" and shp == "R":
+            return qty >= 6
+        return False
 
     def _fetch_data(self, jns):
         """ fetch data from db to an list """
@@ -608,22 +638,12 @@ class Writer(object):
             return
         self._nl = sht[-1]
 
-        if False:
-            jnskump, lsts = {1: '1401934', 2: '3415988'}, []
-            with self._loc_sess_ctx as cur:
-                jnskmp = self._utilz.fetch_ca_jos(cur, jnskump)
-                for his in jnskmp.values():
-                    lsts.append(self._nl.newdata(True))
-                    lst = self._from_his(his)
-                    lsts.extend(lst)
-            print(lsts)
-            return
         # read the JO#s
         nls = {
             JOElement.tostr(nl.jono)
             for nl in NamedRanges(sht[1], alias=self._utilz.alias)
             if nl.jono
-        }        
+        }
         if nls:
             logger.debug("totally %d JOs need calculation" % len(nls))
             nls = self._fetch_data(nls)
