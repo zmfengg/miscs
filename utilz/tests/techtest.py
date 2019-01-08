@@ -135,6 +135,20 @@ class TechTests(TestCase):
     class trying the technical test
     """
 
+    def testTry(self):
+        flag = False
+        try:
+            a = 1/0
+        except:
+            flag = True
+        self.assertTrue(flag, "exceptions occured")
+        flag = False
+        try:
+            a = 1 / 1
+        except:
+            flag = True
+        self.assertFalse(flag, "no exception occured")
+
     def testRE(self):
         """
         regexp tests
