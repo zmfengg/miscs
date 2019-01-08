@@ -145,7 +145,8 @@ class _Utilz(object):
         sns, shp = (shp[0], shp[1]) if shp else (sns[1:], sns[0])
         return sns, shp
 
-    def fetch_jo_skunos(self, cur, jes):
+    @classmethod
+    def fetch_jo_skunos(cls, cur, jes):
         ''' return a {JO#: sku#} map '''
         skmp = {}
         q0 = Query((JO.name, POItem.skuno, )).join(POItem)
@@ -242,7 +243,8 @@ class Writer(object):
                 self._st_dd = {x.name for x in lst}
         self._st_fixed[kw] = 1
 
-    def _getf_other(self, jo):
+    @classmethod
+    def _getf_other(cls, jo):
         """ the _specified items, return _specified result """
         return None
 
@@ -483,7 +485,7 @@ class Writer(object):
         _ms_chk = False
         for ji in sts:
             nl_ji.setdata(ji)
-            pk = self._calc_stset(cat, nl_ji)
+            pk = self._calc_st_set(cat, nl_ji)
             if pk and not _ms_chk and pk.find("腊") >= 0:
                 _ms_chk = (nl_ji.stone, nl_ji.shape, )
             nl_ji.setting = pk or nl_ji.setting
@@ -520,7 +522,7 @@ class Writer(object):
         for x in enumerate(fields):
             nl_ji[x[1]] = var[x[0]]
 
-    def _calc_stset(self, cat, nl, hints=None):
+    def _calc_st_set(self, cat, nl, hints=None):
         """ calculate the setting by given arguments """
         if not (nl.stqty and nl.stone):
             return None
@@ -556,8 +558,9 @@ class Writer(object):
             return
         for x in sts:
             nl.setdata(x)
-            if nl.setting and nl.stone == hints[0] and nl.shape == hints[1] and nl.setting.find("腊") < 0:
-                nl.setting = self._calc_stset(cat, nl, True)
+            st = nl.setting
+            if  st and nl.stone == hints[0] and nl.shape == hints[1] and st.find("腊") < 0 and st.find("碟") < 0:
+                nl.setting = self._calc_st_set(cat, nl, True)
 
     @classmethod
     def _is_st_microset(cls, cat, qty):
@@ -640,7 +643,7 @@ class Writer(object):
             JOElement.tostr(nl.jono)
             for nl in NamedRanges(sht[1], alias=self._utilz.alias)
             if nl.jono
-        }        
+        }
         if nls:
             logger.debug("totally %d JOs need calculation" % len(nls))
             nls = self._fetch_data(nls)
