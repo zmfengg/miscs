@@ -186,6 +186,8 @@ class KaratSvc(object):
                 karat = int(karat)
             else:
                 karat = trimu(karat).replace("KY", "K")
+            if karat == 'COPPER':
+                karat = 'BRONZE'
         for x in (self._byid, self._byname):
             if karat in x:
                 return x[karat]
