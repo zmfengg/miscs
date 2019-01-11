@@ -26,7 +26,8 @@ from hnjcore.models.hk import JO, POItem
 from hnjcore.models.hk import JOItem as JI
 from utilz import (NamedList, ResourceCtx, karatsvc, na, splitarray,
                    stsizefmt, trimu, getvalue)
-from utilz.xwu import NamedRanges, appmgr, find, hidden
+from utilz.xwu import NamedRanges, appmgr, find, hidden, fromtemplate
+from hnjapp.c1rdrs import C1InvRdr
 
 from .common import _logger as logger
 from .localstore import C1JC, C1JCFeature, C1JCStone, FeaSOrN
@@ -57,7 +58,8 @@ class _Utilz(object):
             "stsize": "尺寸",
             "stqty": "粒数",
             "stwgt": "重量",
-            "setting": "镶法"
+            "setting": "镶法",
+            "c1cost": "C1工费"
         }
         self._st_sns_abbr = {
             "RD": ("DD", "R"),
@@ -71,6 +73,7 @@ class _Utilz(object):
         sheet, range("工单"), range("镶法"), NamedList("工单->镶法"))
         """
         to_finds, flag = (
+            self.alias["c1cost"],
             self.CN_JONO,
             "镶法",
         ), False
@@ -82,9 +85,10 @@ class _Utilz(object):
                     break
                 fnds.append(flag)
             if flag:
-                fnds.insert(0, sht)
+                fnds = sorted(fnds, key=lambda x: x.column)
                 fnds.append(
-                    NamedList(sht.range(*fnds[1:]).value, alias=self.alias))
+                    NamedList(sht.range(fnds[0], fnds[-1]).value, alias=self.alias))
+                fnds.insert(0, sht)
                 return fnds
         return None
 
@@ -95,7 +99,7 @@ class _Utilz(object):
         sht = wb if isinstance(wb, (list, tuple)) else self.find_sheet(wb)
         if not sht:
             return None
-        rng, var = sht[1:3]
+        rng, var = sht[1], sht[-2]
         alias = self.alias
         if read_cost:
             rng = find(sht[0], "镶石费$", lookat=LookAt.xlWhole)
@@ -271,7 +275,8 @@ class Writer(object):
             rng.row_height = rng0.row_height
             rng.select()
             sht.api.paste
-        rng0 = find(sht, self._utilz.CN_JONO, lookat=LookAt.xlWhole)
+        # rng0 = find(sht, self._utilz.CN_JONO, lookat=LookAt.xlWhole)
+        rng0 = find(sht, self._utilz.alias["c1cost"], lookat=LookAt.xlWhole)
         rng0.offset(1, 0).value = lsts
         sht.book.app.api.CutCopyMode = False
         rng0.offset(1, 0).select()
@@ -583,7 +588,7 @@ class Writer(object):
         with ResourceCtx((self._hksvc.sessmgr(), self._cache_sm, )) as curs:
             tc = time()
             logger.debug("begin to fetch data from HK JO system, might take quite a long time")
-            jos, jerrs = self._hksvc.getjos(jns)
+            jos, jerrs = self._hksvc.getjos(jns.keys())
             logger.debug("using %4.2f seconds to get %d jos from HK JO system" % ((time() - tc), len(jos)))
             skmp = self._utilz.fetch_jo_skunos(curs[0], [JOElement(x) for x in jns])
             if skmp:
@@ -615,8 +620,10 @@ class Writer(object):
                 key=lambda jo: "%s,%s" % (jo.style.name.value, jo.name.value))
             for jo in jos:
                 lsts.append(nl.newdata(True))
-                nl.jono, nl.styno = "'" + jo.name.value, jo.style.name.value
-                var = skmp.get(jo.name.value)
+                var = jo.name.value
+                nl["c1cost"] = float(jns[var] or 0)
+                nl.jono, nl.styno = "'" + var, jo.style.name.value
+                var = skmp.get(var)
                 var = handlers[bool(var)](var or jo, dtls=dtls.get(jo.id))
                 if var:
                     lsts.extend(var)
@@ -629,18 +636,28 @@ class Writer(object):
         ''' find the target sheet inside the given workbook, for foreignor book checking purpose '''
         return self._utilz.find_sheet(wb)
 
+    def _tpl_file(self):
+        return r'\\172.16.8.46\pb\DptFile\pajForms\C1价格计算器.xltx'
+
     def run(self, wb):
         """ read JOs and write report back """
         # there is at the most one data sheet in the book
         sht = self.find_sheet(wb)
         if not sht:
             logger.debug("workbook(%s) is not a valid workbook" % wb.name)
-            return
+            # check if it's a C1, if yes, prepare the calc
+            nls = C1InvRdr.read_c1_all(wb)
+            nls = [((x.labor or 0) + (x.setting or 0), x.jono) for x in nls]
+            if not nls:
+                return
+            wb = fromtemplate(self._tpl_file())
+            sht = self.find_sheet(wb)
+            find(sht[0], self._utilz.alias["c1cost"]).offset(1, 0).value = nls
         self._nl = sht[-1]
 
         # read the JO#s
         nls = {
-            JOElement.tostr(nl.jono)
+            JOElement.tostr(nl.jono): nl["c1cost"]
             for nl in NamedRanges(sht[1], alias=self._utilz.alias)
             if nl.jono
         }

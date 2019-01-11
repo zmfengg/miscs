@@ -18,7 +18,7 @@ from os import path
 
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Query
-from xlwings import constants
+from xlwings import constants, Sheet
 
 from hnjapp.dbsvcs import jesin
 from hnjapp.pajcc import PrdWgt, WgtInfo, addwgt
@@ -104,7 +104,7 @@ def _fmtpkno(pkno):
     pkno = pfx + pkno + sfx
     return pkno,special
 
-class C1InvRdr():
+class C1InvRdr(object):
     """
         read the monthly invoice files from both C1 & CC version
     """
@@ -187,7 +187,41 @@ class C1InvRdr():
             rng, invdate = xwu.find(sht, "图片"), datetime.date.today()
         if not rng:
             return None
+        return self._read_from(rng), invdate
 
+    @classmethod
+    def read_c1_all(cls, sht):
+        ''' read all the occurences inside given sheet '''
+        tk = wb = None
+        if not isinstance(sht, Sheet):
+            if isinstance(sht, str):
+                app, tk = xwu.appmgr.acq()
+                wb = app.books.open(sht)
+            else:
+                wb = sht
+            rng = [x for x in wb.sheets if x.name.find('月') >= 0]
+            sht = rng[0] if rng else None
+        if sht:
+            rng, rngs, data, kw = None, set(), list(), "图片"
+            while True:
+                if rng:
+                    rng = xwu.find(sht, kw, After=rng)
+                else:
+                    rng = xwu.find(sht, kw)
+                if not rng or rng in rngs:
+                    break
+                rngs.add(rng)
+            for rng in rngs:
+                x = cls._read_from(rng)
+                if x:
+                    data.extend(x)
+        if tk:
+            wb.close()
+            xwu.appmgr.ret(tk)
+        return data
+
+    @classmethod
+    def _read_from(cls, rng):
         C1InvItem = namedtuple(
             "C1InvItem", "source,jono,qty,labor,setting,remarks,stones,mtlwgt")
         C1InvStone = namedtuple("C1InvStone", "stone,qty,wgt,remark")
@@ -198,8 +232,8 @@ class C1InvRdr():
             return None
         nl = nls[0]
         kns = [1 if nl.getcol(x) else 0 for x in "jono,gwgt,swgt".split(",")]
-        if sum(kns) != 3:
-            logger.debug("sheet(%s) does not contain necessary key columns" % sht.name)
+        if len(kns) != 3:
+            logger.debug("sheet(%s) does not contain necessary key columns", rng.sheet.name)
             return None
         items, c1 = list(), None
         _cnstqnw = "stqty,stwgt".split(",")
@@ -210,7 +244,8 @@ class C1InvRdr():
             if s0:
                 je = JOElement(s0)
                 if je.isvalid():
-                    if c1: items.append(c1)
+                    if c1:
+                        items.append(c1)
                     snl = []
                     for x in _cnsnl:
                         a0 = nl[x]
@@ -240,16 +275,16 @@ class C1InvRdr():
             if not joqty:
                 logger.debug("JO(%s) without qty, skipped" % nl.jono)
                 continue
-            kt, wgt = self._tokarat(kt), gw if gw else sw
+            kt, wgt = cls._tokarat(kt), gw if gw else sw
             #only pendant's pwgt is pwgt, else to mainpart
             if pwgt and not ispd(styno):
                 wgt += pwgt; pwgt = 0
             c1 = c1._replace(mtlwgt=addwgt(c1.mtlwgt, WgtInfo(kt, wgt/joqty, 4)))
             if pwgt:
-                c1 = c1._replace(mtlwgt=addwgt(c1.mtlwgt, WgtInfo(kt, pwgt/joqty, 4), True))           
+                c1 = c1._replace(mtlwgt=addwgt(c1.mtlwgt, WgtInfo(kt, pwgt/joqty, 4), True))
         if c1:
             items.append(c1)
-        # now calculate the netweight for each c1
+        # now calculate the net weight for each c1
         pwgt = []
         for c1 in items:
             # stone wgt in karat
@@ -259,10 +294,10 @@ class C1InvRdr():
                 pwgt.append(c1._replace(mtlwgt=c1.mtlwgt._replace(netwgt=round(wgt, 2))))
             else:
                 print("JO(%s) does not contains metal wgt" % c1.jono)
-        return pwgt, invdate
+        return pwgt
 
     @classmethod
-    def _tokarat(self, kt):
+    def _tokarat(cls, kt):
         if kt < 1: kt = int(kt * 1000)
         if kt >= 924 and kt <= 926:
             rc = 925

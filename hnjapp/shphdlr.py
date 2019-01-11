@@ -853,7 +853,7 @@ class ShpMkr(object):
             if not rdr:
                 return (None, ) * 2
             if self._vdrname == "paj":
-                pajopts["bomwgts"] = PajBomHhdlr().readbom(wb)
+                pajopts["bomwgts"] = PajBomHhdlr(part_chk_ver=1).readbom(wb)
             crt_err, shp_date = False, None  # critical error flag
             for sht in wb.sheets:
                 flag, lst = False, rdr[1](sht, pajopts)

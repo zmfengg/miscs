@@ -27,7 +27,7 @@ from hnjcore.models.hk import JO as JOhk
 from hnjcore.models.hk import Orderma, PajCnRev, PajInv, PajShp
 from hnjcore.models.hk import Style as Styhk
 from hnjcore.utils.consts import NA
-from utilz import (NamedList, NamedLists, ResourceCtx, SessionMgr, splitarray,
+from utilz import (NamedList, NamedLists, ResourceCtx, splitarray,
                    triml, daterange, getfiles, isnumeric, appathsep, deepget,
                    karatsvc, xwu, getvalue)
 
