@@ -409,17 +409,6 @@ class PajShpHdlr(object):
                 ivd, odno = _str2date(tr.invdate), tr.get("orderno", NA)
                 prdwgt = _getbomwgt(bomwgts, bomwgtsrng, p17)
                 if not prdwgt:
-                    """
-                    mtl_stone = qmap[p17] if p17 in qmap else ((None, ), 0)
-                    wis = list(mtl_stone[0])
-                    for idx in range(len(wis)):
-                        wi = wis[idx]
-                        if not wi:
-                            continue
-                        if not wi.karat:
-                            wis[idx] = wi._replace(karat=_getdefkarat(tr.jono))
-                    prdwgt = PrdWgt(*wis)
-                    """
                     prdwgt = PrdWgt(WgtInfo(0, 0))
                 mtl_stone = (0, 0)
                 si = PajShpItem(bfn, odno,

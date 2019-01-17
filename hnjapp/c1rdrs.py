@@ -34,7 +34,7 @@ from .common import _logger as logger
 _ptnbtno = cpl(r"(\d+)([A-Z]{3})(\d+)")
 
 ''' items for c1inv and c1stone '''
-C1InvItem = namedtuple("C1InvItem", "source,jono,qty,labor,setting,remarks,stones,mtlwgt")
+C1InvItem = namedtuple("C1InvItem", "source,jono,qty,labor,setting,remarks,stones,mtlwgt,styno")
 C1InvStone = namedtuple("C1InvStone", "stone,qty,wgt,remark")
 def _nf(part, cnt):
     try:
@@ -264,11 +264,11 @@ class C1InvRdr(object):
                     if not any(snl):
                         logger.debug("JO(%s) does not contains any labor cost", je.value)
                         snl = (0, 0)
-                    c1 = C1InvItem("C1", je.value, nl.joqty, snl[1], snl[0], nl.remark, [], None)
+                    c1 = C1InvItem("C1", je.value, nl.joqty, snl[1], snl[0], nl.remark, [], None, nl.styno)
                     items.append(c1)
-            c1 = cls._extract_st_mtl(c1, nl, _cnstqnw)
-            if c1:
-                items[-1] = c1
+            s0 = cls._extract_st_mtl(c1, nl, _cnstqnw)
+            if s0:
+                c1 = items[-1] = s0
         # now calculate the net weight for each c1
         s0 = []
         for c1 in items:
@@ -308,7 +308,7 @@ class C1InvRdr(object):
             s0 = nl.stname
             if s0 and isinstance(s0, str):
                 joqty = c1.qty
-                c1.stones.append(C1InvStone(nl.stname, qnw[0] / joqty,round(qnw[1] / joqty, 4), "N/A"))
+                c1.stones.append(C1InvStone(nl.stname, qnw[0] / joqty, round(qnw[1] / joqty, 4), "N/A"))
         #wgt data
         kt, gw, sw, pwgt = nl.karat, nl.gwgt, nl.swgt, nl.pwgt
         if not kt or not isnumeric(kt):
@@ -319,7 +319,7 @@ class C1InvRdr(object):
             return None
         kt, wgt = cls._tokarat(kt), gw or sw
         #only pendant's pwgt is pwgt, else to mainpart
-        if pwgt and not cls._is_pendant(nl.styno):
+        if pwgt and not cls._is_pendant(c1.styno):
             wgt += pwgt
             pwgt = 0
         c1 = c1._replace(mtlwgt=addwgt(c1.mtlwgt, WgtInfo(kt, wgt / joqty, 4)))
