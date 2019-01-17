@@ -30,11 +30,13 @@ from utilz.xwu import NamedRanges, appmgr, find, hidden, fromtemplate
 from hnjapp.c1rdrs import C1InvRdr
 
 from .common import _logger as logger
+from logging import DEBUG
 from .localstore import C1JC, C1JCFeature, C1JCStone, FeaSOrN
 
 class _Utilz(object):
     CN_JONO = "工单"
     CN_MIT = "MIT"
+    MICRON_MISSING = -1000
 
     def __init__(self):
         # names started with f_ is the field of feature
@@ -162,24 +164,27 @@ class _Utilz(object):
         return skmp or None
 
     @classmethod
-    def fetch_ca_jos(cls, cur, jnskump):
+    def fetch_ca_jos(cls, cur, jnskump, jnsty):
         ''' return {skuno: c1jc} map,
         TODO::subquery's group by seems non-reasonable, but don't know how
         my original query need to get argument from master query
+        @param jnsty: a {jo#, sty#} map, need to handle
         '''
         if not (jnskump and cur):
             return None
-        skus = [x for x in jnskump.values() if x and x != na]
+        skus = {x[1]: x[0] for x in jnskump.items() if x[1] and x[1] != na}
         q = Query(C1JC)
-        sq = Query((C1JC.skuno, func.max(C1JC.docno).label("mdocno"),)).group_by(C1JC.skuno).subquery()
+        sq = Query((C1JC.skuno, C1JC.styno, func.max(C1JC.docno).label("mdocno"),)).group_by(C1JC.skuno, C1JC.styno).subquery()
         mp = {}
-        for sku in splitarray(skus):
+        for sku in splitarray(tuple(skus.keys())):
             x = q.join(sq, and_(C1JC.skuno == sq.c.skuno, C1JC.docno == sq.c.mdocno)).filter(C1JC.skuno.in_(sku))
             lst = x.with_session(cur).all()
             if not lst:
                 continue
             for x in lst:
                 if x in mp:
+                    continue
+                if x.styno != jnsty.get(skus[x.skuno]):
                     continue
                 mp[x.skuno] = x
         return {x[0]: mp[x[1]] for x in jnskump.items() if x[1] and x[1] != na and x[1] in mp}
@@ -197,6 +202,7 @@ class Writer(object):
         self._cache_sm = getvalue(kwds, "cache engine")
         self._nl = None
         self._ptn_pk = cmpl(r"([A-Z]{2})-([A-Z@])-([A-Z\d]{1,4})-([A-Z\d])")
+        self._ptn_micron = cmpl(r"咪\s*(\d*\.?\d{0,2})")
 
         # vermail color detection map
         #VWhite and #VBlue
@@ -288,7 +294,7 @@ class Writer(object):
                 if isinstance(val, Decimal):
                     arr[idx] = float(val)
         nl = self._nl
-        nl.styno = c1jc.styno + "_" + c1jc.docno[2:-2]
+        nl.styno = c1jc.styno + "_" + c1jc.docno[2:-2] + "_" + c1jc.name
         with self._loc_sess_ctx as cur:
             lst = cur.query(C1JCFeature).filter(C1JCFeature.jcid == c1jc.id).all()
             if lst:
@@ -321,6 +327,7 @@ class Writer(object):
         Some BLogics will be performed during data filling
         """
         cat = self._hksvc.getjocatetory(jo)
+        # here the mstr record is already inside self._nl
         nl, nls, lsts, var = self._nl, kwds.get("dtls"), [], None
         if nls:
             # sort the details by name before operation, MIT always at the end
@@ -395,7 +402,7 @@ class Writer(object):
         with self._cnsvc.sessionctx() as cur:
             q = q.with_session(cur).all()
         if not q:
-            return -1000
+            return self._utilz.MICRON_MISSING
         q = sorted(q, key=lambda x: x.filldate, reverse=True)
         return q[0].uprice
 
@@ -583,16 +590,20 @@ class Writer(object):
             return qty >= 6
         return False
 
-    def _fetch_data(self, jns):
+    def _fetch_data(self, jns, **kwds):
         """ fetch data from db to an list """
+        extra = kwds.get("extra", {})
         with ResourceCtx((self._hksvc.sessmgr(), self._cache_sm, )) as curs:
             tc = time()
             logger.debug("begin to fetch data from HK JO system, might take quite a long time")
             jos, jerrs = self._hksvc.getjos(jns.keys())
-            logger.debug("using %4.2f seconds to get %d jos from HK JO system" % ((time() - tc), len(jos)))
+            if jos and logger.isEnabledFor(DEBUG):
+                logger.debug("using %4.2f seconds to get %d jos from HK JO system" % (time() - tc, len(jos)))
+            # JO#(463625,P37209), JO#(463068,E21215), different Sty#, same SKU#
+            # because there're of a set. how?
             skmp = self._utilz.fetch_jo_skunos(curs[0], [JOElement(x) for x in jns])
             if skmp:
-                skmp = self._utilz.fetch_ca_jos(curs[1], skmp)
+                skmp = self._utilz.fetch_ca_jos(curs[1], skmp, {x.name.value: x.style.name.value for x in jos})
             if skmp is None:
                 skmp = {}
             logger.debug("%d history records returned from cache" % len(skmp))
@@ -623,14 +634,27 @@ class Writer(object):
                 var = jo.name.value
                 nl["c1cost"] = float(jns[var] or 0)
                 nl.jono, nl.styno = "'" + var, jo.style.name.value
-                var = skmp.get(var)
-                var = handlers[bool(var)](var or jo, dtls=dtls.get(jo.id))
+                tc = skmp.get(var)
+                var = handlers[bool(tc)](tc or jo, dtls=dtls.get(jo.id))
                 if var:
+                    if not tc:
+                        # the mstr record not in nl any more, fetch it from top of lsts
+                        nl.setdata(lsts[-1])
+                        self._adj_micron(nl, extra or {})
                     lsts.extend(var)
             for jo in jerrs:
                 lsts.extend(nl.newdata(True))
                 nl.jono = jo
         return lsts
+
+    def _adj_micron(self, nl, extra):
+        ''' put the micron to result, if there is already one, put together '''
+        # remove the prefix '
+        tc = extra.get(nl.jono)
+        if not tc:
+            return
+        ec = nl.f_micron or 0
+        nl.f_micron = tc if not ec or ec == self._utilz.MICRON_MISSING else "%f->%f" % (ec, tc)
 
     def find_sheet(self, wb):
         ''' find the target sheet inside the given workbook, for foreignor book checking purpose '''
@@ -642,29 +666,37 @@ class Writer(object):
     def run(self, wb):
         """ read JOs and write report back """
         # there is at the most one data sheet in the book
-        sht = self.find_sheet(wb)
+        sht, extra = self.find_sheet(wb), None
         if not sht:
             logger.debug("workbook(%s) is not a valid workbook" % wb.name)
             # check if it's a C1, if yes, prepare the calc
             nls = C1InvRdr.read_c1_all(wb)
-            nls = [((x.labor or 0) + (x.setting or 0), x.jono) for x in nls]
+            nls = [((x.labor or 0) + (x.setting or 0), x.jono, x.remarks) for x in nls]
             if not nls:
                 return
-            wb = fromtemplate(self._tpl_file())
-            sht = self.find_sheet(wb)
-            find(sht[0], self._utilz.alias["c1cost"]).offset(1, 0).value = nls
+            sht = fromtemplate(self._tpl_file())
+            wb.close()
+            wb, sht = sht, self.find_sheet(sht)
+            #find the micron if there is
+            extra = {("'" + JOElement.tostr(x[1])): self._extract_micron(x[2]) for x in nls if x[2] and x[2].find("咪") >= 0}
+            find(sht[0], self._utilz.alias["c1cost"]).offset(1, 0).value = [(x[0], x[1]) for x in nls if x[0] > 0]
         self._nl = sht[-1]
 
         # read the JO#s
         nls = {
             JOElement.tostr(nl.jono): nl["c1cost"]
-            for nl in NamedRanges(sht[1], alias=self._utilz.alias)
-            if nl.jono
+            for nl in NamedRanges(sht[1], alias=self._utilz.alias) if nl.jono
         }
         if nls:
             logger.debug("totally %d JOs need calculation" % len(nls))
-            nls = self._fetch_data(nls)
+            nls = self._fetch_data(nls, extra=extra)
             self._write(nls, sht[0])
+        return wb
+
+    def _extract_micron(self, rmk):
+        ''' extract the micro from remark by C1 '''
+        mt = self._ptn_micron.search(rmk.replace("。", "."))
+        return float(mt.group(1)) if mt else None
 
 
 class HisMgr(object):

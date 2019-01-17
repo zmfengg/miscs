@@ -452,7 +452,7 @@ class XwuSuite(TestCase):
         for idx, it in enumerate(ttls):
             self.assertEqual(exps[idx], xwu.escapetitle(it), "the title")
 
-    def testNamedList(self):
+    def testNamedLists(self):
         """
         # now test a very often use ability, read data from (excel) and handle it
         # now think of use NamedRanges, better ability to detect even if there is merged range
@@ -571,6 +571,20 @@ class XwuSuite(TestCase):
             print("using %4.2fs for each loop, total loops = %d, total time = %4.2f" % (tc / loops, loops, tc, ))
         finally:
             xwu.appmgr.ret(tk)
+    
+    def testInsertPhoto(self):
+        ''' check the insertphoto function '''
+        fn = path.join(thispath, "res", "579616.jpg")
+        app, tk = xwu.appmgr.acq()
+        wb = app.books.open(path.join(thispath, "res", "getTableData.xlsx"))
+        sht = wb.sheets[0]
+        shp = xwu.insertphoto(fn, sht.range("A1:F15"), margins=(2, 2))
+        self.assertIsNotNone(shp, 'There must be a shape')
+        self.assertAlmostEqual(2, shp.top, 2, 'the top')
+        self.assertAlmostEqual(59.99, shp.left, 2, 'the left')
+        self.assertAlmostEqual(204.03, shp.width, 2, 'the left')
+        xwu.appmgr.ret(tk)
+
 
 
 BaseClass = declarative_base()

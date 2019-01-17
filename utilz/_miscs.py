@@ -6,28 +6,32 @@
 * @Last Modified time: 2018-06-16 15:44:32
 '''
 
+import tkinter as tk
 from collections import OrderedDict
 from collections.abc import Iterator, Sequence
+from datetime import date
+from imghdr import what
 from math import ceil
 from numbers import Integral
 from os import listdir, path
 from random import random
-from datetime import date, datetime
-import re
-import imghdr
-import struct
+from re import sub
+from struct import unpack
 from sys import getfilesystemencoding, version_info
 
-import tkinter as tk
-
-__all__ = ["NamedList", "NamedLists", "appathsep", "daterange", "deepget", "getfiles", "getvalue", "isnumeric",
-           "imagesize", "list2dict", "lvst_dist", "na", "splitarray", "triml", "trimu", "updateopts", "removews", "easydialog", "easymsgbox", "monthadd"]
+__all__ = [
+    "NamedList", "NamedLists", "appathsep", "daterange", "deepget",
+    "easydialog", "easymsgbox", "getfiles", "getvalue", "isnumeric",
+    "imagesize", "list2dict", "lvst_dist", "monthadd", "na", "removews",
+    "splitarray", "tofloat", "triml", "trimu", "updateopts"
+]
 
 na = "N/A"
 
 _jpgsof = {192, 193, 194, 195, 197, 198, 199, 201, 202, 203, 205, 206, 207}
 # max date of a month
-_max_dom = (31, 0, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31, )
+_max_dom = (31, 0, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31,)
+
 
 def _norm_exp(the_mode):
     if not the_mode:
@@ -37,6 +41,7 @@ def _norm_exp(the_mode):
     else:
         the_mode = trimu
     return the_mode
+
 
 def splitarray(arr, logsize=100):
     """split an array into arrays whose len is less or equal than logsize
@@ -49,7 +54,10 @@ def splitarray(arr, logsize=100):
         arr = tuple(arr)
     if not logsize:
         logsize = 100
-    return [arr[x * logsize:(x + 1) * logsize] for x in range(int(ceil(1.0 * len(arr) / logsize)))]
+    return [
+        arr[x * logsize:(x + 1) * logsize]
+        for x in range(int(ceil(1.0 * len(arr) / logsize)))
+    ]
 
 
 def getvalue(dct, key, def_val=None):
@@ -68,6 +76,7 @@ def getvalue(dct, key, def_val=None):
             kw = trimu(kw) if kw[0] == kw[0].lower() else triml(kw)
     return def_val
 
+
 def isnumeric(val):
     """
     check if given val is a numeric
@@ -80,11 +89,22 @@ def isnumeric(val):
     return flag
 
 
+def tofloat(val):
+    ''' often try to convert a str to float, but using isnumeric() can not
+    let those with "." go, so use this directly. This function is handy
+    '''
+    try:
+        return float(val)
+    except:
+        return 0
+
+
 def appathsep(fldr):
     """
     append a path sep into given path if there is not
     """
     return fldr + path.sep if fldr[len(fldr) - 1:] != path.sep else fldr
+
 
 def updateopts(defaults, kwds):
     """
@@ -102,7 +122,7 @@ def updateopts(defaults, kwds):
         its = [x for x in knw[1][0].split(",") if x in kwds]
         if not its:
             kwds[knw[0]] = knw[1][1]
-        else:
+        elif knw[0] != its[0]:
             kwds[knw[0]] = kwds[its[0]]
             del kwds[its[0]]
     return kwds
@@ -124,8 +144,15 @@ def list2dict(lst, **kwds):
         lst = lst.split(",")
     else:
         lst = tuple(str(x) if x is not None else "" for x in lst)
-    mp = updateopts({"dupdiv": ("dupdiv,div,dup_div", ""), "trmap": ("name_map,trmap,alias", None), "bname": ("bname,blank_name", None), "normalize": ("normalize,", "lower")}, kwds)
-    dupdiv, bname, trmap, _norm = getvalue(mp, "dupdiv,div,dup_div"), mp.get("bname"), getvalue(mp, "trmap,alias"), getvalue(mp, "normalize,norm")
+    mp = updateopts({
+        "dupdiv": ("dupdiv,div,dup_div", ""),
+        "trmap": ("name_map,trmap,alias", None),
+        "bname": ("bname,blank_name", None),
+        "normalize": ("normalize,", "lower")
+    }, kwds)
+    dupdiv, bname, trmap, _norm = getvalue(
+        mp, "dupdiv,div,dup_div"), mp.get("bname"), getvalue(
+            mp, "trmap,alias"), getvalue(mp, "normalize,norm")
     if dupdiv is None:
         dupdiv = ""
     lst_lower, ctr = [], {}
@@ -168,22 +195,23 @@ def imagesize(fn):
         head = fhandle.read(26)
         if len(head) != 26:
             return None
-        itp = imghdr.what(fn)
+        itp = what(fn)
         if not itp:
             return None
 
         def _sz_png():
-            return struct.unpack('>ii', head[16:24]) if struct.unpack('>i', head[4:8])[0] == 0x0d0a1a0a else None
+            return unpack('>ii', head[16:24]) if unpack(
+                '>i', head[4:8])[0] == 0x0d0a1a0a else None
 
         def _sz_gif():
-            return struct.unpack('<HH', head[6:10])
+            return unpack('<HH', head[6:10])
 
         def _sz_bmp():
             sig = head[:2].decode("ascii")
             if sig == "BM":  # Microsoft
-                sig = struct.unpack("<II", head[18:26])
+                sig = unpack("<II", head[18:26])
             else:  # IBM
-                sig = struct.unpack("<HH", head[18:22])
+                sig = unpack("<HH", head[18:22])
             return sig
 
         def _sz_jpeg():
@@ -201,8 +229,8 @@ def imagesize(fn):
                     while brs[ptr] == 0xff:
                         ptr += 1
                     ftype = brs[ptr]
-                    offset = struct.unpack('>H', brs[ptr + 1:ptr + 3])[0] + 1
-                rc = struct.unpack('>HH', brs[ptr+4: ptr+8])
+                    offset = unpack('>H', brs[ptr + 1:ptr + 3])[0] + 1
+                rc = unpack('>HH', brs[ptr + 4:ptr + 8])
                 rc = (rc[1], rc[0])
             except:  # IGNORE:W0703
                 rc = None
@@ -214,6 +242,7 @@ def imagesize(fn):
             return None
         return rc()
 
+
 def getfiles(fldr, part=None, nameonly=False):
     """
     return files under given folder
@@ -223,11 +252,18 @@ def getfiles(fldr, part=None, nameonly=False):
     if fldr and path.exists(fldr):
         if part:
             part = part.lower()
-            fns = [x if version_info.major >= 3 else str(x, getfilesystemencoding())
-                   for x in listdir(fldr) if x.lower().find(part) >= 0]
+            fns = [
+                x
+                if version_info.major >= 3 else str(x, getfilesystemencoding())
+                for x in listdir(fldr)
+                if x.lower().find(part) >= 0
+            ]
         else:
-            fns = [x if version_info.major >= 3 else str(x, getfilesystemencoding())
-                   for x in listdir(fldr)]
+            fns = [
+                x
+                if version_info.major >= 3 else str(x, getfilesystemencoding())
+                for x in listdir(fldr)
+            ]
         if not nameonly:
             fns = [path.join(fldr, x) for x in fns]
         return fns
@@ -236,15 +272,14 @@ def getfiles(fldr, part=None, nameonly=False):
 
 def daterange(year, month, day=1):
     """ make a from,thru tuple for the given month, thru is the first date of next month """
-    import datetime as dtm
-    df = dtm.date(year, month, day if day > 0 else 1)
+    df = date(year, month, day if day > 0 else 1)
     month += 1
     if month > 12:
         year += 1
         month = 1
-    dt = dtm.date(year, month, 1)
-    del dtm
+    dt = date(year, month, 1)
     return df, dt
+
 
 def _isleap(year):
     """ check if given year is a leap year
@@ -260,6 +295,7 @@ def _isleap(year):
     else:
         lp = True
     return lp
+
 
 def monthadd(d0, months):
     """
@@ -282,7 +318,7 @@ def removews(s0):
     """
     remove the white space
     """
-    return re.sub(r"\s{2,}", " ", s0.strip()) if s0 else None
+    return sub(r"\s{2,}", " ", s0.strip()) if s0 else None
 
 
 def trimu(s0, removewsps=True):
@@ -367,7 +403,8 @@ class NamedList(object):
         if not val:
             self._dtype = 0
         else:
-            self._dtype = 1 if isinstance(val, Sequence) else 2 if isinstance(val, dict) else 10
+            self._dtype = 1 if isinstance(
+                val, Sequence) else 2 if isinstance(val, dict) else 10
         self._data = val
         return self
 
@@ -376,14 +413,17 @@ class NamedList(object):
         new an list of None that can be handle by me.
         @param setme: send the data to myself
         """
-        rc = [None, ] * len(self._nmap)
+        rc = [
+            None,
+        ] * len(self._nmap)
         if setme:
             self.setdata(rc)
         return rc
 
     def _checkarg(self, name):
         if not (self._dtype and (self._dtype != 1 or name in self._nmap)):
-            raise AttributeError("no attribute(%s) found or data not set" % name)
+            raise AttributeError(
+                "no attribute(%s) found or data not set" % name)
 
     def __getattr__(self, name):
         name = self._nrl(name)
@@ -391,7 +431,8 @@ class NamedList(object):
             return self._data[self._nmap[name]]
         if name in self._nmap:
             name = self._nmap[name]
-        return self._data[name] if self._dtype == 2 else getattr(self._data, name)
+        return self._data[name] if self._dtype == 2 else getattr(
+            self._data, name)
 
     def __setattr__(self, name, val):
         # self._checkarg(name)
@@ -557,6 +598,7 @@ def easydialog(dlg):
     # rt.destroy()
     return rc
 
+
 def easymsgbox(box, *args):
     r"""
     show a messagebox with provided arguments, common snippets, the only usage
@@ -572,6 +614,7 @@ def easymsgbox(box, *args):
     rt.quit()
     return rc
 
+
 def lvst_dist(s, t):
     """
     calculate the minimum movement steps(LevenshteinDistance) from string s to string t
@@ -581,12 +624,14 @@ def lvst_dist(s, t):
     if not t:
         return len(s) if s else 0
     n, m = len(s), len(t)
-    p = [x + 1 for x in range(n + 1)] #'previous' cost array, horizontally
-    d = [0] * (n + 1) # cost array, horizontally
+    p = [x + 1 for x in range(n + 1)]  #'previous' cost array, horizontally
+    d = [0] * (n + 1)  # cost array, horizontally
 
     for j in range(1, m + 1):
         d[0], t_j = j + 1, t[j - 1]
         for i in range(1, n + 1):
-            d[i] = min(min(d[i - 1], p[i]) + 1, p[i - 1] + (0 if s[i - 1] == t_j else 1))
+            d[i] = min(
+                min(d[i - 1], p[i]) + 1,
+                p[i - 1] + (0 if s[i - 1] == t_j else 1))
         p, d = d, p
     return p[n] - 1

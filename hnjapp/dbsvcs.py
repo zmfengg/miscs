@@ -18,7 +18,7 @@ from sqlalchemy import and_, desc, or_, true, func
 from sqlalchemy.orm import Query, Session
 
 from hnjcore import JOElement, KaratSvc, StyElement
-from hnjcore.models.cn import JO as JOcn,StoneIn,StonePk
+from hnjcore.models.cn import JO as JOcn, StoneIn, StonePk
 from hnjcore.models.cn import Customer as Customercn
 from hnjcore.models.cn import Style as Stylecn, StoneOut, StoneOutMaster
 from hnjcore.models.cn import MM, MMMa, Codetable

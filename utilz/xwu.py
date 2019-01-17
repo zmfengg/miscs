@@ -5,19 +5,25 @@ Utils for xlwings's not implemented but useful function
 
 @author: zmFeng
 '''
-import os
+from numbers import Number
+from os import path, remove
+from tempfile import gettempdir
 
-import xlwings
 import xlwings.constants as const
-from xlwings import Range, xlplatform
+from xlwings import App, Range, apps, xlplatform
 from xlwings.utils import col_name
 
-from ._miscs import NamedLists, getvalue, list2dict, updateopts
+from ._miscs import NamedLists, getvalue, list2dict, updateopts, trimu
 from .resourcemgr import ResourceMgr
 
+try:
+    from PIL import Image
+except:
+    Image = None
+
 __all__ = [
-    "app", "appmgr", "col", "find", "fromtemplate", "hidden", "list2dict", "usedrange",
-    "safeopen"
+    "app", "appmgr", "col", "find", "fromtemplate", "hidden", "insertphoto",
+    "list2dict", "NamedRanges", "safeopen", "usedrange"
 ]
 _validappsws = set(
     "visible,enableevents,displayalerts,asktoupdatelinks,screenupdating".split(
@@ -67,9 +73,8 @@ def app(vis=True, dspalerts=False):
     dispose() it
     """
 
-    flag = xlwings.apps.count
-    app0 = xlwings.apps.active if flag else xlwings.App(
-        visible=vis, add_book=False)
+    flag = apps.count
+    app0 = apps.active if flag else App(visible=vis, add_book=False)
     if app0:
         app0.display_alerts = bool(dspalerts)
     return flag, app0
@@ -119,6 +124,13 @@ def usedrange(sh):
     @param sh: the worksheet you want to find used range from. Maybe the same as sht.cells
     """
     return apirange(sh.api.UsedRange)
+
+def findsheet(wb, sn):
+    sn = trimu(sn)
+    for sht in wb.sheets:
+        if trimu(sht.name) == sn:
+            return sht
+    return None
 
 
 def find(sht, val, **kwds):
@@ -218,7 +230,7 @@ def fromtemplate(tplfn, app0=None):
         @param tplfn: the template file
         @param app: the app you want to new workbook on
     """
-    if not os.path.exists(tplfn):
+    if not path.exists(tplfn):
         return None
     if not app0:
         app0 = appmgr.acq()[0]
@@ -250,7 +262,7 @@ def safeopen(appx, fn, updlnk=False, readonly=True):
     open a workbook with the ability to control readonly/updatelink,
     replace the app.books.open(fn)
     """
-    flag = appx and os.path.exists(fn)
+    flag = appx and path.exists(fn)
     if not flag:
         return None
     try:
@@ -258,6 +270,79 @@ def safeopen(appx, fn, updlnk=False, readonly=True):
     except:
         flag = False
     return appx.books[-1] if flag else None
+
+
+def insertphoto(fn, rng, **kwds):
+    """
+    insert photo into target range
+    @param chop_at: an integer specified the chop/th position to chop at
+    @param chop_img: a loaded PIL image, If its a string, I' load it myself
+    @param max_size: the maximum photo size that I can insert. If the photo is bigger than that, I'll trim it down
+                        to the max_size, default is (800, 600)
+    @param margins: a tuple(x, y) to specified the margins to the x/y side, default is (5, 5)
+    """
+    mp = updateopts({
+        "max_size": ("max_size", tuple(int(x) for x in "800X600".split("X"))),
+        "margins": ("margins", (5, 5))
+    }, kwds)
+    if not Image:
+        return None
+    img = Image.open(fn)
+    img.load()
+    sz, save_it = img.size, False
+    h_w = sz[1] / sz[0]
+    max_sz, chop_at, chop_img, margins = mp.get("max_size"), mp.get(
+        "chop_at"), mp.get("chop_img"), mp.get("margins", (5, 5))
+    if chop_at:
+        if isinstance(chop_img, str) and path.exists(chop_img):
+            chop_img = Image.open(chop_img)
+            chop_img.load()
+        if not chop_img:
+            chop_at = None
+        else:
+            if not isinstance(chop_at, Number):
+                chop_at = 3
+    if max_sz and sz > max_sz:
+        sz = max(max_sz)
+        sz = (sz, sz * h_w)
+        img.thumbnail(sz)
+        if chop_at:
+            img = _chop_at(img, chop_img, chop_at)
+        save_it = True
+    elif chop_at:
+        img = _chop_at(img, chop_img, chop_at)
+        save_it = True
+    try:
+        if save_it:
+            save_it = path.join(gettempdir(), path.basename(fn))
+            img.save(save_it)
+            fn = save_it
+        pic = rng.sheet.pictures.add(fn)
+        sz = (rng.width, rng.height)
+        fn = [i[0] - 2 * i[1] for i in zip(sz, margins)]
+        fn = min(((fn[0], fn[0] * h_w), (fn[1] / h_w, fn[1])))
+        fn = (rng.left + (sz[0] - fn[0]) / 2, rng.top + (sz[1] - fn[1]) / 2,
+              fn[0], fn[1])
+        pic.left, pic.top, pic.width, pic.height = fn
+    finally:
+        if save_it:
+            remove(save_it)
+    return pic
+
+
+def _chop_at(orgimg, chop_img, chop_at=3):
+    """
+    return the cordinal/resized chop file for paste
+    """
+    osz, chsz = [x / chop_at for x in orgimg.size], chop_img.size
+    ch_r = chsz[1] / chsz[0]
+    chsz, osz = [
+        int(x) for x in min((osz[0], osz[0] * ch_r), (osz[1] / ch_r, osz[1]))
+    ], orgimg.size
+    osz, chop_img = ([osz[idx] - val for idx, val in enumerate(chsz)],
+                     chop_img.resize(chsz))
+    orgimg.paste(chop_img, osz, chop_img)
+    return orgimg
 
 
 def NamedRanges(rng, **kwds):
@@ -268,12 +353,12 @@ def NamedRanges(rng, **kwds):
     """
     if not rng:
         return None
+    cur_region = rng.current_region if rng.rows.count < 2 else rng
     if rng.size > 1:
         rng = rng[0]
     if kwds.get("skip_first_row"):
         rng = rng.offset(1, 0)
-    sht, cur_region, org_pt = rng.sheet, rng.current_region, (rng.row,
-                                                              rng.column)
+    sht, org_pt = rng.sheet, (rng.row, rng.column)
     var = kwds.get("col_cnt", kwds.get("colcnt")) or 0
     e_colidx = org_pt[1] + var if var > 0 else cur_region.last_cell.column
     tt_rows, var = (65000, 0), False
@@ -344,8 +429,15 @@ def escapetitle(pg):
     s0 = "".join(ss)
     return s0
 
-_col_idx = lambda chr: ord(chr) - 64 #ord('A') is 65
-_col_pow = (1, 26, 26**2, 26**3, )
+
+_col_idx = lambda chr: ord(chr) - 64  #ord('A') is 65
+_col_pow = (
+    1,
+    26,
+    26**2,
+    26**3,
+)
+
 
 def col(c_i):
     """ given a colname or an index, return the related idx or name,
@@ -364,9 +456,11 @@ def col(c_i):
         s = col_name(c_i)
     return s
 
+
 def _a2(addr):
     addr = addr.split("$")[1:]
     return addr[0], int(addr[1])
+
 
 def _rows_or_cols(addr, row=True):
     """
@@ -389,8 +483,9 @@ def _rows_or_cols(addr, row=True):
                 rx = (col(_a2(ss[0])[0]), col(_a2(ss[1])[0]))
             lsts.append(rx)
         else:
-            lsts.append((var, ) * 2)
+            lsts.append((var,) * 2)
     return lsts
+
 
 def hidden(sht, row=True):
     """ return the hidden row/column inside a sheet's used ranged """
@@ -405,13 +500,16 @@ def hidden(sht, row=True):
         rng0 = sht.range(sht.cells(1, 1), rng0.last_cell)
     try:
         # specialCells failed when the rng0 at the end or some other criteria
-        rng, ridxs = apirange(rng0.api.SpecialCells(12)), None#xlCellTypeVisible
+        rng, ridxs = apirange(
+            rng0.api.SpecialCells(12)), None  #xlCellTypeVisible
         ridxs = _rows_or_cols(rng.address, row)
     except:
         rng = None
 
     if rng is None:
-        return lsts or [(idx, midx), ] if idx < midx else None
+        return lsts or [
+            (idx, midx),
+        ] if idx < midx else None
 
     for r in ridxs:
         if r[0] > idx:
@@ -420,6 +518,7 @@ def hidden(sht, row=True):
     if idx <= midx:
         lsts.append((idx, midx))
     return lsts if lsts else None
+
 
 # an appmgr factory, instead of using app(), use appmgr.acq()/appmgr.ret()
 appmgr = _newappmgr()

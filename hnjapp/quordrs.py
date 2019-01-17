@@ -1125,7 +1125,7 @@ class AckPriceCheck(object):
             self._fldr[:-1])
         if rsts:
             logger.info("%s, total records = %d" % \
-                (s0,sum([len(x) for x in rsts.values()])))
+                (s0, sum([len(x) for x in rsts.values()])))
         else:
             if err:
                 logger.info("%s exception(%s) occured" % (s0, err[1:]))
@@ -1419,7 +1419,10 @@ class AckPriceCheck(object):
             lst1 = [x for x in lst \
             if x["ref."].find(self.CAT_ACCETABLE) >= 0 or \
             x["ref."].find(self.CAT_CRITICAL) >= 0 ]
-            self._writesht("_PAJPriceExcpt", lst1, wb)
+            if lst1:
+                self._writesht("_PAJPriceExcpt", lst1, wb)
+            # xlwings invoke below statement failed
+            # rng.api.FormatConditions.Add(2, Formula1='=FIND("Critical",$O1)>0')
         finally:
             if not wb and kxl and app:
                 kxl = True

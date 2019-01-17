@@ -29,7 +29,7 @@ from hnjcore.models.hk import Style as Styhk
 from hnjcore.utils.consts import NA
 from utilz import (NamedList, NamedLists, ResourceCtx, splitarray,
                    triml, daterange, getfiles, isnumeric, appathsep, deepget,
-                   karatsvc, xwu, getvalue)
+                   karatsvc, xwu, getvalue, tofloat)
 
 
 from .common import _getdefkarat
@@ -38,6 +38,7 @@ from .localstore import PajCnRev as PajCnRevSt
 from .localstore import PajInv as PajInvSt
 from .localstore import PajItem as PajItemSt
 from .localstore import PajWgt as PrdWgtSt
+from .pajbom import PajBomHhdlr
 from .pajcc import (MPS, PAJCHINAMPS, P17Decoder, PajCalc, PrdWgt, WgtInfo,
                     _tofloat, addwgt)
 from .dbsvcs import HKSvc
@@ -57,420 +58,6 @@ def _removenonascii(s0):
         return "".join(
             [x for x in s0 if ord(x) > 31 and ord(x) < 127 and x != "?"])
     return s0
-
-
-class PajBomHhdlr(object):
-    """ class to read BOMs from PAJ
-    @param part_chk_ver: the Part checker version,
-        default is None or 0,
-            That is, when there is (chain with length) and (lock exists),
-            圈 will be treated as part of the chain
-        1 stands for loose,
-            That is, when there is chain with length,
-            圈 will be treated as part of the chain
-    """
-    _ptn_oz = re.compile(r"\(\$\d*/OZ\)")
-    _one_hit_mp = {
-        925: (re.compile(r"(925)|(银)"), ),
-        200: (re.compile(r"(BRONZE)|(铜)", re.I), ),
-        9925: (re.compile(r"BONDED", re.I), re.compile(r"B&Gold", re.I))
-    }
-    _ptn_k_gold = re.compile(r"^(\d*)K")
-    _ptn_digits = re.compile(r"[\(（](\d*)[\)）]")
-    _ptn_chn_lck = re.compile(r"(弹簧扣)|(龙虾扣)|(狗仔头扣)")
-    # the parts must have karat, if not, follow the parent
-    _mtl_parts = u"金 银 耳勾 线圈 耳针 耳束 Chain".lower().split()
-    # keywords for parts (that should belong to a chain)
-    _pts_kws = "圈 牌".split()
-    # belts or so, not metal
-    _voids = "色 带 胶".split()
-    _pcdec = P17Decoder()
-    _part_chk_ver = None
-
-    _nmps = {
-        "mstr": {
-            u"pcode": "十七位,",
-            "mat": u"材质,",
-            "mtlwgt": u"抛光,",
-            "up": "单价",
-            "fwgt": "成品重"
-        },
-        "parts": {
-            "pcode": u"十七位,",
-            "matid": "物料ID,",
-            "name": u"物料名称",
-            "spec": u"物料特征",
-            "qty": u"数量",
-            "wgt": u"重量",
-            "unit": u"单位",
-            "length": u"长度"
-        }
-    }
-
-    def __init__(self, **kwargs):
-        self._part_chk_ver = getvalue(kwargs, "part_chk_ver")
-
-    def _parse_karat(self, mat, wis=None, ispol=True):
-        """ return karat(int type) from material string """
-        kt, karat = None, None
-        if ispol:
-            mt = self._ptn_oz.search(mat)
-            if not mt:
-                # no /oz sign
-                for x in (j for y in (200, 9925) for j in self._one_hit_mp[y]):
-                    karat = x.search(mat)
-                    if karat:
-                        break
-                if not karat:
-                    return None
-        kt = max(x[0] if y.search(mat) else 0 for x in self._one_hit_mp.items() for y in x[1])
-        if not kt:
-            mt = self._ptn_k_gold.search(mat) or self._ptn_digits.search(mat)
-            if mt:
-                kt = int(mt.group(1))
-        if not kt:
-            # not found, has must have keyword? if yes, follow master
-            voids = [1 for x in self._voids if mat.find(x) >= 0]
-            if not voids and wis and any(wis):
-                s0 = mat.lower()
-                for x in self._mtl_parts:
-                    if s0.find(x) < 0:
-                        continue
-                    if s0.find(u"金") >= 0:
-                        for wi in (x for x in wis if x):
-                            karat = karatsvc.getkarat(wi.karat)
-                            if karat and karat.category == karatsvc.CATEGORY_GOLD:
-                                return wi.karat
-                    # finally no one is found, follow master
-                    # kt = wis[0].karat
-
-                    # but zhangyuting claimed in e-mail with title "配件的"物料名称"里没有金" on 2018/12/10 that the karat should be 925
-                    # so let it to be 925
-                    kt = 925
-                    if kt:
-                        break
-            if not kt and wis:
-                if logger.isEnabledFor(DEBUG) and not voids:
-                    logger.error(
-                        "No karat found for (%s) and no default provided" %
-                        mat)
-        if kt:
-            karat = karatsvc.getkarat(kt) or karatsvc.getbyfineness(kt)
-            kt = karat.karat if karat else None
-        return kt
-
-    def _ispendant(self, pcode):
-        return self._pcdec.decode(pcode, "PRODTYPE").find("吊") >= 0
-
-    def _isring(self, pcode):
-        return self._pcdec.decode(pcode, "PRODTYPE").find("戒") >= 0
-
-    def readbom(self, fldr):
-        """
-        read BOM from given folder
-        @param fldr: the folder contains the BOM file(s)
-        return a dict with "pcode" as key and dict as items
-            the item dict has keys("pcode","mtlwgt")
-        """
-        pmap = {}
-        if isinstance(fldr, Book):
-            self._read_book(fldr, pmap)
-        else:
-            fns = getfiles(fldr, "xls") if path.isdir(fldr) else (fldr,)
-            if not fns:
-                return
-            app, kxl = _appmgr.acq()
-            try:
-                for fn in fns:
-                    wb = app.books.open(fn)
-                    self._read_book(wb, pmap)
-                    wb.close()
-            finally:
-                if kxl and app:
-                    _appmgr.ret(kxl)
-
-        self._adjust_wgts(pmap)
-
-        return pmap
-
-    def _part_chk(self, y, chns, lks, has_semi_chn):
-        """
-        determine if the given y is a part
-        """
-        nm = y["name"]
-        return chns and y["_id"] in chns or lks and (lks.get(y["_id"]) or sum([1 for v in self._pts_kws if nm.find(v) >= 0]))
-
-    def _part_chk_l(self, y, chns, lks, has_semi_chn):
-        """
-        loose rule for determining if the given y is a part
-        """
-        nm = y["name"]
-        return chns and y["_id"] in chns or\
-            lks and lks.get(y["_id"]) or\
-            has_semi_chn and [1 for v in self._pts_kws if nm.find(v) >= 0]
-
-    def _adjust_wgts(self, pmap):
-        if not pmap:
-            return
-        part_ck = self._part_chk if not self._part_chk_ver else self._part_chk_l
-        for pcode, prop in pmap.items():
-            ch_lks, prdwgt = prop.get("mtlwgt"), None
-            if ch_lks:
-                for y in ch_lks:
-                    prdwgt = addwgt(prdwgt, WgtInfo(y[0], y[1]))
-            else:
-                logger.debug("%s does not have master weight" % pcode)
-                prdwgt = PrdWgt(WgtInfo(0, 0))
-            if "parts" not in prop:
-                prop["mtlwgt"] = prdwgt._replace(netwgt=prop.get("netwgt"))
-                continue
-            ch_lks = {}
-            if self._ispendant(pcode):
-                for y in prop["parts"][::]:
-                    nm = y["name"]
-                    if triml(nm).find("chain") >= 0:
-                        ch_lks.setdefault("chain", {})[y["_id"]] = y
-                    elif self._ptn_chn_lck.search(nm):
-                        ch_lks.setdefault("lock", {})[y["_id"]] = y
-            chns, lks = tuple(ch_lks.get(x) or {} for x in "chain lock".split())
-            has_semi_chn, subs = self._has_semi_chn(chns), 0
-            for y in prop["parts"]:
-                nm = y["name"]
-                kt = self._parse_karat(nm, prdwgt.wgts, False)
-                if not kt:
-                    subs += y["wgt"]
-                    continue
-                y["karat"], is_part = kt, False
-                is_part = part_ck(y, chns, lks, has_semi_chn)
-                if is_part:
-                    #make sure part candidate has the same karat with old
-                    wgt0 = prdwgt.part
-                    is_part = not wgt0 or kt == wgt0.karat
-                prdwgt = addwgt(prdwgt, WgtInfo(kt, y["wgt"]),\
-                    is_part, autoswap=False)
-            if has_semi_chn:
-                prdwgt = prdwgt._replace(part=WgtInfo(prdwgt.part.karat, -prdwgt.part.wgt * 100))
-            prop["mtlwgt"] = prdwgt._replace(netwgt=round(prop.get("netwgt", 0) - subs, 2))
-
-    def _has_semi_chn(self, chns):
-        """
-        check if the chains contains semi-chain, that is, 成品链
-        """
-        lc = 0
-        for y in chns.values():
-            lc = y["length"]
-            if lc is None:
-                continue
-            try:
-                lc = float(lc)
-                break
-            except:
-                pass
-        return lc
-
-    def _read_book(self, wb, pmap):
-        """
-        read bom in the given wb to pmap
-        """
-        shts, bg_sht = [[], []], None
-        for sht in wb.sheets:
-            rng = xwu.find(sht, u"十七位")
-            if not rng:
-                continue
-            if xwu.find(sht, u"抛光后"):
-                shts[0] = (sht, rng)
-            elif xwu.find(sht, u"物料特征"):
-                shts[1] = (sht, rng)
-            else:
-                if xwu.find(sht, u"录入日期"):
-                    bg_sht = sht
-            if all(shts) and bg_sht:
-                break
-        if not all(shts):
-            return
-        if bg_sht:
-            self._append_bd(bg_sht, shts[0][0])
-        for sht, rdr in {shts[0]: self._read_mstr, shts[1]: self._read_pts}.items():
-            rdr(sht, pmap)
-
-    def _get_data(self, sht_rng, nmp):
-        vvs = sht_rng[1].end("left").expand("table").value
-        return NamedLists(vvs, nmp)
-
-    def _read_mstr(self, sht_rng, pmap):
-        """ read the bom master to pmap(dict) """
-        sht_rng[0].name = "BOM_mstr"
-        nl, mstrs, netwgts = self._nmps["mstr"], set(), {}
-        for nl in self._get_data(sht_rng, nl):
-            pcode = nl.pcode
-            if not isvalidp17(pcode):
-                break
-            #dup check
-            key = tuple(nl[x] or 0 for x in "pcode mat up mtlwgt fwgt".split())
-            key = ("%s" * len(key)) % key
-            if key in mstrs:
-                logger.debug("duplicated bom_mstr found(%s, %s)" %
-                                (nl.pcode, nl.mat))
-                continue
-            kt = nl.fwgt
-            if kt:
-                netwgts[pcode] = netwgts.get(pcode, 0) + kt
-            kt = self._parse_karat(nl.mat)
-            if not kt:
-                continue
-            mstrs.add(key)
-            it = pmap.setdefault(pcode, {"pcode": pcode})
-            it.setdefault("mtlwgt", []).append((kt, nl.mtlwgt))
-        for pcode, kt in netwgts.items():
-            pmap[pcode]["netwgt"] = round(kt, 2)
-
-    def _read_pts(self, sht_rng, pmap):
-        """ read parts from the sheet to pmap(dict) """
-        sht_rng[0].name, pts = "BOM_part", set()
-        nmp = [x for x in self._nmps["parts"] if x.find("pcode") < 0]
-        _mat_id = lambda x: "%s,%f" % (x.matid, x.wgt or 0)
-        for nl in self._get_data(sht_rng, self._nmps["parts"]):
-            pcode = nl.pcode
-            if not isvalidp17(pcode):
-                break
-            key = tuple(nl[x] or 0 for x in "pcode matid name spec qty wgt unit length".split())
-            key = ("%s" * len(key)) % key
-            if key in pts:
-                logger.debug("duplicated bom_part found(%s, %s)" %
-                                (nl.pcode, nl.name))
-                continue
-            pts.add(key)
-            it = pmap.setdefault(pcode, {"pcode": pcode})
-            mats, it = it.setdefault("parts", []), {}
-            mats.append(it)
-            for cn in nmp:
-                it[cn] = nl[cn]
-            it["_id"] = _mat_id(nl)
-            if not it["wgt"]:
-                it["wgt"] = 0
-
-    def _append_bd(self, bg_sht, mstr_sht):
-        """ append the single_bonded_gold sheet to bom-mstr sheet """
-        bgs = xwu.NamedRanges(
-            xwu.usedrange(bg_sht),
-            name_map={
-                "pcode": "十七,",
-                "mtlwgt": "金银重,",
-                "stwgt": "石头,"
-            })
-        nls = [
-            x for x in xwu.NamedRanges(
-                xwu.usedrange(mstr_sht), name_map=self._nmps["mstr"])
-        ]
-        nl, ridx = nls[0], len(nls)
-        if isvalidp17(nls[-1].pcode):
-            ridx += 1
-        for bg in (x for x in bgs if x.pcode):
-            vals = (bg.pcode, "BondedGold($0/OZ)", bg.mtlwgt or 0,
-                    (bg.mtlwgt or 0) + (bg.stwgt or 0))
-            for x in zip("pcode,mat,mtlwgt,fwgt".split(","), vals):
-                mstr_sht[ridx, nl.getcol(x[0])].value = x[1]
-            ridx += 1
-        #bg_sht.name = "BG.Wgt"
-        bg_sht.delete()
-
-    def readbom2jos(self, fldr, hksvc, fn=None, mindt=None):
-        """ build a jo collection list based on the BOM file provided
-            @param fldr: the folder contains the BOM file(s)
-            @param hksvc: the HK db service
-            @param fn: save the file to
-            @param mindt: the minimum datetime the query fetch until
-            if None is provided, it will be 2017/01/01
-            return a workbook contains the result
-        """
-
-        def _fmtwgt(prdwgt):
-            wgt = (prdwgt.main, prdwgt.aux, prdwgt.part)
-            lst = []
-            [lst.extend((x.karat, x.wgt) if x else (0, 0)) for x in wgt]
-            return lst
-
-        def _samewgt(wgt0, wgt1):
-            wis = []
-            for x in (wgt0, wgt1):
-                wis.append((x.main, x.aux, x.part))
-            for i in range(3):
-                wts = (wis[0][i], wis[1][i])
-                eq = all(wts) or not any(wts)
-                if not eq:
-                    break
-                if not all(wts):
-                    continue
-                eq = wts[0].karat == wts[0].karat or \
-                    karatsvc.getfamily(wts[0].karat) == karatsvc.getfamily(wts[1].karat)
-                if not eq:
-                    break
-                eq = abs(round(wis[0][i].wgt - wis[1][i].wgt, 2)) <= 0.02
-            return eq
-
-        pmap = self.readbom(fldr)
-        ffn = None
-        if not pmap:
-            return ffn
-        vvs = ["pcode,m.karat,m.wgt,p.karat,p.wgt,c.karat,c.wgt".split(",")]
-        jos = [
-            "Ref.pcode,JO#,Sty#,Run#,m.karat,m.wgt,p.karat,p.wgt,c.karat,c.wgt,rm.wgt,rp.wgt,rc.wgt"
-            .split(",")
-        ]
-        if not mindt:
-            mindt = datetime(2017, 1, 1)
-        qp = Query(Styhk.id).join(Orderma, Orderma.styid == Styhk.id) \
-            .join(JOhk, Orderma.id == JOhk.orderid).join(PajShp, PajShp.joid == JOhk.id)
-        qj = Query([JOhk.name.label("jono"), Styhk.name.label("styno"), JOhk.running]) \
-            .join(Orderma, Orderma.id == JOhk.orderid).join(Styhk).filter(JOhk.createdate >= mindt) \
-            .order_by(JOhk.createdate)
-        with hksvc.sessionctx() as sess:
-            cnt, ln = 0, len(pmap)
-            for x in pmap.values():
-                lst, wgt = [x["pcode"]], x["mtlwgt"]
-                if isinstance(wgt, PrdWgt):
-                    lst.extend(_fmtwgt((wgt)))
-                else:
-                    lst.extend((0, 0, 0, 0, 0, 0))
-                vvs.append(lst)
-
-                pcode = x["pcode"]
-                q = qp.filter(PajShp.pcode == pcode).limit(1).with_session(sess)
-                try:
-                    sid = q.one().id
-                    q = qj.filter(Orderma.styid == sid).with_session(sess)
-                    lst1 = q.all()
-                    for jn in lst1:
-                        jowgt = hksvc.getjowgts(jn.jono)
-                        if not _samewgt(jowgt, wgt):
-                            lst = [
-                                pcode, jn.jono.value, jn.styno.value, jn.running
-                            ]
-                            lst.extend(_fmtwgt(jowgt))
-                            lst.extend(_fmtwgt(wgt)[1::2])
-                            jos.append(lst)
-                        else:
-                            logger.debug("JO(%s) has same weight as pcode(%s)" %
-                                         (jn.jono.value, pcode))
-                except:
-                    pass
-
-                cnt += 1
-                if cnt % 20 == 0:
-                    print("%d of %d done" % (cnt, ln))
-
-            app, kxl = _appmgr.acq()
-            wb = app.books.add()
-            sns, data = "BOMData,JOs".split(","), (vvs, jos)
-            for cnt, pcode in enumerate(sns):
-                sht = wb.sheets[cnt]
-                sht.name = pcode
-                sht.range(1, 1).value = data[cnt]
-                sht.autofit("c")
-            wb.save(fn)
-            ffn = wb.fullname
-            _appmgr.ret(kxl)
-        return ffn
 
 
 class PajShpHdlr(object):
@@ -1197,7 +784,7 @@ class PajCache(object):
             return
         ttl = len(pcodes)
         logger.debug("totally %d pcodes need weight caching" % ttl)
-        cnt, sz  = 0, 50
+        cnt, sz = 0, 50
         for arr in splitarray(pcodes, sz):
             self._cache_wgts(arr)
             cnt += 1
@@ -1232,7 +819,7 @@ class PajCache(object):
             pi = var[0]
         else:
             pi = PajItemSt()
-            pi.pcode, pi.createdate, pi.tag = pcode, kwds["td"], 0
+            pi.pcode, pi.docno, pi.createdate, pi.tag = pcode, kwds.get("docno") or NA, kwds["td"], 0
             curs[0].add(pi)
             curs[0].flush()
         var = Query([PajShp.pcode, JOhk.name.label("jono"),
@@ -1276,7 +863,7 @@ class PajCache(object):
         logger.debug("weight of pcode(%s) cached", pcode)
 
     @classmethod
-    def _get_tar_pis(clas, pcodes, cur_src):
+    def _get_tar_pis(cls, pcodes, cur_src):
         var = set((x for x in pcodes)) if pcodes else set()
         if not var:
             return None
@@ -1322,7 +909,7 @@ class PajCache(object):
             else:
                 if (datetime.today() - var).days > 2:
                     var = affdate
-                    PajCnRevSt.query.delete()
+                    cur.query(PajCnRevSt).delete()
                     cur.commit()
         q0 = Query(PajCnRev).filter(
             and_(PajCnRev.filldate > var, PajCnRev.tag == 0,
@@ -1553,3 +1140,4 @@ class PajUPTracker(object):
                     if sht not in shts:
                         sht.delete()
             app.visible = True
+
