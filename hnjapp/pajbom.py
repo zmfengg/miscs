@@ -15,10 +15,8 @@ from re import compile as cpl
 from sqlalchemy import and_
 from sqlalchemy.orm import Query
 from xlwings import Book
-from xlwings.constants import (BorderWeight, Constants,
-                               FormatConditionOperator, FormatConditionType,
-                               LineStyle)
-
+from xlwings.constants import (BorderWeight, Constants, LineStyle, 
+                               FormatConditionOperator, FormatConditionType)
 from hnjcore import JOElement, isvalidp17
 from hnjcore.models.hk import JO as JOhk
 from hnjcore.models.hk import Orderma, PajShp
@@ -168,20 +166,16 @@ class PajBomHhdlr(object):
         self._adjust_wgts(pmap)
         return pmap
 
-    def build_for_manul(self, fldr, **kwargs):
+    def readbom_manual(self, wb, pcodeset, main_offset=3, min_rowcnt=7):
         '''
-        from a shipment file, build an sheet for manully part judgement
+        from a shipment file, read the boms and return
+        a tuple ready for inserting into sheet
+        a tuple of (row(in excel term), rowcount) for place marker for each segment
+        a namedlist for column lookup of the first returned argument
         '''
-        pmap, kxl = {}, None
+        pmap = {}
 
-        if isinstance(fldr, str):
-            app, kxl = _appmgr.acq()
-            fldr = app.books.open(fldr)
-        jns = self._read_rpt(fldr)
-        if not jns:
-            return
-        return
-        self._read_book(fldr, pmap)
+        self._read_book(wb, pmap)
         self._adjust_wgts(pmap)
 
         def _fill_mstr(qnw, nl):
@@ -189,93 +183,59 @@ class PajBomHhdlr(object):
         def _fill_dtl(dtl, nl):
             nl.mid, nl.mname, nl.pkarat, nl.pwgt = [dtl.get(x) for x in "matid name karat wgt".split()]
             nl.mpflag = 'N' if dtl.get("part_hints", False) else 'Y'
+        def _set_sub(idx, ttl):
+            nl.setdata(fn[idx])
+            nl.rcat, nl.mkarat = ttl, kts[0]
+            if len(kts) > 1:
+                nl.setdata(fn[idx + 1])
+                nl.mkarat = kts[1]
         fns = 'jono rcat mkarat mwgt mid mname pkarat pwgt mpflag image'.split()
-        mcnt, nl = getvalue(kwargs, "min,min_rowcnt,rowcnt", 7), NamedList(fns)
-        fns, mkrs = [fns], []
-        for pcode, x in pmap.items():
-            fn = []
+        main_offset = min(max(2, main_offset), 5)
+        min_rowcnt = max(main_offset + 4, min_rowcnt)
+        nl = NamedList(fns)
+        fns, mkrs = [fns, ], []
+        if pcodeset:
+            #sort by JO#
+            pmap = sorted([x for x in pmap.items() if x[0] in pcodeset], key=lambda x: pcodeset.get(x[0])[0])
+        else:
+            pmap = [x for x in pmap.items() if x[0] in pcodeset]
+        for pcode, x in pmap:
+            if pcodeset and pcode not in pcodeset:
+                continue
+            fn, kts = [], []
             pts, mstrs = [x.get(y, []) for y in "parts mstr".split()]
             pts = [x for x in pts if x.get("karat")]
             lns = [len(x) for x in (mstrs, pts)]
             for idx in range(max(lns)):
                 fn.append(nl.newdata(True))
                 if idx == 0:
-                    nl.image, nl.jono = pcode, "_JONO_"
+                    nl.image = pcode
+                    nl.jono, nl.rcat = pcodeset[pcode][0]
+                    nl.jono = "'" + nl.jono
                 if idx < lns[0]:
                     _fill_mstr(mstrs[idx], nl)
+                    kts.append(nl.mkarat)
                 if idx < lns[1]:
                     _fill_dtl(pts[idx], nl)
             idx += 1
-            if idx < mcnt:
-                for idx in range(mcnt - idx):
+            if idx < min_rowcnt:
+                for idx in range(min_rowcnt - idx):
                     fn.append(nl.newdata(True))
-            mkrs.append((nl.jono, len(fns) + 1, len(fn) - 1,))
+            if kts:
+                _set_sub(main_offset, "Main")
+                _set_sub(main_offset + 2, "Part")
+            nl.setdata(fn[0])
+            mkrs.append((nl.jono, nl.rcat, len(fns) + 1, len(fn) - 1,))
             fns.extend(fn)
-        # TODO:: demo only
-        if not kxl:
-            app, kxl = _appmgr.acq()
-        wb = app.books.add()
-        self._write_manual(fns, mkrs, wb, nl)
-        app.visible = True
-        # if kxl :
-        #    _appmgr.ret(kxl)
-        return pmap
-
-    def _read_rpt(self, wb):
-        '''
-        read the high-lighted wgt in rpt sheet
-        return a {jn:styno} and a {pcode:jo}
-        '''
-        sht = findsheet(wb, "rpt")
-        if not sht:
-            return None
-        rng, mkrs, idx = find(sht, "Wgt").expand("down"), [], -1
-        for x in rng:
-            if x.api.Interior.ColorIndex == 6:
-                mkrs.append([idx,])
-            idx += 1
-        rng = [x for x in NamedRanges(sht.cells(1, 1), alias={"jono": "工单", "styno": "款号"})]
-        for x in mkrs:
-            fn, fns = x[0], None
-            while fn >= 0:
-                fns = rng[fn].styno
-                if fns:
-                    break
-                fn -= 1
-            x.extend((rng[fn].jono, fns))
-        jns = {x[1]: x[2] for x in mkrs}
-        return jns
-
-    def _write_manual(self, lsts, mkrs, wb, nl):
-        sht = wb.sheets[0]
-        sht.cells(1, 1).value = lsts
-
-        _col = lambda cn: nl.getcol(cn) + 1
-        _cell = lambda r, cn: sht.cells(r, (nl.getcol(cn) + 1) if isinstance(cn, str) else cn)
-        def _cond(api, con, clr=37):
-            api.formatconditions.add(FormatConditionType.xlExpression, FormatConditionOperator.xlBetween, con)
-            api.formatconditions(1).interior.colorindex = clr
-        xwu.freeze(_cell(2, "mid"))
-        _cell(2, "mpflag").select()
-        # the Y/N validation
-        # optional args need to be filled https://stackoverflow.com/questions/40722609/xlwings-range-api-validation-add-throws-com-error-2146827284
-        idx, ln = nl.getcol("mpflag") + 1, len(lsts)
-        rng = sht.range(_cell(2, idx), _cell(ln, idx)).api
-        rng.Validation.Add(3, 1, 1, "Y,N")
-        # Conditional formatting
-        _cond(sht.range(_cell(2, "jono"), _cell(ln, "mwgt")).api, '=$%s2<>""' % col(_col("jono")))
-        _cond(sht.range(_cell(2, "mid"), _cell(ln, "mpflag")).api, '=$%s2="Y"' % col(_col("mpflag")))
-        sht.autofit()
-
-        # formulas
-        
-        # images
-        idx = col(_col("image"))
-        for jono, frm, cnt in mkrs:
-            # TODO:: get style name
-            ln = r"\\172.16.8.91\Jpegs\style\BJ\BJ0\BJ001_580564.jpg"
-            insertphoto(ln, sht.range("%s%d:%s%d" % (idx, frm, idx, frm + cnt)), margins=(2, 2))
-
+            del pcodeset[pcode]
+        # if there is still items in pcodeset, throw it to the result
+        if pcodeset:
+            for x in pcodeset.items():
+                fns.append(nl.newdata(True))
+                pcode = x[1][0]
+                nl.image, nl.jono, nl.rcat = x[0], pcode[0], "_" + pcode[1]
+        return fns, mkrs, nl, (main_offset, min_rowcnt)
+    
     def _part_chk(self, bi, chns, lks, has_semi_chn):
         """
         determine if the given bom item is a part

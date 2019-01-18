@@ -20,17 +20,21 @@ from os import path
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Query
 from xlwings import Book
-from xlwings.constants import LookAt
+from xlwings.constants import (
+    LookAt,
+    FormatConditionOperator,
+    FormatConditionType,
+)
 
 from hnjcore import JOElement, isvalidp17
 from hnjcore.models.hk import JO as JOhk
 from hnjcore.models.hk import Orderma, PajCnRev, PajInv, PajShp
 from hnjcore.models.hk import Style as Styhk
 from hnjcore.utils.consts import NA
-from utilz import (NamedList, NamedLists, ResourceCtx, splitarray,
-                   triml, daterange, getfiles, isnumeric, appathsep, deepget,
-                   karatsvc, xwu, getvalue, tofloat)
-
+from utilz import (NamedList, NamedLists, ResourceCtx, splitarray, triml,
+                   daterange, getfiles, isnumeric, appathsep, deepget, karatsvc,
+                   xwu, getvalue, tofloat)
+from utilz.xwu import find, findsheet, NamedRanges, insertphoto, col
 
 from .common import _getdefkarat
 from .common import _logger as logger
@@ -42,6 +46,7 @@ from .pajbom import PajBomHhdlr
 from .pajcc import (MPS, PAJCHINAMPS, P17Decoder, PajCalc, PrdWgt, WgtInfo,
                     _tofloat, addwgt)
 from .dbsvcs import HKSvc
+from .miscsvcs import StylePhotoSvc
 
 _accdfmt = "%Y-%m-%d %H:%M:%S"
 _appmgr = xwu.appmgr
@@ -582,6 +587,146 @@ class PajShpHdlr(object):
             _appmgr.ret(kxl)
         return -1 if errors else 1, errors
 
+    @staticmethod
+    def build_bom_sheet(fn, main_offset=3, min_rowcnt=7):
+        _BomSheetBldr().build(fn, main_offset, min_rowcnt)
+
+
+class _BomSheetBldr(object):
+    '''
+    class help to build a bom sheet for manual part check
+    '''
+
+    def build(self, wb, main_offset=3, min_rowcnt=7):
+        app = kxl = fn = None
+        if isinstance(wb, str):
+            fn = wb
+            app, kxl = _appmgr.acq()
+            wb = app.books.open(wb)
+        else:
+            fn = wb.fullname
+        jns = self._read_request(wb)
+        if not jns:
+            return
+        pmp, td = {}, date.today()
+        for sht in wb.sheets:
+            var = PajShpHdlr.read_shp(fn, td, td, sht, None)
+            if var:
+                pmp.update(var)
+        td = {}
+        for x in [x.split(",") for x in pmp if isinstance(x, str)]:
+            if x[0] in jns:
+                td.setdefault(x[1], []).append((
+                    x[0],
+                    jns[x[0]],
+                ))
+        fns, mkrs, nl, mf_rc = PajBomHhdlr(part_chk_ver=1).readbom_manual(
+            wb, td, main_offset, min_rowcnt)
+        if not kxl:
+            app, kxl = _appmgr.acq()
+        wb = app.books.add()
+        self._write_manual(fns, mkrs, wb, nl, mf_rc)
+        app.visible = True
+
+    def _read_request(self, wb):
+        '''
+        read the high-lighted wgt in rpt sheet
+        return a {jn:styno} and a {pcode:jo}
+        '''
+        sht = findsheet(wb, "rpt")
+        if not sht:
+            return None
+        rng, mkrs, idx = find(sht, "Wgt").expand("down"), [], -1
+        for x in rng:
+            if x.api.Interior.ColorIndex == 6:
+                mkrs.append([
+                    idx,
+                ])
+            idx += 1
+        rng = [
+            x for x in NamedRanges(
+                sht.cells(1, 1), alias={
+                    "jono": "工单",
+                    "styno": "款号"
+                })
+        ]
+        for x in mkrs:
+            fn, fns = x[0], None
+            while fn >= 0:
+                fns = rng[fn].styno
+                if fns:
+                    break
+                fn -= 1
+            x.extend((rng[fn].jono, fns))
+        jns = {x[1]: x[2] for x in mkrs}
+        return jns
+
+    def _write_manual(self, lsts, mkrs, wb, nl, mf_rc, ps=None):
+        sht = wb.sheets[0]
+        sht.cells(1, 1).value = lsts
+
+        _col = lambda cn: nl.getcol(cn) + 1
+        _cell = lambda r, cn: sht.cells(r, (nl.getcol(cn) + 1) if isinstance(cn, str) else cn)
+
+        def _cond(api, con, clr=37):
+            api.formatconditions.add(FormatConditionType.xlExpression,
+                                     FormatConditionOperator.xlBetween, con)
+            api.formatconditions(1).interior.colorindex = clr
+
+        _cols = lambda cn, f, t: "%s%d:%s%d" % (col(_col(cn)), f, col(_col(cn)), t - 1)
+        xwu.freeze(_cell(2, "mid"))
+        _cell(2, "mpflag").select()
+        sht.autofit()
+        sht.cells(1, _col('mname')).column_width = 28
+
+        # Y/N validation
+        idx, ln = nl.getcol("mpflag") + 1, len(lsts)
+        rng = sht.range(_cell(2, idx), _cell(ln, idx)).api
+        rng.Validation.Add(3, 1, 1, "Y,N")
+        # Conditional formatting
+        _cond(
+            sht.range(_cell(2, "jono"), _cell(ln, "mwgt")).api,
+            '=$%s2<>""' % col(_col("jono")))
+        _cond(
+            sht.range(_cell(2, "mid"), _cell(ln, "mpflag")).api,
+            '=$%s2="Y"' % col(_col("mpflag")))
+        # images and formula
+        if not ps:
+            ps = StylePhotoSvc()
+        idx = col(_col("image"))
+        bfs = {
+            True:
+            '=IF(ISBLANK(%(ref)s),"",SUMIF(%(mkarat)s,%(ref)s,%(mwgt)s) + SUMIFS(%(pwgt)s,%(pkarat)s,%(ref)s,%(mpflag)s,"Y"))',
+            False:
+            '=SUMIFS(%(pwgt)s,%(pkarat)s,%(ref)s,%(mpflag)s,"N")'
+        }
+        def _formula(idx, bf, mp):
+            mp["ref"] = "%s%d" % (col(_col("mkarat")), idx)
+            sht.cells(idx, _col('mwgt')).formula = bf % mp
+            # excel index - 1 == array index
+            nl.setdata(lsts[idx])
+            if nl.mkarat:
+                mp["ref"] = "%s%d" % (col(_col("mkarat")), idx + 1)
+                sht.cells(idx + 1, _col('mwgt')).formula = bf % mp
+        sht.book.app.visible = True
+        for jono, styno, frm, cnt in mkrs:
+            rng = frm + cnt + 1
+            rng = {
+                "mkarat": _cols('mkarat', frm, frm + mf_rc[0]),
+                "mwgt": _cols('mwgt', frm, frm + mf_rc[0]),
+                "pkarat": _cols('pkarat', frm, rng),
+                "pwgt": _cols('pwgt', frm, rng),
+                "mpflag": _cols('mpflag', frm, rng)
+            }
+            _formula(frm + mf_rc[0], bfs[True], rng)
+            _formula(frm + mf_rc[0] + 2, bfs[False], rng)
+            ln = ps.getPhotos(styno, hints=jono)
+            if ln:
+                insertphoto(
+                    ln[0],
+                    sht.range("%s%d:%s%d" % (idx, frm, idx, frm + cnt)),
+                    margins=(2, 2), alignment="L,T")
+
 
 class PajJCMkr(object):
     """
@@ -734,6 +879,7 @@ class PajJCMkr(object):
             _appmgr.ret(kxl)
         return lst, tarfn
 
+
 def _read_pcodes(fn):
     if not (fn and path.exists(fn)):
         return None
@@ -741,6 +887,7 @@ def _read_pcodes(fn):
     with open(fn, "r+t") as fh:
         pcodes = list({x[:-1] for x in fh.readlines() if x[0] != "#"})
     return pcodes
+
 
 class PajCache(object):
     """
@@ -808,15 +955,19 @@ class PajCache(object):
             pi = var[0]
         else:
             pi = PajItemSt()
-            pi.pcode, pi.docno, pi.createdate, pi.tag = pcode, kwds.get("docno") or NA, kwds["td"], 0
+            pi.pcode, pi.docno, pi.createdate, pi.tag = pcode, kwds.get(
+                "docno") or NA, kwds["td"], 0
             curs[0].add(pi)
             curs[0].flush()
-        var = Query([PajShp.pcode, JOhk.name.label("jono"),
+        var = Query([
+            PajShp.pcode,
+            JOhk.name.label("jono"),
             Styhk.name.label("styno"), JOhk.createdate, PajShp.invdate,
-            PajInv.uprice, PajInv.mps])
+            PajInv.uprice, PajInv.mps
+        ])
         var = var.join(JOhk).join(Orderma).join(Styhk).join(
-            PajInv, and_(PajShp.joid == PajInv.joid,
-            PajShp.invno == PajInv.invno))
+            PajInv,
+            and_(PajShp.joid == PajInv.joid, PajShp.invno == PajInv.invno))
         var = var.filter(PajShp.pcode == pcode)
         var = var.with_session(curs[1]).all()
         if not var:
@@ -878,8 +1029,10 @@ class PajCache(object):
         var = []
         for arr in splitarray([x.id for x in src_its.values()]):
             try:
-                var.extend(cur_tar.query([PajItemSt, PajCnRevSt]).join(PajCnRevSt).
-                    filter(PajCnRevSt.id.in_(arr)).all())
+                var.extend(
+                    cur_tar.query([PajItemSt,
+                                   PajCnRevSt]).join(PajCnRevSt).filter(
+                                       PajCnRevSt.id.in_(arr)).all())
             except:
                 pass
 
@@ -923,6 +1076,7 @@ class PajCache(object):
                 curs[0].add(var)
             curs[0].commit()
         return pcodes
+
 
 class PajUPTracker(object):
     """
@@ -988,14 +1142,17 @@ class PajUPTracker(object):
         """
         q0 = Query([
             PajItemSt.pcode, PajInvSt.jono, PajInvSt.styno, PajInvSt.invdate,
-            PajInvSt.cn, PajInvSt.otcost])
-        q0 = q0.join(PajInvSt).order_by(PajItemSt.pcode).order_by(PajInvSt.invdate)
+            PajInvSt.cn, PajInvSt.otcost
+        ])
+        q0 = q0.join(PajInvSt).order_by(PajItemSt.pcode).order_by(
+            PajInvSt.invdate)
         if pcodes:
             lst = []
             for mp in splitarray(pcodes):
                 try:
-                    lst.extend(q0.filter(PajItemSt.pcode.in_(mp)).with_session(cur).all()
-                    )
+                    lst.extend(
+                        q0.filter(
+                            PajItemSt.pcode.in_(mp)).with_session(cur).all())
                 except:
                     pass
             q0 = lst
@@ -1085,23 +1242,35 @@ class PajUPTracker(object):
                 "drp": "PriceDrop1of3",
                 "pum": "PriceUp"
             }
-            ctss = ("cn invdate".split(), "oc cn jono invdate".split(), )
+            ctss = (
+                "cn invdate".split(),
+                "oc cn jono invdate".split(),
+            )
             shts, pd = [], P17Decoder()
             app = xwu.appmgr.acq()[0]
             wb = app.books.add()
             for x in grouped_data.items():
                 shts.append(wb.sheets.add())
                 sht = shts[-1]
-                sht.name, vvs = mp.get(x[0], "_" + str(random.randint(0, 99999))), []
+                sht.name, vvs = mp.get(x[0],
+                                       "_" + str(random.randint(0, 99999))), []
                 gidx = len(grps[2])
-                ttl0, ttl1 = [None, ] * gidx, [None, ] * gidx
+                ttl0, ttl1 = [
+                    None,
+                ] * gidx, [
+                    None,
+                ] * gidx
                 gidx = 0 if x[0] == "noaff" else 1
                 for z in grps[0][gidx]:
                     ttl0.append(z)
-                    ttl0 += [None,] * (len(ctss[gidx]) * len(grps[1]) - 1)
+                    ttl0 += [
+                        None,
+                    ] * (len(ctss[gidx]) * len(grps[1]) - 1)
                     for xx in grps[1]:
                         ttl1.append(xx)
-                        ttl1 += [None, ] * (len(ctss[gidx]) - 1)
+                        ttl1 += [
+                            None,
+                        ] * (len(ctss[gidx]) - 1)
                 if len(grps[0][gidx]) > 1:
                     vvs.append(ttl0)
                 vvs.append(ttl1)
@@ -1129,4 +1298,3 @@ class PajUPTracker(object):
                     if sht not in shts:
                         sht.delete()
             app.visible = True
-

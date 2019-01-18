@@ -576,6 +576,7 @@ class XwuSuite(TestCase):
         ''' check the insertphoto function '''
         fn = path.join(thispath, "res", "579616.jpg")
         app, tk = xwu.appmgr.acq()
+        app.visible = True
         wb = app.books.open(path.join(thispath, "res", "getTableData.xlsx"))
         sht = wb.sheets[0]
         shp = xwu.insertphoto(fn, sht.range("A1:F15"), margins=(2, 2))
@@ -583,6 +584,13 @@ class XwuSuite(TestCase):
         self.assertAlmostEqual(2, shp.top, 2, 'the top')
         self.assertAlmostEqual(59.99, shp.left, 2, 'the left')
         self.assertAlmostEqual(204.03, shp.width, 2, 'the left')
+        shp.delete()
+        shp = xwu.insertphoto(fn, sht.range("A1:F15"), margins=(2, 2), alignment="L,M")
+        self.assertAlmostEqual(2, shp.top, 2, 'the top')
+        self.assertAlmostEqual(2, shp.left, 2, 'the left')
+        shp = xwu.insertphoto(fn, sht.range("A1:F15"), margins=(2, 2), alignment="R,M")
+        self.assertAlmostEqual(2, shp.top, 2, 'the top')
+        self.assertAlmostEqual(117.97, shp.left, 2, 'the left')
         xwu.appmgr.ret(tk)
 
 

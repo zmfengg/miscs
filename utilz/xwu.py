@@ -28,7 +28,7 @@ __all__ = [
 _validappsws = set(
     "visible,enableevents,displayalerts,asktoupdatelinks,screenupdating".split(
         ","))
-
+_alignment_mp = {"L": 0, "M": 1, "R": 2, "T": 0, "C": 1, "R": 2}
 
 class _AppStg(object):
 
@@ -271,6 +271,15 @@ def safeopen(appx, fn, updlnk=False, readonly=True):
         flag = False
     return appx.books[-1] if flag else None
 
+def _pos(org, ttl, margin, width, align):
+    align, rc = _alignment_mp[align[0]], 0
+    if align == 0:
+        rc = org + margin
+    elif align == 1:
+        rc = org + (ttl - width) / 2
+    else:
+        rc = org + (ttl - width) - margin
+    return rc
 
 def insertphoto(fn, rng, **kwds):
     """
@@ -280,6 +289,7 @@ def insertphoto(fn, rng, **kwds):
     @param max_size: the maximum photo size that I can insert. If the photo is bigger than that, I'll trim it down
                         to the max_size, default is (800, 600)
     @param margins: a tuple(x, y) to specified the margins to the x/y side, default is (5, 5)
+    @param alignment: a mixture of L/C/R and T/M/B, an example is L,T, default is C,M
     """
     mp = updateopts({
         "max_size": ("max_size", tuple(int(x) for x in "800X600".split("X"))),
@@ -321,14 +331,14 @@ def insertphoto(fn, rng, **kwds):
         sz = (rng.width, rng.height)
         fn = [i[0] - 2 * i[1] for i in zip(sz, margins)]
         fn = min(((fn[0], fn[0] * h_w), (fn[1] / h_w, fn[1])))
-        fn = (rng.left + (sz[0] - fn[0]) / 2, rng.top + (sz[1] - fn[1]) / 2,
-              fn[0], fn[1])
+        aligns = mp.get("alignment", "C,M").split(",")
+        aligns = [_pos(x, sz[idx], margins[idx], fn[idx], aligns[idx]) for idx, x in enumerate((rng.left, rng.top,))]
+        fn = (aligns[0], aligns[1], fn[0], fn[1])
         pic.left, pic.top, pic.width, pic.height = fn
     finally:
         if save_it:
             remove(save_it)
     return pic
-
 
 def _chop_at(orgimg, chop_img, chop_at=3):
     """
