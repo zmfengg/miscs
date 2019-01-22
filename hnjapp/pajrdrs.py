@@ -14,12 +14,10 @@ import re
 from collections import namedtuple
 from datetime import date, datetime
 from decimal import Decimal
-from logging import DEBUG
 from os import path
 
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Query
-from xlwings import Book
 from xlwings.constants import (
     LookAt,
     FormatConditionOperator,
@@ -31,9 +29,9 @@ from hnjcore.models.hk import JO as JOhk
 from hnjcore.models.hk import Orderma, PajCnRev, PajInv, PajShp
 from hnjcore.models.hk import Style as Styhk
 from hnjcore.utils.consts import NA
-from utilz import (NamedList, NamedLists, ResourceCtx, splitarray, triml,
+from utilz import (NamedList, NamedLists, ResourceCtx, splitarray, 
                    daterange, getfiles, isnumeric, appathsep, deepget, karatsvc,
-                   xwu, getvalue, tofloat)
+                   xwu, updateopts)
 from utilz.xwu import find, findsheet, NamedRanges, insertphoto, col
 
 from .common import _getdefkarat
@@ -588,16 +586,24 @@ class PajShpHdlr(object):
         return -1 if errors else 1, errors
 
     @staticmethod
-    def build_bom_sheet(fn, main_offset=3, min_rowcnt=7):
-        _BomSheetBldr().build(fn, main_offset, min_rowcnt)
+    def build_bom_sheet(fn, **kwds):
+        ''' build a bom sheet based on the shipment file(with rpt/bc sheet inside)
+        @param min_rowcnt: the minimum rows per item occupied, default is 7
+        @param min_offset: the starting point of the main metal, default is 3
+        @param bom_check_level: 0 for strict, 1 for loose. default is 1
+        '''
+        updateopts({"min_rowcnt": 7, "main_offset": 3, "bom_check_level": 1}, kwds)
+        return _BomSheetBldr(**kwds).build(fn)
 
 
 class _BomSheetBldr(object):
     '''
     class help to build a bom sheet for manual part check
     '''
+    def __init__(self, **kwds):
+        self._min_rowcnt, self._main_offset, self._bom_check_level = kwds.get("min_rowcnt", 7), kwds.get("main_offset", 3), kwds.get("bom_check_level", 1)
 
-    def build(self, wb, main_offset=3, min_rowcnt=7):
+    def build(self, wb):
         app = kxl = fn = None
         if isinstance(wb, str):
             fn = wb
@@ -607,12 +613,21 @@ class _BomSheetBldr(object):
             fn = wb.fullname
         jns = self._read_request(wb)
         if not jns:
-            return
+            return None
         pmp, td = {}, date.today()
+        logger.debug("reading shipment data")
         for sht in wb.sheets:
             var = PajShpHdlr.read_shp(fn, td, td, sht, None)
             if var:
+                # new sample has different storage format
+                if isinstance(iter(var.keys()).__next__(), numbers.Number):
+                    var = {"%s,%s,%s" % (x.jono, x.pcode, x.invno): x for x in var.values()}
                 pmp.update(var)
+        if pmp:
+            logger.debug("totally %d shipment records returned" % len(pmp))
+        else:
+            logger.debug("no shipment data returned")
+            return None
         td = {}
         for x in [x.split(",") for x in pmp if isinstance(x, str)]:
             if x[0] in jns:
@@ -620,13 +635,36 @@ class _BomSheetBldr(object):
                     x[0],
                     jns[x[0]],
                 ))
-        fns, mkrs, nl, mf_rc = PajBomHhdlr(part_chk_ver=1).readbom_manual(
-            wb, td, main_offset, min_rowcnt)
+        pmp = self._read_bc_wgts(wb, td)
+        logger.debug("begin to read bom")
+        fns, mkrs, nl, mf_rc = PajBomHhdlr(part_chk_ver=self._bom_check_level).readbom_manual(
+            wb, td, main_offset=self._main_offset, min_rowcnt=self._min_rowcnt,
+            bc_wgts=pmp)
+        if fns:
+            logger.debug("toally %d bom records returned" % len(fns))
         if not kxl:
             app, kxl = _appmgr.acq()
         wb = app.books.add()
-        self._write_manual(fns, mkrs, wb, nl, mf_rc)
-        app.visible = True
+        self._write_manual(fns, mkrs, wb, nl, mf_rc, ps=None, bcwgts=pmp)
+        return wb
+
+    @staticmethod
+    def _read_bc_wgts(wb, pcodes):
+        #read the bcdata if there is
+        bcwgts = findsheet(wb, 'BCData')
+        bcmp, bcwgts = {x.jobn: x for x in NamedRanges(bcwgts.cells(1, 1))}, {}
+        for x in pcodes.values():
+            jn = x[0][0]
+            bc = bcmp[jn]
+            pw = PrdWgt(WgtInfo(karatsvc.getkarat(int(bc.gmas)).karat, float(bc.gwgt)))
+            rms = [bc["rem%d" % x] for x in range(1, 4) if bc["rem%d" % x] and bc["rem%d" % x][0] == "*"]
+            if rms:
+                for kt, wgt in [x.split() for x in rms]:
+                    idx = kt.find("PTS")
+                    kt = kt[1:idx if idx >= 0 else None]
+                    pw = addwgt(pw, WgtInfo(karatsvc.getkarat(kt).karat, float(wgt)), idx >= 0)
+            bcwgts[jn] = pw
+        return bcwgts
 
     def _read_request(self, wb):
         '''
@@ -661,21 +699,15 @@ class _BomSheetBldr(object):
         jns = {x[1]: x[2] for x in mkrs}
         return jns
 
-    def _write_manual(self, lsts, mkrs, wb, nl, mf_rc, ps=None):
+    def _write_manual(self, lsts, mkrs, wb, nl, mf_rc, **kwds):
         sht = wb.sheets[0]
         sht.cells(1, 1).value = lsts
 
         _col = lambda cn: nl.getcol(cn) + 1
         _cell = lambda r, cn: sht.cells(r, (nl.getcol(cn) + 1) if isinstance(cn, str) else cn)
 
-        def _cond(api, con, clr=37):
-            api.formatconditions.add(FormatConditionType.xlExpression,
-                                     FormatConditionOperator.xlBetween, con)
-            api.formatconditions(1).interior.colorindex = clr
-
         _cols = lambda cn, f, t: "%s%d:%s%d" % (col(_col(cn)), f, col(_col(cn)), t - 1)
         xwu.freeze(_cell(2, "mid"))
-        _cell(2, "mpflag").select()
         sht.autofit()
         sht.cells(1, _col('mname')).column_width = 28
 
@@ -684,15 +716,19 @@ class _BomSheetBldr(object):
         rng = sht.range(_cell(2, idx), _cell(ln, idx)).api
         rng.Validation.Add(3, 1, 1, "Y,N")
         # Conditional formatting
-        _cond(
+        self._cond(
+            sht.range(_cell(2, "jono"), _cell(ln, "mwgt")).api,
+            '=$%s2="_NO_BOM_"' % col(_col("mname")), 3)
+        self._cond(
             sht.range(_cell(2, "jono"), _cell(ln, "mwgt")).api,
             '=$%s2<>""' % col(_col("jono")))
-        _cond(
+        self._cond(
+            sht.range(_cell(2, "mid"), _cell(ln, "mpflag")).api,
+            '=$%s2="_NO_BOM_"' % col(_col("mname")), 3)
+        self._cond(
             sht.range(_cell(2, "mid"), _cell(ln, "mpflag")).api,
             '=$%s2="Y"' % col(_col("mpflag")))
         # images and formula
-        if not ps:
-            ps = StylePhotoSvc()
         idx = col(_col("image"))
         bfs = {
             True:
@@ -700,32 +736,51 @@ class _BomSheetBldr(object):
             False:
             '=SUMIFS(%(pwgt)s,%(pkarat)s,%(ref)s,%(mpflag)s,"N")'
         }
-        def _formula(idx, bf, mp):
+        def _formula(idx, bf, mp, is_main=True):
             mp["ref"] = "%s%d" % (col(_col("mkarat")), idx)
             sht.cells(idx, _col('mwgt')).formula = bf % mp
+            if not is_main:
+                return
             # excel index - 1 == array index
             nl.setdata(lsts[idx])
             if nl.mkarat:
                 mp["ref"] = "%s%d" % (col(_col("mkarat")), idx + 1)
                 sht.cells(idx + 1, _col('mwgt')).formula = bf % mp
-        sht.book.app.visible = True
+        bcwgts, ps = [kwds.get(x) for x in "bcwgts ps".split()]
+        if not ps:
+            ps = StylePhotoSvc()
         for jono, styno, frm, cnt in mkrs:
-            rng = frm + cnt + 1
+            rng, ln = frm + cnt + 1, frm + mf_rc[0]
             rng = {
-                "mkarat": _cols('mkarat', frm, frm + mf_rc[0]),
-                "mwgt": _cols('mwgt', frm, frm + mf_rc[0]),
+                "mkarat": _cols('mkarat', frm, ln),
+                "mwgt": _cols('mwgt', frm, ln),
                 "pkarat": _cols('pkarat', frm, rng),
                 "pwgt": _cols('pwgt', frm, rng),
                 "mpflag": _cols('mpflag', frm, rng)
             }
             _formula(frm + mf_rc[0], bfs[True], rng)
-            _formula(frm + mf_rc[0] + 2, bfs[False], rng)
+            _formula(frm + mf_rc[0] + 2, bfs[False], rng, False)
+            # for the bc validation, high-light differences
+            if bcwgts:
+                ln = frm + self._main_offset
+                self._cond(
+                    sht.range(_cell(ln, "mkarat"), _cell(ln + 3, "mwgt")).api,
+                    "=" + _cols("mkarat", ln, ln + 5).replace(":", "<>"), 3)
             ln = ps.getPhotos(styno, hints=jono)
             if ln:
                 insertphoto(
                     ln[0],
                     sht.range("%s%d:%s%d" % (idx, frm, idx, frm + cnt)),
                     margins=(2, 2), alignment="L,T")
+        _cell(2, "mpflag").select()
+
+    @staticmethod
+    def _cond(api, con, clr=37):
+        # https://support.microsoft.com/en-us/help/895562/the-conditional-formatting-may-be-set-incorrectly-when-you-use-vba-in
+        xwu.apirange(api).select()        
+        api.formatconditions.add(FormatConditionType.xlExpression,
+                                    FormatConditionOperator.xlEqual, con)
+        api.formatconditions(api.formatconditions.count).interior.colorindex = clr
 
 
 class PajJCMkr(object):

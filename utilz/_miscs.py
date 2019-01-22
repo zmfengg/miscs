@@ -109,7 +109,8 @@ def appathsep(fldr):
 def updateopts(defaults, kwds):
     """
     return a dict which merge kwds and defaults's value, if neither, the item value is None
-    @param defaults: dict, an example, {"name": ("alias1,alias2", SomeValue)}
+    @param defaults: dict, an example, {"name": ("alias1,alias2", SomeValue)} or 
+        {"name": value}
     @param kwds: dict, always put the one you accepted from your function
     """
     if not any((defaults, kwds)):
@@ -119,10 +120,13 @@ def updateopts(defaults, kwds):
     if not kwds:
         kwds = {}
     for knw in defaults.items():
-        its = [x for x in knw[1][0].split(",") if x in kwds]
+        tp = isinstance(knw[1], (tuple, list))
+        its = [x for x in knw[1][0].split(",") if x in kwds] if tp else (knw[0], ) if knw[0] in kwds else None
         if not its:
-            kwds[knw[0]] = knw[1][1]
+            its = knw[1][1] if tp else knw[1]
+            kwds[knw[0]] = its
         elif knw[0] != its[0]:
+            # changed the name
             kwds[knw[0]] = kwds[its[0]]
             del kwds[its[0]]
     return kwds

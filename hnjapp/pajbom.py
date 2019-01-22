@@ -15,17 +15,13 @@ from re import compile as cpl
 from sqlalchemy import and_
 from sqlalchemy.orm import Query
 from xlwings import Book
-from xlwings.constants import (BorderWeight, Constants, LineStyle, 
-                               FormatConditionOperator, FormatConditionType)
 from hnjcore import JOElement, isvalidp17
 from hnjcore.models.hk import JO as JOhk
 from hnjcore.models.hk import Orderma, PajShp
 from hnjcore.models.hk import Style as Styhk
 from utilz import (NamedList, NamedLists, ResourceCtx, getfiles, getvalue,
                    karatsvc, tofloat, triml, xwu)
-from utilz.xwu import NamedRanges
 from utilz.xwu import appmgr as _appmgr
-from utilz.xwu import col, find, findsheet, insertphoto
 
 from .common import _logger as logger
 from .localstore import PajBom, PajItem
@@ -88,51 +84,38 @@ class PajBomHhdlr(object):
 
     def _parse_karat(self, mat, wis=None, is_mstr=True):
         """ return karat(int type) from material string """
-        kt, karat = None, None
         if is_mstr:
             mt = self._ptn_oz.search(mat)
             if not mt:
-                # no /oz sign
-                for x in (j for y in (200, 9925) for j in self._one_hit_mp[y]):
-                    karat = x.search(mat)
-                    if karat:
-                        break
-                if not karat:
+                # no /oz sign, only 200 and 9925 is allowed
+                if not [1 for y in (200, 9925) for j in self._one_hit_mp[y] if j.search(mat)]:
                     return None
         kt = max(x[0] if y.search(mat) else 0 for x in self._one_hit_mp.items() for y in x[1])
         if not kt:
             mt = self._ptn_k_gold.search(mat) or self._ptn_digits.search(mat)
-            if mt:
-                kt = int(mt.group(1))
-        if not kt:
-            # not found, has must have keyword? if yes, follow master
-            voids = [1 for x in self._voids if mat.find(x) >= 0]
-            if not voids and wis and any(wis):
-                s0 = mat.lower()
-                for x in self._mtl_parts:
-                    if s0.find(x) < 0:
-                        continue
-                    if s0.find(u"金") >= 0:
-                        for wi in (x for x in wis if x):
-                            karat = karatsvc.getkarat(wi.karat)
-                            if karat and karat.category == karatsvc.CATEGORY_GOLD:
-                                return wi.karat
-                    # finally no one is found, follow master
-                    # kt = wis[0].karat
-
-                    # but zhangyuting claimed in e-mail with title "配件的"物料名称"里没有金" on 2018/12/10 that the karat should be 925
-                    # so let it to be 925
-                    kt = 925
-                    break
-            if not kt and wis:
-                if logger.isEnabledFor(DEBUG) and not voids:
-                    logger.error(
-                        "No karat found for (%s) and no default provided" %
-                        mat)
+            kt = int(mt.group(1)) if mt else None
         if kt:
-            karat = karatsvc.getkarat(kt) or karatsvc.getbyfineness(kt)
-            kt = karat.karat if karat else None
-        return kt
+            kt = karatsvc.getkarat(kt) or karatsvc.getbyfineness(kt)
+            return kt.karat if kt else None
+        # not found, has must have keyword? if yes, follow master
+        voids = [1 for x in self._voids if mat.find(x) >= 0]
+        if not voids and wis and any(wis):
+            s0 = mat.lower()
+            if s0.find(u"金") < 0:
+                # finally no one is found, follow master
+                # kt = wis[0].karat
+                # but zhangyuting claimed in e-mail with title "配件的"物料名称"里没有金" on 2018/12/10 that the karat should be 925
+                # so let it to be 925
+                return 925
+            if any([x for x in self._mtl_parts if s0.find(x) >= 0]):
+                for karat in (karatsvc.getkarat(x.karat) for x in wis if x):
+                    if not karat or karat.category != karatsvc.CATEGORY_GOLD:
+                        continue
+                    return karat.karat
+        if logger.isEnabledFor(DEBUG) and not kt and wis and not voids:
+            logger.error("No karat found for (%s) and no default provided" %
+                mat)
+        return None
 
     def _ispendant(self, pcode):
         return self._pcdec.decode(pcode, "PRODTYPE").find("吊") >= 0
@@ -153,7 +136,7 @@ class PajBomHhdlr(object):
         else:
             fns = getfiles(fldr, "xls") if path.isdir(fldr) else (fldr,)
             if not fns:
-                return
+                return None
             app, kxl = _appmgr.acq()
             try:
                 for fn in fns:
@@ -166,7 +149,7 @@ class PajBomHhdlr(object):
         self._adjust_wgts(pmap)
         return pmap
 
-    def readbom_manual(self, wb, pcodeset, main_offset=3, min_rowcnt=7):
+    def readbom_manual(self, wb, pcodeset, **kwds):
         '''
         from a shipment file, read the boms and return
         a tuple ready for inserting into sheet
@@ -174,26 +157,17 @@ class PajBomHhdlr(object):
         a namedlist for column lookup of the first returned argument
         '''
         pmap = {}
+        main_offset, min_rowcnt = kwds.get("main_offset", 3), kwds.get("min_rowcnt", 7)
+        bcwgts = kwds.get("bc_wgts", {})
 
         self._read_book(wb, pmap)
         self._adjust_wgts(pmap)
 
-        def _fill_mstr(qnw, nl):
-            nl.mkarat, nl.mwgt = qnw
-        def _fill_dtl(dtl, nl):
-            nl.mid, nl.mname, nl.pkarat, nl.pwgt = [dtl.get(x) for x in "matid name karat wgt".split()]
-            nl.mpflag = 'N' if dtl.get("part_hints", False) else 'Y'
-        def _set_sub(idx, ttl):
-            nl.setdata(fn[idx])
-            nl.rcat, nl.mkarat = ttl, kts[0]
-            if len(kts) > 1:
-                nl.setdata(fn[idx + 1])
-                nl.mkarat = kts[1]
-        fns = 'jono rcat mkarat mwgt mid mname pkarat pwgt mpflag image'.split()
+        lsts = 'jono rcat mkarat mwgt mid mname pkarat pwgt mpflag image'.split()
         main_offset = min(max(2, main_offset), 5)
-        min_rowcnt = max(main_offset + 4, min_rowcnt)
-        nl = NamedList(fns)
-        fns, mkrs = [fns, ], []
+        min_rowcnt = max(main_offset + 4 * (2 if bcwgts else 1), min_rowcnt)
+        nl = NamedList(lsts)
+        lsts, mkrs = [lsts, ], []
         if pcodeset:
             #sort by JO#
             pmap = sorted([x for x in pmap.items() if x[0] in pcodeset], key=lambda x: pcodeset.get(x[0])[0])
@@ -204,45 +178,82 @@ class PajBomHhdlr(object):
                 continue
             fn, kts = [], []
             pts, mstrs = [x.get(y, []) for y in "parts mstr".split()]
+            pjns = [y[0] for y in pcodeset[pcode]]
             pts = [x for x in pts if x.get("karat")]
-            lns = [len(x) for x in (mstrs, pts)]
+            lns = [len(x) for x in (mstrs, pts, pjns)]
             for idx in range(max(lns)):
                 fn.append(nl.newdata(True))
                 if idx == 0:
                     nl.image = pcode
                     nl.jono, nl.rcat = pcodeset[pcode][0]
                     nl.jono = "'" + nl.jono
+                elif idx < lns[2]:
+                    # merge JOs with same pcode
+                    nl.jono = "'" + pjns[idx]
                 if idx < lns[0]:
-                    _fill_mstr(mstrs[idx], nl)
+                    self._fill_mstr(mstrs[idx], nl)
                     kts.append(nl.mkarat)
                 if idx < lns[1]:
-                    _fill_dtl(pts[idx], nl)
+                    self._fill_dtl(pts[idx], nl)
             idx += 1
-            if idx < min_rowcnt:
-                for idx in range(min_rowcnt - idx):
+            jn = fn[0][nl.getcol("jono")][1:]
+            amrc = min_rowcnt - 0 if jn in bcwgts else 4
+            if idx < amrc:
+                for idx in range(amrc - idx):
                     fn.append(nl.newdata(True))
             if kts:
-                _set_sub(main_offset, "Main")
-                _set_sub(main_offset + 2, "Part")
+                self._set_sub(nl, main_offset, "Main", fn, kts)
+                self._set_sub(nl, main_offset + 2, "Part", fn, kts, False)
+            kts = bcwgts.get(jn)
+            if kts:
+                self._fill_bc(nl, main_offset + 2 * 2, kts, fn)
             nl.setdata(fn[0])
-            mkrs.append((nl.jono, nl.rcat, len(fns) + 1, len(fn) - 1,))
-            fns.extend(fn)
+            mkrs.append((nl.jono, nl.rcat, len(lsts) + 1, len(fn) - 1,))
+            lsts.extend(fn)
             del pcodeset[pcode]
         # if there is still items in pcodeset, throw it to the result
         if pcodeset:
             for x in pcodeset.items():
-                fns.append(nl.newdata(True))
+                lsts.append(nl.newdata(True))
                 pcode = x[1][0]
-                nl.image, nl.jono, nl.rcat = x[0], pcode[0], "_" + pcode[1]
-        return fns, mkrs, nl, (main_offset, min_rowcnt)
+                nl.image, nl.jono, nl.rcat, nl.mname = x[0], "'" + pcode[0], pcode[1], "_NO_BOM_"
+        return lsts, mkrs, nl, (main_offset, min_rowcnt)
+
+    @staticmethod
+    def _fill_mstr(qnw, nl):
+        nl.mkarat, nl.mwgt = qnw
+
+    @staticmethod
+    def _fill_dtl(dtl, nl):
+        nl.mid, nl.mname, nl.pkarat, nl.pwgt = [dtl.get(x) for x in "matid name karat wgt".split()]
+        nl.mpflag = 'N' if dtl.get("part_hints", False) else 'Y'
     
-    def _part_chk(self, bi, chns, lks, has_semi_chn):
+    @staticmethod
+    def _fill_bc(nl, ridx, bcwgt, fn):
+        wgts = [(x.karat, x.wgt) if x else (None, None) for x in bcwgt.wgts]
+        for x, wgt in enumerate(wgts):
+            nl.setdata(fn[ridx + x])
+            nl.mkarat, nl.mwgt = wgt
+            if x == 0:
+                nl.rcat = "Main.BC"
+            elif x == 2:
+                nl.rcat = "Part.BC"
+
+    @staticmethod
+    def _set_sub(nl, idx, ttl, fn, kts, is_main=True):
+        nl.setdata(fn[idx])
+        nl.rcat, nl.mkarat = ttl, kts[0]
+        if is_main and len(kts) > 1:
+            nl.setdata(fn[idx + 1])
+            nl.mkarat = kts[1]
+
+    def _part_chk_strict(self, bi, chns, lks, has_semi_chn):
         """
         determine if the given bom item is a part
         """
         return chns and bi["_id"] in chns or lks and (lks.get(bi["_id"]) or sum([1 for v in self._pts_kws if bi["name"].find(v) >= 0]))
 
-    def _part_chk_l(self, bi, chns, lks, has_semi_chn):
+    def _part_chk_loose(self, bi, chns, lks, has_semi_chn):
         """
         loose rule for determining if the given bom item is a part
         """
@@ -251,7 +262,7 @@ class PajBomHhdlr(object):
     def _adjust_wgts(self, pmap):
         if not pmap:
             return
-        part_ck = self._part_chk if not self._part_chk_ver else self._part_chk_l
+        is_part = self._part_chk_strict if not self._part_chk_ver else self._part_chk_loose
         for pcode, prop in pmap.items():
             if self._from_his(pcode, prop):
                 continue
@@ -261,8 +272,8 @@ class PajBomHhdlr(object):
                 for y in ch_lks:
                     prdwgt = addwgt(prdwgt, WgtInfo(y[0], y[1]))
             else:
-                logger.debug("%s does not have master weight" % pcode)
                 prdwgt = PrdWgt(WgtInfo(0, 0))
+                logger.debug("%s does not have master weight" % pcode)
             if "parts" not in prop:
                 prop["mtlwgt"] = prdwgt._replace(netwgt=prop.get("netwgt"))
                 continue
@@ -283,7 +294,7 @@ class PajBomHhdlr(object):
                     subs += y["wgt"]
                     continue
                 y["karat"], var = kt, False
-                var = part_ck(y, chns, lks, has_semi_chn)
+                var = is_part(y, chns, lks, has_semi_chn)
                 if var:
                     #make sure part candidate has the same karat with old
                     wgt0 = prdwgt.part
@@ -311,17 +322,15 @@ class PajBomHhdlr(object):
         return True
 
 
-    @classmethod
-    def _has_semi_chn(cls, chns):
+    @staticmethod
+    def _has_semi_chn(chns):
         """
         check if the chains contains semi-chain, that is, 成品链
         """
-        lc = 0
         for y in chns.values():
-            lc = tofloat(y["length"])
-            if lc:
-                break
-        return bool(lc)
+            if tofloat(y["length"]):
+                return True
+        return False
 
     def _read_book(self, wb, pmap):
         """
@@ -441,10 +450,7 @@ class PajBomHhdlr(object):
         """
 
         def _fmtwgt(prdwgt):
-            wgt = (prdwgt.main, prdwgt.aux, prdwgt.part)
-            lst = []
-            [lst.extend((x.karat, x.wgt) if x else (0, 0)) for x in wgt]
-            return lst
+            return [(x.karat, x.wgt) if x else (0, 0) for x in prdwgt.wgts]
 
         def _samewgt(wgt0, wgt1):
             wis = []
@@ -457,8 +463,7 @@ class PajBomHhdlr(object):
                     break
                 if not all(wts):
                     continue
-                eq = wts[0].karat == wts[0].karat or \
-                    karatsvc.getfamily(wts[0].karat) == karatsvc.getfamily(wts[1].karat)
+                eq = wts[0].karat == wts[0].karat or karatsvc.getfamily(wts[0].karat) == karatsvc.getfamily(wts[1].karat)
                 if not eq:
                     break
                 eq = abs(round(wis[0][i].wgt - wis[1][i].wgt, 2)) <= 0.02
@@ -477,9 +482,7 @@ class PajBomHhdlr(object):
             mindt = datetime(2017, 1, 1)
         qp = Query(Styhk.id).join(Orderma, Orderma.styid == Styhk.id) \
             .join(JOhk, Orderma.id == JOhk.orderid).join(PajShp, PajShp.joid == JOhk.id)
-        qj = Query([JOhk.name.label("jono"), Styhk.name.label("styno"), JOhk.running]) \
-            .join(Orderma, Orderma.id == JOhk.orderid).join(Styhk).filter(JOhk.createdate >= mindt) \
-            .order_by(JOhk.createdate)
+        qj = Query([JOhk.name.label("jono"), Styhk.name.label("styno"), JOhk.running]).join(Orderma, Orderma.id == JOhk.orderid).join(Styhk).filter(JOhk.createdate >= mindt).order_by(JOhk.createdate)
         with hksvc.sessionctx() as sess:
             cnt, ln = 0, len(pmap)
             for x in pmap.values():
@@ -487,7 +490,7 @@ class PajBomHhdlr(object):
                 if isinstance(wgt, PrdWgt):
                     lst.extend(_fmtwgt((wgt)))
                 else:
-                    lst.extend((0, 0, 0, 0, 0, 0))
+                    lst.extend((0, ) * 6)
                 vvs.append(lst)
 
                 pcode = x["pcode"]
@@ -537,7 +540,8 @@ class _PajBomDAO(object):
         self._sessmgr = sessmgr
 
     def readsource(self, wb):
-        ''' read the commited result from the workbook as a list of dict.
+        '''
+        read the commited result from the workbook as a list of dict.
         Only reading is perform, no validation/regulation will be perform
         '''
         tk = None
@@ -562,12 +566,10 @@ class _PajBomDAO(object):
         if not rngs:
             _ret_app(wb, tk)
             return None
-        phase = 0
-        nls = [x for x in xwu.NamedRanges(xwu.usedrange(sht), alias={"jono": "JO#", "pcode": "Image"})]
         nmp = {"id": "mid", "name": "mname", "karat": "pkarat", "wgt": "pwgt", "flag": "mpflag"}
-        nms, lsts, mp = tuple(nmp.values()), [], None
+        nms, lsts = tuple(nmp.values()), []
         nl_mat = NamedList(tuple(nmp.keys()))
-        for nl in nls:
+        for nl in xwu.NamedRanges(xwu.usedrange(sht), alias={"jono": "JO#", "pcode": "Image"}):
             jn = JOElement.tostr(nl.jono)
             if jn:
                 if jn[0] == "'":
@@ -583,9 +585,8 @@ class _PajBomDAO(object):
                 continue
             jn = triml(nl.rcat)
             phase = 1 if jn == "main" else 2 if jn == "part" else phase
-            if nl.mkarat:
-                if phase == 0:
-                    mp["mtlwgt"] = addwgt(mp["mtlwgt"], WgtInfo(int(nl.mkarat), nl.mwgt))
+            if nl.mkarat and phase == 0:
+                mp["mtlwgt"] = addwgt(mp["mtlwgt"], WgtInfo(int(nl.mkarat), nl.mwgt))
         _ret_app(wb, tk)
         return lsts, nl_mat
 
@@ -636,18 +637,21 @@ class _PajBomDAO(object):
         return None
 
 
-    def _new_pi(self, pcode, jono):
+    @staticmethod
+    def _new_pi(pcode, jono):
         ''' create a new PajItem instance '''
         pi = PajItem()
         pi.pcode, pi.docno, pi.createdate, pi.tag = pcode, jono, datetime.today(), 0
         return pi
 
-    def _get_boms(self, cur, pi):
+    @staticmethod
+    def _get_boms(cur, pi):
         ''' the existing boms of given pajitem '''
         lst = cur.query(PajBom).filter(PajBom.pid == pi.id).all()
         return lst if lst else []
 
-    def _new_boms(self, pi, mtlwgt, parts, nl):
+    @staticmethod
+    def _new_boms(pi, mtlwgt, parts, nl):
         ''' create a tuple of PajBom items, the mtlwgt will be also put as mat id = -karat '''
         for wgt in mtlwgt.wgts:
             if not wgt:
