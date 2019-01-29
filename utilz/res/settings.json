@@ -1,0 +1,660 @@
+{
+    "KaratSvc": {
+        "karats": [
+            {
+                "karat": 8,
+                "name": "8K",
+                "fineness": 0.333,
+                "category": "GOLD",
+                "color": "YELLOW"
+            },
+            {
+                "karat": 88,
+                "name": "8KW",
+                "fineness": 0.333,
+                "category": "GOLD",
+                "color": "WHITE"
+            },
+            {
+                "karat": 81,
+                "name": "8KR",
+                "fineness": 0.333,
+                "category": "GOLD",
+                "color": "ROSE"
+            },
+            {
+                "karat": 9,
+                "name": "9K",
+                "fineness": 0.375,
+                "category": "GOLD",
+                "color": "YELLOW"
+            },
+            {
+                "karat": 98,
+                "name": "9KW",
+                "fineness": 0.375,
+                "category": "GOLD",
+                "color": "WHITE"
+            },
+            {
+                "karat": 91,
+                "name": "9KR",
+                "fineness": 0.375,
+                "category": "GOLD",
+                "color": "ROSE"
+            },
+            {
+                "karat": 10,
+                "name": "10K",
+                "fineness": 0.417,
+                "category": "GOLD",
+                "color": "YELLOW"
+            },
+            {
+                "karat": 108,
+                "name": "10KW",
+                "fineness": 0.417,
+                "category": "GOLD",
+                "color": "WHITE"
+            },
+            {
+                "karat": 101,
+                "name": "10KR",
+                "fineness": 0.417,
+                "category": "GOLD",
+                "color": "ROSE"
+            },
+            {
+                "karat": 14,
+                "name": "14K",
+                "fineness": 0.585,
+                "category": "GOLD",
+                "color": "YELLOW"
+            },
+            {
+                "karat": 148,
+                "name": "14KW",
+                "fineness": 0.585,
+                "category": "GOLD",
+                "color": "WHITE"
+            },
+            {
+                "karat": 141,
+                "name": "14KR",
+                "fineness": 0.585,
+                "category": "GOLD",
+                "color": "ROSE"
+            },
+            {
+                "karat": 18,
+                "name": "18K",
+                "fineness": 0.75,
+                "category": "GOLD",
+                "color": "YELLOW"
+            },
+            {
+                "karat": 188,
+                "name": "18KW",
+                "fineness": 0.75,
+                "category": "GOLD",
+                "color": "WHITE"
+            },
+            {
+                "karat": 181,
+                "name": "18KR",
+                "fineness": 0.75,
+                "category": "GOLD",
+                "color": "ROSE"
+            },
+            {
+                "karat": 24,
+                "name": "24K",
+                "fineness": 1.0,
+                "category": "GOLD",
+                "color": "YELLOW"
+            },
+            {
+                "karat": 200,
+                "name": "BRONZE",
+                "fineness": 1.0,
+                "category": "BRONZE",
+                "color": "YELLOW"
+            },
+            {
+                "karat": 304,
+                "name": "STAINLESS",
+                "fineness": 1.0,
+                "category": "STAINLESS",
+                "color": "WHITE"
+            },
+            {
+                "karat": "925PAJ",
+                "name": "S925PAJ",
+                "fineness": 0.95,
+                "category": "SILVER",
+                "color": "WHITE"
+            },
+            {
+                "karat": 925,
+                "name": "925",
+                "fineness": 0.925,
+                "category": "SILVER",
+                "color": "WHITE"
+            },
+            {
+                "karat": "S925",
+                "name": "S925",
+                "fineness": 0.925,
+                "category": "SILVER",
+                "color": "WHITE"
+            },
+            {
+                "karat": 9925,
+                "name": "BG",
+                "fineness": 0.356,
+                "category": "BONDEDGOLD",
+                "color": "YELLOW"
+            }
+        ],
+        "category_alias": {
+            "BG": "BONDEDGOLD",
+            "COPPER": "BRONZE"
+        },
+        "_priorities": {
+            "BRONZE": -100,
+            "SILVER": -50,
+            "BONDEDGOLD": -10,
+            "GOLD": 10
+        }
+    },
+    "RingSizeSvc": {
+        "sizes": [
+            {
+                "US": "3",
+                "UK": "F 1/2",
+                "EU": "44",
+                "DE": "14",
+                "BR": "7",
+                "ASIA": "4",
+                "SWISS": "4"
+            },
+            {
+                "US": "3 1/4",
+                "UK": "G",
+                "EU": "44.5",
+                "DE": "14.25",
+                "BR": "8",
+                "ASIA": "5",
+                "SWISS": "5"
+            },
+            {
+                "US": "3 1/2",
+                "UK": "G 1/2",
+                "EU": "45.5",
+                "DE": "14.50",
+                "BR": "9",
+                "ASIA": "-",
+                "SWISS": "5.5"
+            },
+            {
+                "US": "3 3/4",
+                "UK": "H",
+                "EU": "46",
+                "DE": "14.75",
+                "BR": "-",
+                "ASIA": "6",
+                "SWISS": "6"
+            },
+            {
+                "US": "4",
+                "UK": "H 1/2",
+                "EU": "46.5",
+                "DE": "15",
+                "BR": "10",
+                "ASIA": "7",
+                "SWISS": "7"
+            },
+            {
+                "US": "4 1/4",
+                "UK": "I",
+                "EU": "47",
+                "DE": "-",
+                "BR": "-",
+                "ASIA": "-",
+                "SWISS": "7.5"
+            },
+            {
+                "US": "4 1/2",
+                "UK": "J",
+                "EU": "48",
+                "DE": "15.25",
+                "BR": "11",
+                "ASIA": "8",
+                "SWISS": "8"
+            },
+            {
+                "US": "4 3/4",
+                "UK": "J 1/2",
+                "EU": "48.5",
+                "DE": "15.50",
+                "BR": "12",
+                "ASIA": "-",
+                "SWISS": "9"
+            },
+            {
+                "US": "5",
+                "UK": "K",
+                "EU": "49",
+                "DE": "15.75",
+                "BR": "13",
+                "ASIA": "9",
+                "SWISS": "9.5"
+            },
+            {
+                "US": "5 1/4",
+                "UK": "K 1/2",
+                "EU": "50",
+                "DE": "-",
+                "BR": "-",
+                "ASIA": "10",
+                "SWISS": "10"
+            },
+            {
+                "US": "5 1/2",
+                "UK": "L",
+                "EU": "50.5",
+                "DE": "16",
+                "BR": "14",
+                "ASIA": "-",
+                "SWISS": "10.5"
+            },
+            {
+                "US": "5 3/4",
+                "UK": "L 1/2",
+                "EU": "51",
+                "DE": "16.25",
+                "BR": "-",
+                "ASIA": "11",
+                "SWISS": "11.5"
+            },
+            {
+                "US": "6",
+                "UK": "M",
+                "EU": "51.5",
+                "DE": "16.50",
+                "BR": "15",
+                "ASIA": "-",
+                "SWISS": "12"
+            },
+            {
+                "US": "6 1/4",
+                "UK": "M 1/2",
+                "EU": "52.5",
+                "DE": "16.75",
+                "BR": "16",
+                "ASIA": "12",
+                "SWISS": "12.5"
+            },
+            {
+                "US": "6 1/2",
+                "UK": "N",
+                "EU": "53",
+                "DE": "17",
+                "BR": "-",
+                "ASIA": "13",
+                "SWISS": "13.5"
+            },
+            {
+                "US": "6 3/4",
+                "UK": "N 1/2",
+                "EU": "53.5",
+                "DE": "-",
+                "BR": "17",
+                "ASIA": "-",
+                "SWISS": "14"
+            },
+            {
+                "US": "7",
+                "UK": "O",
+                "EU": "54.5",
+                "DE": "17.25",
+                "BR": "-",
+                "ASIA": "14",
+                "SWISS": "14.5"
+            },
+            {
+                "US": "7 1/4",
+                "UK": "O 1/2",
+                "EU": "55",
+                "DE": "17.50",
+                "BR": "18",
+                "ASIA": "-",
+                "SWISS": "15"
+            },
+            {
+                "US": "7 1/2",
+                "UK": "P",
+                "EU": "55.5",
+                "DE": "17.75",
+                "BR": "19",
+                "ASIA": "15",
+                "SWISS": "16"
+            },
+            {
+                "US": "7 3/4",
+                "UK": "P 1/2",
+                "EU": "56.5",
+                "DE": "18",
+                "BR": "-",
+                "ASIA": "16",
+                "SWISS": "16.5"
+            },
+            {
+                "US": "8",
+                "UK": "Q",
+                "EU": "57",
+                "DE": "18.25",
+                "BR": "20",
+                "ASIA": "-",
+                "SWISS": "17"
+            },
+            {
+                "US": "8 1/4",
+                "UK": "Q 1/2",
+                "EU": "57.5",
+                "DE": "-",
+                "BR": "-",
+                "ASIA": "17",
+                "SWISS": "18"
+            },
+            {
+                "US": "8 1/2",
+                "UK": "R",
+                "EU": "58",
+                "DE": "18.50",
+                "BR": "21",
+                "ASIA": "-",
+                "SWISS": "18.5"
+            },
+            {
+                "US": "8 3/4",
+                "UK": "R 1/2",
+                "EU": "59",
+                "DE": "18.75",
+                "BR": "22",
+                "ASIA": "18",
+                "SWISS": "19"
+            },
+            {
+                "US": "9",
+                "UK": "S",
+                "EU": "59.5",
+                "DE": "19",
+                "BR": "-",
+                "ASIA": "19",
+                "SWISS": "20"
+            },
+            {
+                "US": "9 1/4",
+                "UK": "S 1/2",
+                "EU": "60",
+                "DE": "19.25",
+                "BR": "23",
+                "ASIA": "-",
+                "SWISS": "20.5"
+            },
+            {
+                "US": "9 1/2",
+                "UK": "T",
+                "EU": "61",
+                "DE": "19.50",
+                "BR": "24",
+                "ASIA": "20",
+                "SWISS": "21"
+            },
+            {
+                "US": "9 3/4",
+                "UK": "T 1/2",
+                "EU": "61.5",
+                "DE": "19.75",
+                "BR": "-",
+                "ASIA": "-",
+                "SWISS": "21.5"
+            },
+            {
+                "US": "10",
+                "UK": "U",
+                "EU": "62",
+                "DE": "20",
+                "BR": "25",
+                "ASIA": "21",
+                "SWISS": "22.5"
+            },
+            {
+                "US": "10 1/4",
+                "UK": "U 1/2",
+                "EU": "63",
+                "DE": "-",
+                "BR": "-",
+                "ASIA": "22",
+                "SWISS": "23"
+            },
+            {
+                "US": "10 1/2",
+                "UK": "V",
+                "EU": "63.5",
+                "DE": "20.25",
+                "BR": "26",
+                "ASIA": "-",
+                "SWISS": "23.5"
+            },
+            {
+                "US": "10 3/4",
+                "UK": "V 1/2",
+                "EU": "64",
+                "DE": "20.50",
+                "BR": "27",
+                "ASIA": "23",
+                "SWISS": "24.5"
+            },
+            {
+                "US": "11",
+                "UK": "W",
+                "EU": "64.5",
+                "DE": "20.75",
+                "BR": "-",
+                "ASIA": "24",
+                "SWISS": "25"
+            },
+            {
+                "US": "11 1/4",
+                "UK": "W 1/2",
+                "EU": "65.5",
+                "DE": "-",
+                "BR": "28",
+                "ASIA": "-",
+                "SWISS": "25.5"
+            },
+            {
+                "US": "11 1/2",
+                "UK": "X",
+                "EU": "66",
+                "DE": "21",
+                "BR": "-",
+                "ASIA": "25",
+                "SWISS": "26"
+            },
+            {
+                "US": "11 3/4",
+                "UK": "X 1/2",
+                "EU": "66.5",
+                "DE": "21.25",
+                "BR": "29",
+                "ASIA": "26",
+                "SWISS": "27"
+            },
+            {
+                "US": "12",
+                "UK": "Y",
+                "EU": "67.5",
+                "DE": "21.50",
+                "BR": "30",
+                "ASIA": "-",
+                "SWISS": "27.5"
+            },
+            {
+                "US": "12 1/4",
+                "UK": "Y 1/2",
+                "EU": "68",
+                "DE": "21.75",
+                "BR": "-",
+                "ASIA": "27",
+                "SWISS": "28"
+            },
+            {
+                "US": "12 1/2",
+                "UK": "Z",
+                "EU": "68.5",
+                "DE": "22",
+                "BR": "31",
+                "ASIA": "28",
+                "SWISS": "29"
+            },
+            {
+                "US": "12 3/4",
+                "UK": "Z 1/2",
+                "EU": "69",
+                "DE": "-",
+                "BR": "-",
+                "ASIA": "-",
+                "SWISS": "29.5"
+            },
+            {
+                "US": "13",
+                "UK": "Z+1",
+                "EU": "70",
+                "DE": "22.25",
+                "BR": "32",
+                "ASIA": "29",
+                "SWISS": "30"
+            },
+            {
+                "US": "13 1/4",
+                "UK": "Z+1 1/2",
+                "EU": "70.5",
+                "DE": "22.50",
+                "BR": "33",
+                "ASIA": "-",
+                "SWISS": "31"
+            },
+            {
+                "US": "13 1/2",
+                "UK": "Z+2",
+                "EU": "71",
+                "DE": "-",
+                "BR": "34",
+                "ASIA": "30",
+                "SWISS": "32"
+            },
+            {
+                "US": "13 3/4",
+                "UK": "Z+2 1/2",
+                "EU": "71.5",
+                "DE": "22.75",
+                "BR": "35",
+                "ASIA": "-",
+                "SWISS": "32.5"
+            },
+            {
+                "US": "14",
+                "UK": "Z+3",
+                "EU": "72",
+                "DE": "23",
+                "BR": "-",
+                "ASIA": "31",
+                "SWISS": "33"
+            },
+            {
+                "US": "14 1/4",
+                "UK": "Z+3 1/2",
+                "EU": "72.5",
+                "DE": "23.25",
+                "BR": "35",
+                "ASIA": "32",
+                "SWISS": "33.5"
+            },
+            {
+                "US": "14 1/2",
+                "UK": "Z+4",
+                "EU": "73.5",
+                "DE": "23.50",
+                "BR": "-",
+                "ASIA": "-",
+                "SWISS": "34.5"
+            },
+            {
+                "US": "14 3/4",
+                "UK": "Z+4 1/2",
+                "EU": "74",
+                "DE": "-",
+                "BR": "36",
+                "ASIA": "33",
+                "SWISS": "35"
+            },
+            {
+                "US": "15",
+                "UK": "Z+5",
+                "EU": "74.5",
+                "DE": "23.75",
+                "BR": "37",
+                "ASIA": "-",
+                "SWISS": "36"
+            },
+            {
+                "US": "15 1/4",
+                "UK": "Z+5 1/2",
+                "EU": "75",
+                "DE": "24",
+                "BR": "-",
+                "ASIA": "34",
+                "SWISS": "36.5"
+            },
+            {
+                "US": "15 1/2",
+                "UK": "Z+6",
+                "EU": "76",
+                "DE": "24.25",
+                "BR": "38",
+                "ASIA": "-",
+                "SWISS": "37"
+            },
+            {
+                "US": "15 3/4",
+                "UK": "Z+6 1/2",
+                "EU": "76.5",
+                "DE": "24.50",
+                "BR": "-",
+                "ASIA": "35",
+                "SWISS": "37.5"
+            },
+            {
+                "US": "16",
+                "UK": "Z+7",
+                "EU": "77",
+                "DE": "-",
+                "BR": "39",
+                "ASIA": "-",
+                "SWISS": "38.5"
+            }
+        ],
+        "groups": {
+            "US": "US,CA,MX",
+            "UK": "UK,AU,NZ,ZA,IE",
+            "EU": "FR,RU,DK,SE,NO,FI",
+            "DE": "DE,AR",
+            "BR": "BR",
+            "ASIA": "JP,CN,KR,HK,TW,SG",
+            "SWISS": "CH,ES"
+        }
+    }
+}

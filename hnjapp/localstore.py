@@ -24,7 +24,7 @@ _base = declarative_base()
 
 
 class PajItem(_base):
-    ''' A Paj's product, use for pajrdrs.PajUPTracker and pajrdrs.PajBomHhdlr '''
+    ''' A Paj's product, use for pajrdrs.PajUPTracker and pajrdrs.PajBomHdlr '''
     __tablename__ = "pajitem"
     id = Column(Integer, primary_key=True, autoincrement=True)
     __table_args__ = (Index('idx_pajinv_pcode', 'pcode', unique=True),)
@@ -163,17 +163,20 @@ class C1JCStone(_base):
 
 
 class PajBom(_base):
-    ''' paj's bom item, used shipment main/part judgement in pajrdrs.PajBomHhdlr '''
+    ''' paj's bom item, used shipment main/part judgement in pajrdrs.PajBomHdlr '''
     __tablename__ = "pajbom"
     __table_args__ = (
         Index('idx_pajbom_itemid', 'pid'),
-        Index('idx_pajbom_pid_mid', 'pid', 'mid', unique=True),
+        Index('idx_pajbom_pid_mid', 'pid', 'mid', 'tag', unique=True),
     )
     id = Column(Integer, primary_key=True, autoincrement=True)
     pid = Column(ForeignKey("pajitem.id"))
     item = relationship("PajItem")
     mid = Column(Integer)
-    name = Column(VARCHAR(100))
+    name = Column(VARCHAR(100)) # _MAIN_ for wgt from bom_mstr, _NETWGT_ for netwgt(mtl+stone)
     karat = Column(Integer)
     wgt = Column(DECIMAL(6, 3))
-    flag = Column(SmallInteger)  # 1 for main-part, 2 for chain
+    flag = Column(SmallInteger)  # 1 for main-part, 0 for chain
+    createdate = Column(DATETIME)
+    lastmodified = Column(DATETIME)
+    tag = Column(SmallInteger) # 0 for current, gt 0 for revision

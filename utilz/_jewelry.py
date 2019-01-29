@@ -5,8 +5,8 @@
 * @Last Modified by:   zmFeng
 * @Last Modified time: 2018-07-01 11:38:33
 '''
+import json
 from collections import namedtuple
-from csv import DictReader
 from numbers import Number
 from operator import attrgetter
 from os import path
@@ -44,10 +44,7 @@ class _SzFmt(object):
                 break
         if not any(segs):
             return sz
-        for x in [x for x in segs if x]:
-            x = self._fmtpart(x, shortform)
-            if not x:
-                continue
+        for x in (x for x in (self._fmtpart(x, shortform) for x in segs) if x):
             if isinstance(x, str):
                 parts.append(x)
             else:
@@ -83,7 +80,7 @@ class _SzFmt(object):
         except:
             s0 = None
         return s0
-    
+
     @classmethod
     def _part_power(cls, s0):
         return cls._don_touch.get(s0) or float(s0)
@@ -114,64 +111,68 @@ def stsizefmt(sz, shortform=False):
     return _st_fmtr.format(sz, shortform)
 
 
-Karat = namedtuple("Karat", "karat,name,fineness,category,color")
+Karat = namedtuple("Karat", "karat,fineness,name,category,color")
 
 
 class KaratSvc(object):
-    """ Karat service for id/name resolving and fineness and so on """
-    CATEGORY_GOLD = "GOLD"
-    CATEGORY_SILVER = "SILVER"
-    CATEGORY_BRONZE = "BRONZE"
-    CATEGORY_BONDEDGOLD = "BG"
-
-    COLOR_WHITE = "WHITE"
-    COLOR_YELLOW = "YELLOW"
-    COLOR_ROSE = "ROSE"
-    COLOR_BLACK = "BLACK"
-    COLOR_BLUE = "BLUE"
-
-    _priorities = {
-        CATEGORY_BRONZE: -100,
-        CATEGORY_SILVER: -50,
-        CATEGORY_BONDEDGOLD: -10,
-        CATEGORY_GOLD: 10
-    }
-    """ class help to solve karat related issues """
-
+    """
+    Karat service for id/name resolving and fineness and so on
+    also support querying by below names:
+    CATEGORY_GOLD/CATEGORY_SILVER
+    COLOR_YELLOW
+    """
     def __init__(self, fn=None):
         if not fn or not path.exists(fn):
-            fn = path.join(thispath, "res", "karats.csv")
-        lst = []
+            fn = path.join(thispath, "res", "settings.json")
+        settings = None
         with open(fn, "rt") as fh:
-            rdr = DictReader(fh)
-            for x in rdr:
-                kt = x["karat"]
-                if kt.isdigit():
-                    kt = int(kt)
-                fin = float(x["fineness"])
-                if fin > 1.0:
-                    fin = fin / 100
-                lst.append(
-                    Karat(kt, x["name"].strip(), fin, x["category"].strip(),
-                          x["color"].strip()))
-        byid, byname, fingrp, fml = {}, {}, {}, {}
-        for x in lst:
-            byid[x.karat] = byname[x.name] = x
+            settings = json.load(fh)
+        if not settings:
+            return
+        settings, fn = settings["KaratSvc"], []
+        for x in settings["karats"]:
+            byid = [x.get(y) for y in "karat fineness".split()]
+            if byid[1] > 1.0:
+                byid[1] = byid[1] / 100
+            byid.extend((x.get(y).strip() for y in "name category color".split()))
+            fn.append(Karat(*byid))
+        self._priorities = settings["_priorities"]
+        self._byid, self._byname, fingrp, self._byfamily, self._cats, self._colors = ({} for x in range(6))
+        for x in fn:
+            self._byid[x.karat] = self._byname[x.name] = x
             fin = x.fineness
             if fin < 100.0 and x.category == "GOLD":
                 fingrp.setdefault(fin, []).append(x)
-
+            self._cats[x.category] = x.category
+            self._colors[x.color] = x.color
+        for mp, x in zip((self._cats, self._colors), tuple(settings.get(x) for x in "category_alias color_alias".split())):
+            if not x:
+                continue
+            mp.update(x)
         for x in fingrp.values():
             y = sorted(x, key=attrgetter("category", "karat"))
             for it in y[1:]:
-                fml[it.karat] = y[0]
-
-        self._byid, self._byname, self._byfamily, self._byfineness = byid, byname, fml, None
+                self._byfamily[it.karat] = y[0]
+        self._byfineness = None
 
     @property
     def all(self):
         """ return all the karat instances """
         return self._byid.values()
+
+    @property
+    def COLORS(self):
+        '''
+        all the available colors inside me
+        '''
+        return set(self._colors.values())
+
+    @property
+    def CATEGORIES(self):
+        '''
+        all the categories inside me
+        '''
+        return set(self._cats.values())
 
     def __getitem__(self, key):
         return self.getkarat(key)
@@ -242,6 +243,12 @@ class KaratSvc(object):
 
         return rc
 
+    def __getattribute__(self, name):
+        if name.startswith("CATEGORY_"):
+            return self._cats[name[9:]]
+        if name.startswith("COLOR_"):
+            return self._colors[name[6:]]
+        return super().__getattribute__(name)
 
 class RingSizeSvc(object):
     """ ring size converting between different standards """
@@ -251,26 +258,24 @@ class RingSizeSvc(object):
     @classmethod
     def _loadrgcht(cls):
         #if the file with BOM as first character, use utf-8-sig to open it
+        '''
         with open(
                 path.join(thispath, "res", "rszcht.csv"),
                 "r+t",
                 encoding="utf-8-sig") as fh:
             rdr = DictReader(fh)
             lst = list(rdr)
-        #use a 2 layer dict to index the size chart
+        '''
+        mp = None
+        with open(path.join(thispath, "res", "settings.json")) as fh:
+            mp = json.load(fh)["RingSizeSvc"]
+        if not mp:
+            return None
         d0 = {}
-        for x in lst:
-            for k in x:
-                d0.setdefault(k, {})[x[k]] = x
-        dg0 = {}
-        with open(path.join(thispath, "res", "rszgrp.csv")) as fh:
-            for x in fh.readlines():
-                if x.startswith("#"):
-                    continue
-                ss = trimu(x).split("=")
-                for yy in ss[1].split(","):
-                    dg0[yy] = ss[0]
-        return d0, dg0
+        for k, x in [(k, x) for x in mp["sizes"] for k in x]:
+            d0.setdefault(k, {})[x[k]] = x
+        mp = {x: k for k, v in mp["groups"].items() for x in v.split(",")}
+        return d0, mp
 
     def _getgrp(self, cn):
         self._rlck.acquire()

@@ -11,8 +11,9 @@ from logging import DEBUG
 from os import path
 from re import I as icase
 from re import compile as cpl
+from numbers import Number
 
-from sqlalchemy import and_
+from sqlalchemy import and_, func
 from sqlalchemy.orm import Query
 from xlwings import Book
 from hnjcore import JOElement, isvalidp17
@@ -28,7 +29,7 @@ from .localstore import PajBom, PajItem
 from .pajcc import P17Decoder, PrdWgt, WgtInfo, addwgt
 
 
-class PajBomHhdlr(object):
+class PajBomHdlr(object):
     """ class to read BOMs from PAJ
     @param part_chk_ver: the Part checker version,
         default is None or 0,
@@ -37,6 +38,7 @@ class PajBomHhdlr(object):
         1 stands for loose,
             That is, when there is chain with length,
             圈 will be treated as part of the chain
+    @param cache: A sessionMgr pointing to a cache db
     """
     _ptn_oz = cpl(r"\(\$\d*/OZ\)")
     _one_hit_mp = {
@@ -163,7 +165,7 @@ class PajBomHhdlr(object):
         self._read_book(wb, pmap)
         self._adjust_wgts(pmap)
 
-        lsts = 'jono rcat mkarat mwgt mid mname pkarat pwgt mpflag image'.split()
+        lsts = 'jono rcat mkarat mwgt mid mname pkarat pqty pwgt mpflag image'.split()
         main_offset = min(max(2, main_offset), 5)
         min_rowcnt = max(main_offset + 4 * (2 if bcwgts else 1), min_rowcnt)
         nl = NamedList(lsts)
@@ -178,6 +180,8 @@ class PajBomHhdlr(object):
                 continue
             fn, kts = [], []
             pts, mstrs = [x.get(y, []) for y in "parts mstr".split()]
+            # put the netwgt to the end of mstrs
+            mstrs.append((0, x["mtlwgt"].netwgt))
             pjns = [y[0] for y in pcodeset[pcode]]
             pts = [x for x in pts if x.get("karat")]
             lns = [len(x) for x in (mstrs, pts, pjns)]
@@ -192,7 +196,10 @@ class PajBomHhdlr(object):
                     nl.jono = "'" + pjns[idx]
                 if idx < lns[0]:
                     self._fill_mstr(mstrs[idx], nl)
-                    kts.append(nl.mkarat)
+                    if nl.mkarat > 0:
+                        kts.append(nl.mkarat)
+                if idx == lns[0] - 1:
+                    nl.rcat = "NetWgt"
                 if idx < lns[1]:
                     self._fill_dtl(pts[idx], nl)
             idx += 1
@@ -225,9 +232,9 @@ class PajBomHhdlr(object):
 
     @staticmethod
     def _fill_dtl(dtl, nl):
-        nl.mid, nl.mname, nl.pkarat, nl.pwgt = [dtl.get(x) for x in "matid name karat wgt".split()]
+        nl.mid, nl.mname, nl.pkarat, nl.pqty, nl.pwgt = [dtl.get(x) for x in "matid name karat qty wgt".split()]
         nl.mpflag = 'N' if dtl.get("part_hints", False) else 'Y'
-    
+
     @staticmethod
     def _fill_bc(nl, ridx, bcwgt, fn):
         wgts = [(x.karat, x.wgt) if x else (None, None) for x in bcwgt.wgts]
@@ -264,8 +271,6 @@ class PajBomHhdlr(object):
             return
         is_part = self._part_chk_strict if not self._part_chk_ver else self._part_chk_loose
         for pcode, prop in pmap.items():
-            if self._from_his(pcode, prop):
-                continue
             ch_lks, prdwgt = prop.get("mtlwgt"), None
             if ch_lks:
                 pmap[pcode]["mstr"] = ch_lks
@@ -304,20 +309,40 @@ class PajBomHhdlr(object):
                 y["part_hints"] = var
             if has_semi_chn:
                 prdwgt = prdwgt._replace(part=WgtInfo(prdwgt.part.karat, -prdwgt.part.wgt * 100))
+            if self._from_his(pcode, prop):
+                continue
             prop["mtlwgt"] = prdwgt._replace(netwgt=round(prop.get("netwgt", 0) - subs, 2))
 
     def _from_his(self, pcode, prop):
-        ''' return the result from history if there is
-        return True and setup the prop if there is history, else return False
+        '''
+        @return True and setup the prop if there is valid history, else return False
         '''
         if not self._dao:
             return False
         pi = self._dao.get(pcode)
         if not pi:
             return False
+        pw = PrdWgt(None)
+        for x in prop.get("mstr"):
+            pw = addwgt(pw, WgtInfo(x[0], x[1]))
+        pts, nl = [], _PajBomDAO.nl_mat
+        for x in [x for x in prop.get("parts") if x.get("karat")]:
+            pts.append(nl.newdata(True))
+            # the flag is unknown, but need to be used by _new_boms(), so fill it as 'N'
+            nl.id, nl.karat, nl.wgt, nl.flag = int(x["matid"]), int(x["karat"]), x["wgt"], "N"
+        # extract the bom from pi with the netwgt removed
+        pts, boms = _PajBomDAO.new_boms(None, pw, pts, _PajBomDAO.nl_mat), [x for x in pi[1] if x.mid]
+        if len(boms) != len(pts):
+            return False
+        pts = [1 for bom, nl in zip(boms, pts) if bom.mid != nl.mid or int(bom.karat) != int(nl.karat) or abs(float(bom.wgt) - nl.wgt) >= 0.01]
+        if pts:
+            return False
         boms, pi = pi[1], PrdWgt(None)
         for bi in boms:
-            pi = addwgt(pi, WgtInfo(bi.karat, float(bi.wgt)), isparts=(bi.flag == 0))
+            if bi.karat:
+                pi = addwgt(pi, WgtInfo(bi.karat, float(bi.wgt)), isparts=(bi.flag == 0))
+            else:
+                pi = pi._replace(netwgt=float(bi.wgt))
         prop["mtlwgt"] = pi
         return True
 
@@ -377,13 +402,13 @@ class PajBomHhdlr(object):
                 logger.debug("duplicated bom_mstr found(%s, %s)" %
                                 (nl.pcode, nl.mat))
                 continue
+            mstrs.add(key)
             kt = nl.fwgt
             if kt:
                 netwgts[pcode] = netwgts.get(pcode, 0) + kt
             kt = self._parse_karat(nl.mat)
             if not kt:
                 continue
-            mstrs.add(key)
             it = pmap.setdefault(pcode, {"pcode": pcode})
             it.setdefault("mtlwgt", []).append((kt, nl.mtlwgt))
         for pcode, kt in netwgts.items():
@@ -536,6 +561,9 @@ class _PajBomDAO(object):
     ''' class help to cache and retrieve data for PajBomHdler
     caching PajItem and PajBom only
     '''
+
+    _mat_nmp = {"id": "mid", "name": "mname", "karat": "pkarat", "wgt": "pwgt", "flag": "mpflag"}
+    nl_mat = NamedList(tuple(_mat_nmp.keys()))
     def __init__(self, sessmgr):
         self._sessmgr = sessmgr
 
@@ -566,32 +594,43 @@ class _PajBomDAO(object):
         if not rngs:
             _ret_app(wb, tk)
             return None
-        nmp = {"id": "mid", "name": "mname", "karat": "pkarat", "wgt": "pwgt", "flag": "mpflag"}
-        nms, lsts = tuple(nmp.values()), []
-        nl_mat = NamedList(tuple(nmp.keys()))
+        nms, lsts = tuple(self._mat_nmp.values()), []
+        nl_mat, phase = self.nl_mat, 1
+        to_kt = lambda kt: karatsvc.getfamily(karatsvc.getkarat(kt)).karat if kt and isinstance(kt, str) else int(kt or 0)
         for nl in xwu.NamedRanges(xwu.usedrange(sht), alias={"jono": "JO#", "pcode": "Image"}):
+            jn = nl.mkarat
+            if jn and isinstance(jn, str):
+                nl.mkarat = to_kt(jn)
             jn = JOElement.tostr(nl.jono)
             if jn:
-                if jn[0] == "'":
-                    jn = jn[1:]
-                phase, mp = 0, {"jono": jn, "pcode": nl.pcode, "mtlwgt": PrdWgt(WgtInfo(int(nl.mkarat), nl.mwgt))}
-                lsts.append(mp)
+                if phase > 0:
+                    if jn[0] == "'":
+                        jn = jn[1:]
+                    phase, mp = 0, {"jono": jn, "pcode": nl.pcode, "mtlwgt": PrdWgt(WgtInfo(nl.mkarat, nl.mwgt))}
+                    lsts.append(mp)
+                else:
+                    jn = None
             if nl.mid:
                 lst = [nl.get(x) for x in nms]
                 nl_mat.setdata(lst)
-                nl_mat["id"], nl_mat["karat"] = [int(nl_mat[x]) for x in "id karat".split()]
+                nl_mat["id"] = int(nl_mat.id)
+                nl_mat["karat"] = to_kt(nl_mat.karat)
                 mp.setdefault("parts", []).append(lst)
             if jn:
                 continue
             jn = triml(nl.rcat)
             phase = 1 if jn == "main" else 2 if jn == "part" else phase
-            if nl.mkarat and phase == 0:
-                mp["mtlwgt"] = addwgt(mp["mtlwgt"], WgtInfo(int(nl.mkarat), nl.mwgt))
+            if isinstance(nl.mkarat, Number) and phase == 0:
+                if nl.mkarat > 0:
+                    mp["mtlwgt"] = addwgt(mp["mtlwgt"], WgtInfo(int(nl.mkarat), nl.mwgt))
+                else:
+                    mp["mtlwgt"] = mp["mtlwgt"]._replace(netwgt=nl.mwgt)
         _ret_app(wb, tk)
         return lsts, nl_mat
 
     def cache(self, wb):
-        ''' cache the given workbook
+        '''
+        cache the given workbook
         @wb : A workbook object or a string point to the file
         @return : a list of cached objects
         '''
@@ -603,21 +642,25 @@ class _PajBomDAO(object):
         with ResourceCtx(self._sessmgr) as cur:
             for bom in res:
                 pcode, jono = [bom[x] for x in "pcode jono".split()]
-                pi = self.get(pcode)
+                pi, nbs = self.get(pcode), None
                 if not pi:
                     pi = self._new_pi(pcode, jono)
                     npis.append(pi)
                 else:
-                    if pi[0].docno == jono:
+                    nbs = self.new_boms(pi[0], bom["mtlwgt"], bom["parts"], nl_part)
+                    if self._is_same_boms(pi[1], nbs):
+                        logger.debug("pcode(%s)'s boms are the same as before" % pcode)
                         continue
-                    else:
-                        n_oboms.extend(pi[1])
-                        pi = pi[0]
-                        pi.docno, pi.tag = jono, 0
-                nboms.extend(self._new_boms(pi, bom["mtlwgt"], bom["parts"], nl_part))
+                    # save for history reference
+                    if pi[1]:
+                        logger.debug("pcode(%s)'s boms will be updated because there are changes" % pcode)
+                    n_oboms.extend(self._apply_next_tag(pcode, pi[1], cur))
+                    pi = pi[0]
+                    pi.docno, pi.tag = jono, 0
+                nboms.extend(nbs or self.new_boms(pi, bom["mtlwgt"], bom["parts"], nl_part))
             pi = 0
             for x in n_oboms:
-                cur.delete(x)
+                cur.add(x)
                 pi += 1
             for x in npis:
                 cur.add(x)
@@ -636,6 +679,28 @@ class _PajBomDAO(object):
             return [(x[0], x[1]) for x in jono.items()]
         return None
 
+    @staticmethod
+    def _apply_next_tag(pcode, boms, cur):
+        ''' return the next available tag for a pcode's history BOM '''
+        q = Query(func.max(PajBom.tag)).join(PajItem).filter(PajItem.pcode == pcode).with_session(cur).first()
+        nt, td = (q[0] or 0) + 1, datetime.today()
+        for x in boms:
+            x.tag, x.lastmodified = nt, td
+        return boms
+
+    @staticmethod
+    def _is_same_boms(olds, news):
+        if bool(olds) ^ bool(news):
+            return False
+        if not olds:
+            return False
+        cns = 'mid name karat wgt flag'.split()
+        _eq = lambda x: abs(float(x[0]) - float(x[1])) < 0.01 if isinstance(x[0], Number) else x[0] == x[1]
+        for o in zip(olds, news):
+            for cn in cns:
+                if not _eq(tuple(getattr(x, cn) for x in o)):
+                    return False
+        return True
 
     @staticmethod
     def _new_pi(pcode, jono):
@@ -651,31 +716,38 @@ class _PajBomDAO(object):
         return lst if lst else []
 
     @staticmethod
-    def _new_boms(pi, mtlwgt, parts, nl):
+    def new_boms(pi, mtlwgt, parts, nl):
         ''' create a tuple of PajBom items, the mtlwgt will be also put as mat id = -karat '''
         for wgt in mtlwgt.wgts:
             if not wgt:
                 continue
             parts.append(nl.newdata(True))
             nl.id, nl.name, nl.karat, nl.wgt, nl.flag = -wgt.karat, '_MAIN_', wgt.karat, wgt.wgt, 'Y'
-        lsts = []
+        if mtlwgt.netwgt:
+            parts.append(nl.newdata(True))
+            nl.id, nl.name, nl.karat, nl.wgt, nl.flag = 0, '_NETWGT_', 0, mtlwgt.netwgt, 'Y'
+        lsts, td = [], datetime.today()
         for x in sorted(parts, key=lambda x: x[0]):
             nl.setdata(x)
             if nl.flag not in ('Y', 'N'):
                 continue
             bom = PajBom()
             lsts.append(bom)
-            bom.item, bom.mid, bom.karat, bom.name, bom.wgt, bom.flag = pi, nl.id, nl.karat, nl.name, nl.wgt, 1 if nl.flag == 'Y' else 0
+            bom.item, bom.mid, bom.karat, bom.name, bom.wgt, bom.flag, bom.createdate,  bom.lastmodified, bom.tag = pi, nl.id, nl.karat, nl.name, nl.wgt, 1 if nl.flag == 'Y' else 0, td, td, 0
         return lsts
 
     def get(self, pcode):
         ''' return a tuple of PajItem and a list of PajBom or None '''
         pi = boms = None
         with ResourceCtx(self._sessmgr) as cur:
-            pi = cur.query(PajItem).filter(and_(PajItem.pcode == pcode, PajItem.tag == 0)).all()
-            pi = pi[0] if pi else None
+            pi = cur.query(PajItem).filter(PajItem.pcode == pcode).all()
             if pi:
-                boms = cur.query(PajBom).filter(PajBom.pid == pi.id).all()
+                pids = [x.id for x in pi]
+                # only get the current, history is for reference only
+                boms = cur.query(PajBom).filter(and_(PajBom.pid.in_(pids), PajBom.tag == 0)).all()
                 if boms:
                     boms = sorted(boms, key=lambda x: x.id)
+                    pi = [x for x in pi if x.id == boms[0].pid][0]
+                else:
+                    pi = pi[0]
         return (pi, boms) if pi else None

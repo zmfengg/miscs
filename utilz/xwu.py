@@ -13,7 +13,7 @@ import xlwings.constants as const
 from xlwings import App, Range, apps, xlplatform
 from xlwings.utils import col_name
 
-from ._miscs import NamedLists, getvalue, list2dict, updateopts, trimu
+from ._miscs import NamedLists, getvalue, list2dict, trimu, updateopts
 from .resourcemgr import ResourceMgr
 
 try:
@@ -28,7 +28,7 @@ __all__ = [
 _validappsws = set(
     "visible,enableevents,displayalerts,asktoupdatelinks,screenupdating".split(
         ","))
-_alignment_mp = {"L": 0, "M": 1, "R": 2, "T": 0, "C": 1, "R": 2}
+_alignment_mp = {"L": 0, "M": 1, "R": 2, "T": 0, "C": 1}
 
 class _AppStg(object):
 
@@ -126,6 +126,9 @@ def usedrange(sh):
     return apirange(sh.api.UsedRange)
 
 def findsheet(wb, sn):
+    '''
+    find and return the sheet inside given book
+    '''
     sn = trimu(sn)
     for sht in wb.sheets:
         if trimu(sht.name) == sn:

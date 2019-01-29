@@ -36,7 +36,7 @@ from utilz import (NamedList, NamedLists, ResourceCtx, easydialog, easymsgbox,
 from .common import _logger as logger
 from .dbsvcs import jesin
 from .pajcc import cmpwgt
-from .pajrdrs import PajBomHhdlr, PajShpHdlr
+from .pajrdrs import PajBomHdlr, PajShpHdlr, PajBomDAO
 
 _appmgr = xwu.appmgr
 
@@ -161,6 +161,8 @@ class ShpMkr(object):
     @param cnsvc/hksvc/bcsvc: the related db services
     @param(optional) nsofn: the NewSampleOrderForm file name,
         I used it to read Paj/C1 repositories
+    @param(optional) cache: a sessionMgr pointing to a cache db where
+        BOM hints can be saved/queried
     """
     _mergeshpjo = False
     _vdrname = _nsofsts = None
@@ -169,7 +171,7 @@ class ShpMkr(object):
 
     def __init__(self, cnsvc, hksvc, bcsvc, **kwds):
         self._cnsvc, self._hksvc, self._bcsvc = cnsvc, hksvc, bcsvc
-        self._nsofn = kwds.get("nsofn")
+        self._nsofn, self._cache = kwds.get("nsofn"), kwds.get("cache")
         # debug mode, qtyleft/running should be reset so that I can
         # generate proper report
         self._debug = kwds.get("debug", False)
@@ -575,6 +577,7 @@ class ShpMkr(object):
             for x in hls:
                 _hl(rng.offset(x[0], x[1]), 6)
         sht.autofit()
+        return hls
 
     def _write_bc_get_data(self, shplst):
         """
@@ -792,6 +795,10 @@ class ShpMkr(object):
         if not path.exists(fldr):
             return None
         if not path.isdir(fldr):
+            if self._cache:
+                var = self._commit_bom(fldr)
+                if var:
+                    return "_BOM_COMITTED_%d" % len(var)
             # if the file's parent folder not in ref_folder, treate it as pajraw files
             getrf = lambda x: triml(path.basename(path.dirname(x)))
             if getrf(fldr) not in [
@@ -819,6 +826,17 @@ class ShpMkr(object):
                     return rdr
         return None
 
+    def _commit_bom(self, fn):
+        tk = None
+        if isinstance(fn, str):
+            app, tk = _appmgr.acq()
+            wb = app.books.open(fn)
+        else:
+            wb = fn
+        fn = PajBomDAO(self._cache).cache(wb)
+        _appmgr.ret(tk)
+        return fn
+
     def build_rpts(self, fldr=None):
         """ create the rpt/err/bc sheets if they're not available
         @return: workbook if no error is found and None if err found during report generation
@@ -827,6 +845,9 @@ class ShpMkr(object):
         if not fn:
             logger.debug("user does not specified any valid source file")
             return (None, ) * 2
+        if fn.startswith("_BOM_COMITTED_"):
+            # the user commit a bom file, return the process result
+            return (fn, None)
         pajopts = {
             "fn": fn,
             "shpdate": PajShpHdlr.get_shp_date(fn),
@@ -853,7 +874,7 @@ class ShpMkr(object):
             if not rdr:
                 return (None, ) * 2
             if self._vdrname == "paj":
-                pajopts["bomwgts"] = PajBomHhdlr(part_chk_ver=1).readbom(wb)
+                pajopts["bomwgts"] = PajBomHdlr(part_chk_ver=1, cache=self._cache).readbom(wb)
             crt_err, shp_date = False, None  # critical error flag
             for sht in wb.sheets:
                 flag, lst = False, rdr[1](sht, pajopts)
@@ -906,7 +927,9 @@ class ShpMkr(object):
                 if not errlst or (errlst and self._debug):
                     mp = {} # map to hold the new created runnings
                     self._write_rpts(wb, shplst, mp, shp_date)
-                    self._write_bc(wb, shplst, mp, shp_date)
+                    hls = self._write_bc(wb, shplst, mp, shp_date)
+                    if hls:
+                        PajShpHdlr.build_bom_sheet(wb, min_rowcnt=10, main_offset=2, bom_check_level=1)
                 else:
                     wb = None
         finally:
@@ -940,12 +963,15 @@ class _SMLogWtr(object):
         """
         write errs
         """
+        '''
         nls = xwu.NamedRanges(sht.range(1, 1))
         if nls:
+            nls = [x for x in nls]
             ttl = nls[0].colnames
             vvs = [nl.data for nl in nls]
         else:
-            ttl, vvs = "location,type,msg".split(","), []
+        '''
+        ttl, vvs = "location,type,msg".split(","), []
         for mp in logs:
             vvs.append(
                 tuple("%s" % mp.get(x) if x != "type" else self._sns.
@@ -1100,12 +1126,17 @@ class ShpImptr():
     """
     import the shipment data(C1/PAJ/C2) into workflow system
     also generate BC/MMimport data for BCsystem and HK system
+    @param cnsvc: A CNSvc instance
+    @param hksvc: An HKSvc instance
+    @param bcsvc: An BCSvc instance
+    @param(optional) cache: a cache db for PajBom Cache save/query
     """
 
-    def __init__(self, cnsvc, hksvc, bcsvc):
+    def __init__(self, cnsvc, hksvc, bcsvc, **kwds):
         self._cnsvc, self._hksvc, self._bcsvc = cnsvc, hksvc, bcsvc
         self._groupsampjo = False
         self._sns = _SMSns()
+        self._cache = kwds.get("cache")
 
     @classmethod
     def exacthdr(cls, sht):
@@ -1122,10 +1153,16 @@ class ShpImptr():
         options:
             verbose = True: show the errors or the complete state
         """
+        if self._cache:
+            options["cache"] = self._cache
         sm, verbose = ShpMkr(self._cnsvc, self._hksvc, self._bcsvc,
                              **options), options.get("verbose")
         wb, vdrname = sm.build_rpts(fn)
         if not wb:
+            return None
+        elif not vdrname:
+            # a _BOM_COMITTED_ item
+            logger.info("totally %s bom check records were committed" % wb[len("_BOM_COMITTED_"):])
             return None
         # build_rpt checked, check again? because build_rpt do db check
         # _check_rpt_error only check data on rpt sheet

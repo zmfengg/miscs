@@ -15,6 +15,13 @@ from unittest import TestCase, skip
 from logging import Logger
 from numbers import Number
 
+from utilz import trimu
+from .main import thispath
+from collections import namedtuple
+import json
+from utilz import karatsvc
+from operator import attrgetter
+
 _logger = Logger(__name__)
 try:
     import pytesseract as tesseract

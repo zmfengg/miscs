@@ -40,7 +40,7 @@ from .localstore import PajCnRev as PajCnRevSt
 from .localstore import PajInv as PajInvSt
 from .localstore import PajItem as PajItemSt
 from .localstore import PajWgt as PrdWgtSt
-from .pajbom import PajBomHhdlr
+from .pajbom import PajBomHdlr, _PajBomDAO as PajBomDAO
 from .pajcc import (MPS, PAJCHINAMPS, P17Decoder, PajCalc, PrdWgt, WgtInfo,
                     _tofloat, addwgt)
 from .dbsvcs import HKSvc
@@ -340,7 +340,7 @@ class PajShpHdlr(object):
         # when sheet's shpdate differs from file's shpdate, use the maximum one
         shd = max(shd, fshd)
         if bomwgts is None:
-            bomwgts = PajBomHhdlr().readbom(sht.book)
+            bomwgts = PajBomHdlr().readbom(sht.book)
         if bomwgts:
             bomwgtsrng = {
                 _extring(x[0]): x[1]["mtlwgt"]
@@ -517,7 +517,7 @@ class PajShpHdlr(object):
                 shd0, fmd, wb = self.get_shp_date(fn), fmds[fn], app.books.open(
                     fn)
                 try:
-                    bomwgts = PajBomHhdlr().readbom(wb)
+                    bomwgts = PajBomHdlr().readbom(wb)
                     for sht in wb.sheets:
                         if sht.name.find(u"返修") >= 0:
                             continue
@@ -587,7 +587,7 @@ class PajShpHdlr(object):
 
     @staticmethod
     def build_bom_sheet(fn, **kwds):
-        ''' build a bom sheet based on the shipment file(with rpt/bc sheet inside)
+        ''' build the bom check sheet based on the shipment file(with rpt/bc sheet inside)
         @param min_rowcnt: the minimum rows per item occupied, default is 7
         @param min_offset: the starting point of the main metal, default is 3
         @param bom_check_level: 0 for strict, 1 for loose. default is 1
@@ -603,7 +603,7 @@ class _BomSheetBldr(object):
     def __init__(self, **kwds):
         self._min_rowcnt, self._main_offset, self._bom_check_level = kwds.get("min_rowcnt", 7), kwds.get("main_offset", 3), kwds.get("bom_check_level", 1)
 
-    def build(self, wb):
+    def build(self, wb, **kwds):
         app = kxl = fn = None
         if isinstance(wb, str):
             fn = wb
@@ -637,15 +637,16 @@ class _BomSheetBldr(object):
                 ))
         pmp = self._read_bc_wgts(wb, td)
         logger.debug("begin to read bom")
-        fns, mkrs, nl, mf_rc = PajBomHhdlr(part_chk_ver=self._bom_check_level).readbom_manual(
+        fns, mkrs, nl, mf_rc = PajBomHdlr(part_chk_ver=self._bom_check_level).readbom_manual(
             wb, td, main_offset=self._main_offset, min_rowcnt=self._min_rowcnt,
             bc_wgts=pmp)
         if fns:
             logger.debug("toally %d bom records returned" % len(fns))
         if not kxl:
             app, kxl = _appmgr.acq()
-        wb = app.books.add()
-        self._write_manual(fns, mkrs, wb, nl, mf_rc, ps=None, bcwgts=pmp)
+        if kwds.get("new_book"):
+            wb = app.books.add()
+        self._write_manual(fns, mkrs, wb, nl, mf_rc, ps=None, bcwgts=pmp, new_sheet=not kwds.get("new_book"))
         return wb
 
     @staticmethod
@@ -700,7 +701,9 @@ class _BomSheetBldr(object):
         return jns
 
     def _write_manual(self, lsts, mkrs, wb, nl, mf_rc, **kwds):
-        sht = wb.sheets[0]
+        sht = wb.sheets.add("BOM_Check", after=wb.sheets[-1]) if kwds.get("new_sheet") else wb.sheets[0]
+        # this is necessary because conditional criterias need to select target range
+        sht.activate()
         sht.cells(1, 1).value = lsts
 
         _col = lambda cn: nl.getcol(cn) + 1

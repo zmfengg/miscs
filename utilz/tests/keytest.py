@@ -181,6 +181,11 @@ class KeySuite(TestCase):
         self.assertEqual(ks[200], lst[0], "sort method")
         self.assertEqual(ks[925], lst[1], "sort method")
         self.assertEqual(ks[18], lst[-1], "sort method")
+        self.assertEqual("GOLD", karatsvc.CATEGORY_GOLD, 'catetory gold')
+        self.assertEqual("BONDEDGOLD", karatsvc.CATEGORY_BONDEDGOLD)
+        self.assertEqual("BONDEDGOLD", karatsvc.CATEGORY_BG)
+        with self.assertRaises(KeyError):
+            self.assertEqual("BLACK", karatsvc.COLOR_BLACK)
 
     def testRingSizeCvt(self):
         """ a size converter, maybe should be migrated to UOMConverter """

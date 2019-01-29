@@ -201,7 +201,7 @@ class HKSvc(SvcBase):
     def __init__(self, sqleng):
         """ init me with a sqlalchemy's engine """
         super(HKSvc, self).__init__(sqleng)
-        self._ptnmit = re.compile("^M[iI]T")
+        self._ptnmit = re.compile("M[iI]T")
 
     def _pjq(self):
         """ return a JO -> PajShp -> PajInv query, append your query
@@ -356,7 +356,7 @@ class HKSvc(SvcBase):
                 # attention, bug of the driver/pyodbc or encoding issue, Query(JI)
                 # returns only one record even if there are several, so get one by one
                 #lst = Query(JI).filter(JI.joid == jo.id, JI.stname.like("M%T%"))
-                lst = Query((JI.remark, JI.stname, JI.unitwgt, )).filter(JI.joid == jo.id, JI.stname.like("M%T%"))
+                lst = Query((JI.remark, JI.stname, JI.unitwgt, )).filter(JI.joid == jo.id, JI.stname.like("%M%T%"))
                 lst = lst.with_session(cur).all()
                 if lst:
                     for row in lst:

@@ -18,6 +18,10 @@ from os import path
 
 from sqlalchemy.orm import Query
 from xlwings import App
+from xlwings.constants import (
+    FormatConditionOperator,
+    FormatConditionType,
+)
 
 from hnjapp.c1rdrs import C1InvRdr
 from hnjapp.dbsvcs import jesin
@@ -1474,6 +1478,14 @@ class AckPriceCheck(object):
             rng.add_hyperlink(str(rng.value))
         sht.autofit('c')
         xwu.freeze(sht.range(2, 4), False)
+        if name == '_PAJPriceExcpt':
+            sht.activate()
+            rng = xwu.usedrange(sht)
+            rng.select()
+            fidx = '=SEARCH("Critical",$O1)>0'
+            rng = rng.api
+            rng.formatconditions.add(FormatConditionType.xlExpression, FormatConditionOperator.xlEqual, fidx)
+            rng.formatconditions(rng.formatconditions.count).interior.colorindex = 40
 
     def _writereadme(self, wb):
         """
