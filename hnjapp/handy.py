@@ -9,21 +9,22 @@ handy utils for daily life
 
 from datetime import datetime
 from numbers import Number
-from os import listdir, makedirs, path, rename, sep, utime, walk
+from os import listdir, makedirs, path, rename, sep, utime, walk, remove
 from re import compile as compile_r
 from shutil import copy
 
 from PIL import Image
 from sqlalchemy.orm import Query
+from xlwings.constants import LookAt
 
-from hnjapp.c1rdrs import _fmtbtno
-from hnjapp.pajrdrs import PajBomHdlr
+from hnjapp.c1rdrs import C1InvRdr, _fmtbtno
+from hnjapp.miscsvcs import StylePhotoSvc
+from hnjapp.pajcc import (MPS, PajCalc, PrdWgt, WgtInfo, addwgt, cmpwgt,
+                          karatsvc)
 from hnjcore import JOElement
 from hnjcore.models.hk import JO, Orderma, PajShp, Style
 from utilz import ResourceCtx, getfiles, trimu
-from utilz.xwu import (NamedLists, appmgr, find, usedrange, NamedRanges)
-from hnjapp.pajcc import PajCalc, PrdWgt, WgtInfo, karatsvc, MPS
-from xlwings.constants import LookAt
+from utilz.xwu import NamedLists, NamedRanges, appmgr, find, usedrange
 
 from .common import _logger as logger
 
@@ -122,6 +123,7 @@ def ren_paj_imgs(src_fldr, sm_hk, keep_org=True, shortsz=1500):
                     cp = False
                 img.thumbnail(ptn)
                 img.save(fn)
+            img.close()
             ptn = (fn, path.join(root, "%s_%s%s" % (x.styno, x.jono, bn[1])))
             if cp:
                 copy(*ptn)
@@ -326,3 +328,157 @@ def mtl_cost_forc1(c1calc_fn):
         if app:
             app.visible = True
             #appmgr.ret(tk)
+
+def check_c1_wgts(cand=None, src=None):
+    '''
+    c1's weight data from kang, need validation
+    '''
+
+    kt_mp = {"Silver": 925, "9K": 9, "18K": 18, "14K": 14}
+    def _wi(nl):
+        kt = nl.karat
+        if isinstance(kt, Number):
+            kt = int(kt)
+        return WgtInfo(kt_mp.get(kt, kt), nl.main)
+
+    def _addwgt(wgts, wi, ispart=False):
+        nw = wgts.netwgt or 0
+        return addwgt(wgts, wi, ispart)._replace(netwgt=nw+wi.wgt)
+
+    cand = cand or r"p:\aa\bc\明哥落货资料_汇总.xlsx"
+    # src = src or r"\\172.16.8.46\pb\dptfile\quotation\2017外发工单工费明细\CostForPatrick\AIO_F.xlsx"
+
+    app, tk = appmgr.acq()
+
+    wb = app.books.open(cand)
+    cand = NamedRanges(usedrange(wb.sheets[0]), alias={"jono": "工单号", "styno": "款号", "karat": "成色", "main": "金重", "stone": "石重", "metal_stone": "连石重", "chain": "配件重"})
+    mp, idx, chns = {}, 0, {}
+    for nl in cand:
+        idx += 1
+        jn = JOElement.tostr(nl.jono)
+        if not jn:
+            break
+        if jn not in mp:
+            wgts = _addwgt(PrdWgt(), _wi(nl))
+        else:
+            wgts = _addwgt(mp[jn], _wi(nl))
+        if nl.stone:
+            wgts = wgts._replace(netwgt=round(wgts.metal_jc + nl.stone, 2))
+        if nl.chain:
+            chns[jn] = (nl.styno, nl.chain)
+        mp[jn] = wgts
+    wb.close()
+    for jn, x in chns.items():
+        wgts = mp[jn]
+        mp[jn] = _addwgt(wgts, WgtInfo(wgts.main.karat, x[1]), x[0] and x[0].find("P") >= 0)
+    if not src:
+        appmgr.ret(tk)
+        return mp
+
+    cand = mp
+    # the source
+    wb = app.books.open(src)
+    mp = {x.jono: x for x in C1InvRdr.read_c1_all(wb.sheets[0])}
+    wb.close()
+
+    lsts = [('JO#', 'Expected', "Actual"), ]
+    for jn, wgts in cand.items():
+        # below 3 items were modified by me, for test only, so just skip it
+        # if jn in ('463347', '463468', '463490'):
+        #    continue
+        wgts_exp = mp.get(jn)
+        if not wgts_exp:
+            print("Error, no source weight found for JO#(%s)" % jn)
+            continue
+        wgts_exp = wgts_exp.mtlwgt
+        # because C1InvRdr return a 4-digit result, need to convert it to 2-digit
+        nl = [None if not x else WgtInfo(x.karat, round(x.wgt, 2)) for x in (wgts_exp.main, wgts_exp.aux, wgts_exp.part)]
+        wgts_exp = PrdWgt(nl[0], aux=nl[1], part=nl[2], netwgt=wgts_exp.netwgt)
+        if not cmpwgt(wgts_exp, wgts):
+            lsts.append((jn, wgts_exp.terms(), wgts.terms()))
+    wb = app.books.add()
+    wb.sheets[0].cells(1, 1).value = lsts
+    app.visible = True
+    return cand
+
+def style_photos(dat_fn, tar_fldr):
+    '''
+    request from Murphy according to website:
+    https://enterprise.atelier.technology/home/login
+    provided a text file of sty# only, extract the photo that contains
+    pure white background
+    @return (tar_fldr, missing_fn) where
+        @tar_fldr is the folder contains the result files
+        @missing_fn: None or name of text file containing the missing styles
+    '''
+    var, stynos = trimu(path.splitext(dat_fn)[1][1:]), None
+    if var.find("XL") == 0:
+        app, tk = appmgr.acq()
+        styn, fns = app.books.open(dat_fn), []
+        for var in [x for x in styn.sheets]:
+            x = usedrange(var).value
+            if x:
+                fns.extend(x)
+        styn.close()
+        appmgr.ret(tk)
+        if not fns:
+            return None
+        tk = compile_r(r"^[A-Z]{1,2}\d{3,6}$")
+        stynos = [x for y in fns for x in y if x and isinstance(x, str) and tk.findall(x)]
+    else:
+        with open(dat_fn) as fh:
+            stynos = [x for y in fh.readlines() for x in y.split()]
+    if not stynos:
+        return None
+    svc, rmp = StylePhotoSvc(), {}
+    for styn in stynos:
+        if styn in rmp:
+            logger.debug("sty#(%s) is duplicated")
+            continue
+        fns = svc.getPhotos(styn)
+        if not fns:
+            rmp[styn] = None
+            continue
+        flag, fns = True, sorted(fns, key=path.getmtime, reverse=True)
+        for idx, var in enumerate(fns):
+            if idx > 2:
+                break
+            img = Image.open(var)
+            img.load()
+            img = img.convert("RGBA")
+            flag = img.size >= (1000, 1000)
+            if flag:
+                for idx0 in range(10):
+                    x = img.getpixel((idx0, 1))[:3]
+                    # color close to white, but can be non-pure-white(255, 255, 255)
+                    if [1 for y in x if y < 240]:
+                        flag = False
+                        break
+                img.close()
+            if flag:
+                rmp[styn] = (var, True)
+                break
+        if not flag and fns:
+            # use the largest instead of the lastest
+            fns = sorted(fns, key=path.getsize, reverse=True)
+            rmp[styn] = (fns[0], False)
+        if len(rmp) > 10:
+            break
+    roots = (tar_fldr, path.join(tar_fldr, "ref"))
+    err_fn = path.join(tar_fldr, "_missing.txt")
+    if path.exists(err_fn):
+        remove(err_fn)
+    for var in roots:
+        if not path.exists(var):
+            makedirs(var)
+    fns = []
+    for styn, var in rmp.items():
+        if var:
+            copy(var[0], path.join(roots[0 if var[1] else 1], path.basename(var[0])))
+        else:
+            fns.append(styn)
+    if fns:
+        with open(err_fn, "w+t") as fh:
+            fh.writelines(("\n".join(fns), ))
+        fns = err_fn
+    return tar_fldr, fns

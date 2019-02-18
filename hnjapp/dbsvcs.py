@@ -374,6 +374,7 @@ class HKSvc(SvcBase):
             if oth_chn:
                 for row in oth_chn:
                     kt = addwgt(kt, row, True, True)
+            kt = kt._replace(netwgt=sum([x.wgt for x in knws if x]))
         else:
             kt = None
         return kt

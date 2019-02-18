@@ -41,6 +41,10 @@ def addwgt(prdwgt, wi, isparts=False, autoswap=True):
         prdwgt = PrdWgt(wi)
     else:
         #act table: 0 -> main; 1 -> +main, 10 -> aux; 11 -> +aux; 20 -> part; 21 -> +part
+        # don't use below rule because it will block some aux-for-parts adding to the parts
+        if False:
+            if isparts and (wi.karat != 925 and wi.wgt < 0.3 or wi.karat == 925 and wi.wgt < 1.4):
+                isparts = False
         if isparts:
             act = 21 if prdwgt.part and prdwgt.part.wgt else 20
         elif prdwgt.main:
@@ -79,6 +83,17 @@ def cmpwgt(expected, actual, tor=5, strictkt=False):
         tor = 5
     if tor > 1:
         tor = tor / 100.0
+    def _raw_cmp(w0, w1):
+        if tor > 0:
+            xw = w0 or 1
+            flag = round(abs(
+                (_adj_wgt(w0) - _adj_wgt(w1)) / xw), 2) <= tor if xw else False
+        else:
+            flag = round(abs(_adj_wgt(w0) - _adj_wgt(w1)), 2) <= -tor
+        return flag
+    flag = _raw_cmp(expected.netwgt or 0, actual.netwgt or 0)
+    if not flag:
+        return flag
     for exp, act in zip(expected.wgts, actual.wgts):
         if bool(exp) ^ bool(act):
             return False
@@ -88,13 +103,7 @@ def cmpwgt(expected, actual, tor=5, strictkt=False):
                 flag = exp.karat == act.karat if strictkt else karatsvc.getfamily(
                     exp.karat).karat == karatsvc.getfamily(act.karat).karat
             if flag:
-                if tor > 0:
-                    #xw = min(exp.wgt, act.wgt)
-                    xw = exp.wgt
-                    flag = round(abs(
-                        (_adj_wgt(exp.wgt) - _adj_wgt(act.wgt)) / xw), 2) <= tor if xw else False
-                else:
-                    flag = round(abs(_adj_wgt(exp.wgt) - _adj_wgt(act.wgt)), 2) <= -tor
+                flag = _raw_cmp(exp.wgt, act.wgt)
             if not flag:
                 break
     return flag
@@ -254,7 +263,7 @@ class PrdWgt(namedtuple("PrdWgt", "main,aux,part,netwgt")):
     __slots__ = ()
 
     @staticmethod
-    def __new__(cls, main, aux=None, part=None, netwgt=0):
+    def __new__(cls, main=None, aux=None, part=None, netwgt=0):
         return super(cls, PrdWgt).__new__(cls, main, aux, part, netwgt)
 
     @property
@@ -266,8 +275,32 @@ class PrdWgt(namedtuple("PrdWgt", "main,aux,part,netwgt")):
 
     def __str__(self):
         d = {"main": self.main, "sub": self.aux, "part": self.part}
-        return ";".join(["%s(%s=%s)" % (kw[0], kw[1].karat, kw[1].wgt) \
+        d0 = ";".join(["%s(%s=%s)" % (kw[0], kw[1].karat, kw[1].wgt) \
             for kw in d.items() if kw[1]])
+        if self.netwgt:
+            d0 += ";net=%s" % self.netwgt
+        return d0
+
+    def terms(self, div='-'*15):
+        '''
+        return an string in the terms of metal/stone/chain
+        '''
+        _fmt_wgtinfo = lambda wi, tn: "%s%s:%4.2fgm" % (karatsvc.getkarat(wi.karat).name, tn, wi.wgt)
+        aio = []
+        var = [_fmt_wgtinfo(x, '') for x in self.metal]
+        aio.extend(var)
+        # show netwgt only when there is stone
+        var = self.metal_stone
+        if var:
+            if div:
+                aio.append(div)
+            aio.append("w/st:%4.2fgm" % var)
+        var = self.chain
+        if var:
+            if div:
+                aio.append(div)
+            aio.append(_fmt_wgtinfo(var, "chain"))
+        return "\n".join(aio)
 
     @property
     def metal(self):
@@ -286,9 +319,12 @@ class PrdWgt(namedtuple("PrdWgt", "main,aux,part,netwgt")):
 
     @property
     def metal_stone(self):
-        """ metal & stone weight without chain """
-        return self.netwgt - (self.chain.wgt if self.chain else 0)
-    
+        """
+        metal & stone weight without chain, if no stone, this should return 0
+        """
+        st = self.netwgt - (self.chain.wgt if self.chain else 0)
+        return 0 if abs(sum(x.wgt for x in self.metal) - st) < 0.008 else st
+
     @property
     def metal_jc(self):
         """ the metal weight for jocost, that is the weight of all metals """

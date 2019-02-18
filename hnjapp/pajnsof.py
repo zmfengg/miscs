@@ -11,6 +11,7 @@ import io
 from os import (path, remove, rename, makedirs, environ)
 import re
 import struct
+from random import randint
 from datetime import date
 from tempfile import gettempdir
 
@@ -32,15 +33,16 @@ class JOImgOcr(object):
     class to do OCR
     """
 
-    #_ordbrd = (0.7, 0.1, 1, 0.4); _smpbrd = (0.7, 0.2, 1, 0.45)
-    _jn_brds = (0.7, 0.1, 1, 0.45)
-    _imgtpls, _tpl_h_w, _imgwss, _tpl_b = (None,) * 4
-    _mt = TM_CCOEFF_NORMED
-    _jn_invalid = set([x for x in "(Cc. |J%“¢<£"])
-    _jn_rpl = dict([x.split(",") for x in "b,6;E,8;),1".split(";")])
-    _dpi = (200, 200)
-    _rsz_height = 1170
-    _ocr_using_tiff = False
+    def __init__(self):
+        #_ordbrd = (0.7, 0.1, 1, 0.4); _smpbrd = (0.7, 0.2, 1, 0.45)
+        self._jn_brds = (0.7, 0.1, 1, 0.45)
+        self._imgtpls, _tpl_h_w, _imgwss, _tpl_b = (None,) * 4
+        self._mt = TM_CCOEFF_NORMED
+        self._jn_invalid = {x for x in "(Cc. |J%“¢<£"}
+        self._jn_rpl = dict(x.split(",") for x in "b,6;E,8;),1".split(";"))
+        self._dpi, self._rsz_height, self._ocr_using_tiff = (200, 200), 1170, False
+        # for test only, 0 = pdf2img, 1 = jpg resize
+        self._stage = 0
 
     def rename(self, pdf_fldr, tar_fldr):
         """
@@ -52,12 +54,12 @@ class JOImgOcr(object):
             first contains the un-renamed files(str),
             second contains the master JOs not found(str).
         """
-        if True:
+        if self._stage < 1:
             # slow, in debug mode, don't do this again and again
             fns = self.pdff2img(pdf_fldr, tar_fldr)
         else:
             fns = getfiles(tar_fldr, ".jpg")
-        pdfs, f0, d0, wrongs = {}, set(), {}, []
+        fn_jn, jn_set, jn_fn, wrongs = {}, set(), {}, []
         import socket
         try:
             td = (date.today().strftime("%Y-%m-%d"), "%s@%s" % (environ["USERNAME"], environ["COMPUTERNAME"]))
@@ -65,46 +67,59 @@ class JOImgOcr(object):
             td = (date.today().strftime("%Y-%m-%d"), socket.gethostname())
         del socket
         for fn in fns:  # the first one is the cover sheet, won't extract anything
-            var = self.img2jn(fn)
-            if var is None:
-                f0 = f0.union(self._buildjnlist(fn))
-                logger.debug("%d master JO#s extracted", len(f0))
+            jn = self.img2jn(fn)
+            if jn is None:
+                jn_set = jn_set.union(self._buildjnlist(fn))
+                logger.debug("%d master JO#s extracted", len(jn_set))
+                remove(fn)
             else:
+                if jn not in jn_fn:
+                    fn_jn[fn], jn_fn[jn] = jn, fn
+                else:
+                    # duplicated items found, let MatchHelper solve it
+                    for x in zip(("_0_%s" % jn, "_1_%s" % jn), (jn_fn[jn], fn),):
+                        fn_jn[x[1]], jn_fn[x[0]] = x
+                    del jn_fn[jn]
+        if not jn_set:
+            jn_set = set()
+        else:
+            logger.debug("JO#s are: %s" % ",".join(jn_set))
+        for jn in fn_jn.values():
+            if jn not in jn_set:
+                continue
+            jn_set.remove(jn)
+            del jn_fn[jn]
+        # now jn_fn/jns contains the suspicious JO#s, do matching
+        if jn_fn:
+            mh = MatchHelper()
+            act_cans = mh.solve(tuple(jn_set), tuple(jn_fn))
+            if act_cans:
+                for x in act_cans:
+                    fn_jn[jn_fn[x[1]]] = "_" + x[0]
+        jn_set = self._ren(fn_jn, td)
+        return (tuple(x[0] for x in wrongs), tuple(jn_set)) if (wrongs or jn_set) else None
+
+    def _ren(self, fn_jn, td):
+        ''' do the fn -> jn renaming '''
+        ext, jn_lst = None, sorted([x for x in fn_jn.values()])
+        jn_idx = dict(zip(jn_lst, range(len(jn_lst))))
+        for fn, jn in fn_jn.items():
+            if not ext:
+                ext = path.splitext(fn)[1]
+                fns = path.dirname(fn)
+            if self._stage < 2:
+                # resize and chop
                 img = Image.open(fn)
                 img.load()
                 o_sz = img.size
                 o_sz = (int(o_sz[0] * self._rsz_height / o_sz[1]), self._rsz_height)
                 img.thumbnail(o_sz)
+                self._chop(img, "%s, %d of %d, by %s" % (td[0], jn_idx[jn] + 1, len(fn_jn), td[1]))
                 img.save(fn, dpi=self._dpi)
-                pdfs[fn] = var
-                d0[var] = fn
-        if not f0:
-            f0 = set()
-        else:
-            logger.debug("JO#s are: %s" % ",".join(f0))
-        for fn in pdfs.items():
-            if fn[1] in f0:
-                f0.remove(fn[1])
-                del d0[fn[1]]
-        if d0:
-            mh = MatchHelper()
-            act_cans = mh.solve(tuple(f0), tuple(d0))
-            if act_cans:
-                for x in act_cans:
-                    pdfs[d0[x[1]]] = path.join(tar_fldr, "_" + x[0] + ".jpg")
-        d0, f0 = None, sorted([x for x in pdfs.values()])
-        f0 = dict(zip(f0, range(len(f0))))
-        for fn in pdfs.items():
-            if not d0:
-                d0 = path.splitext(fn[0])[1]
-                fns = path.dirname(fn[0])
-            img = Image.open(fn[0])
-            img.load()
-            self._chop(img, "%s, %d of %d, by %s" % (td[0], f0[fn[1]] + 1, len(pdfs), td[1]))
-            img.save(fn[0])
-            logger.debug("file(%s) renamed to %s" % (path.basename(fn[0]), fn[1] + d0))
-            rename(fn[0], path.join(fns, fn[1] + d0))
-        return (tuple(x[0] for x in wrongs), tuple(f0)) if (wrongs or f0) else None
+            logger.debug("file(%s) renamed to %s" % (path.basename(fn), jn + ext))
+            rename(fn, path.join(fns, jn + ext))
+        return jn_lst
+
 
     def pdff2img(self, pdf_fldr, tar_fldr):
         """
@@ -167,7 +182,7 @@ class JOImgOcr(object):
         finally:
             remove(list_fn)
         # method1, the ocr recognizes it as one column
-        lsts, stage = [[], []], re.compile(r"[0-9A-Z]\d{4,8}")
+        lsts, stage = [[], []], re.compile(r"[0-9A-Z￥]\d{4,8}")
         for x in txt.split("\n"):
             paused = stage.findall(x)
             if len(paused) < 2:
@@ -384,6 +399,8 @@ class JOImgOcr(object):
     def _parsejo(self, txt):
         lst, idx, s0 = [], 0, [self._jn_rpl.get(x, x) for x in txt if x not in self._jn_invalid]
         for ch in s0:
+            if ch == '¥':
+                ch = "Y"
             if not ('A' <= ch <= 'Z' or '0' <= ch <= '9'):
                 continue
             if idx == 0:
@@ -395,7 +412,11 @@ class JOImgOcr(object):
                 continue
             lst.append(ch)
             idx += 1
-        return "".join(lst)
+        lst = "".join(lst)
+        # sometimes Y will be treated as '¥'Y+
+        if lst[:2] == 'YY':
+            return lst[1:]
+        return lst
 
     """
     def _optbyPIL(self, img):

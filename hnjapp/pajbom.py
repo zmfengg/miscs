@@ -307,7 +307,7 @@ class PajBomHdlr(object):
                 prdwgt = addwgt(prdwgt, WgtInfo(kt, y["wgt"]),\
                     var, autoswap=False)
                 y["part_hints"] = var
-            if has_semi_chn:
+            if has_semi_chn and prdwgt.part:
                 prdwgt = prdwgt._replace(part=WgtInfo(prdwgt.part.karat, -prdwgt.part.wgt * 100))
             if self._from_his(pcode, prop):
                 continue
