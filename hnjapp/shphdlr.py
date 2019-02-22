@@ -383,6 +383,9 @@ class ShpMkr(object):
                     jwgt = self._hksvc.getjowgts(jn)
                     if not jwgt:
                         jwgt = None
+                    else:
+                        # the weight from JO won't contains stone, this might lead to error prompting for weight error, so let them be the same
+                        jwgt = jwgt._replace(netwgt=mp["mtlwgt"].netwgt)
                     jwgtmp[jn] = jwgt
                 if not cmpwgt(jwgt, mp["mtlwgt"]):
                     haswgt = bool(
@@ -944,7 +947,7 @@ class ShpMkr(object):
                     hls = self._write_bc(wb, shplst, mp, shp_date)
                     self._write_wgts(wb, shplst)
                     if hls:
-                        PajShpHdlr.build_bom_sheet(wb, min_rowcnt=10, main_offset=2, bom_check_level=1)
+                        PajShpHdlr.build_bom_sheet(wb, min_rowcnt=10, main_offset=3, bom_check_level=1)
                 else:
                     wb = None
         finally:
@@ -980,7 +983,7 @@ class ShpMkr(object):
             aio.extend(var)
             nl.main = "\n".join(var)
             # show netwgt only when there is stone
-            if abs(wgts.metal_jc - wgts.metal_stone) > 0.01:
+            if wgts.metal_stone:
                 if div:
                     aio.append(div)
                 aio.append("连石重:%4.2fgm" % wgts.metal_stone)

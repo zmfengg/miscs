@@ -134,10 +134,13 @@ class C1InvRdr(object):
         self._c1log = c1log
         self._cclog = cclog
 
-    def read(self, fldr=None):
+    def read(self, fldr=None, pwgt_check=True):
         """
         perform the read action
         @param fldr: the folder contains the invoice files
+        @param pwgt_check:
+            True: pwgt will be treated as parts'wgt if is pendant.
+            False: pwgt will always be treated as parts' weight of whatever style,  only used for jocost handling
         @return: a list of C1InvItem
         """
 
@@ -166,7 +169,7 @@ class C1InvRdr(object):
                     ]
                     if len(cnsc1) != len(rngs):
                         continue
-                    var = self.read_c1(sht, skip_checking=True)
+                    var = self.read_c1(sht, skip_checking=True, pwgt_check=pwgt_check)
                     if var:
                         items.extend(var[0])
                 wb.close()
@@ -176,39 +179,65 @@ class C1InvRdr(object):
         return items
 
     @classmethod
-    def read_c1(cls, sht, skip_checking=False):
+    def read_c1(cls, sht, skip_checking=False, pwgt_check=True):
         """
         read c1 invoice file
         @param   sht: the sheet that is verified to be the C1 format
         @param hdrow: the row of the header
+        @param pwgt_check:
+            True: pwgt will be treated as parts'wgt if is pendant.
+            False: pwgt will always be treated as parts' weight of whatever style,  only used for jocost handling
+
         @return: a list of C1InvItem with source = "C1"
         """
 
         if not skip_checking:
-            sn = sht.name
-            nl = sn.find("月")
-            if nl <= 0:
+            # should not check given sheet only, because at the begining of month, data in prior month, return a reversed sorted-by-month list and check
+            nl = cls._select_sheet(sht)
+            if not nl:
+                return
+            # don't use "is", might be false even if 2 sheets pointing to the same
+            if sht != nl[0]:
+                if sht in nl:
+                    sht.delete()
                 return None
-            if nl > 0:
-                nl = sn[:nl]
-                if nl.isnumeric():
-                    nl = int(nl)
-                    if nl != date.today().month:
-                        sht.delete()
-                        return None
             #there might be several date, get the biggest one
             nl = xwu.find(sht, "日期", find_all=True)
             if not nl:
                 return None
-            nl = [(x, x.offset(0, 1).value) for x in nl]
+            nl = [(x, x.offset(0, 1).value) for x in nl if x.offset(0, 1).value]
+            # sometimes the latest one contains nothing except date, an example is 20190221, so read from buttom
             nl = sorted(nl, key=lambda x: x[1], reverse=True)
-            rng = xwu.find(sht, "图片", After=nl[0][0])
-            invdate = nl[0][1].date()
+            for x in nl:
+                rng = xwu.find(sht, "图片", After=x[0])
+                sn = cls._read_from(rng, pwgt_check)
+                if sn:
+                    return sn, x[1].date()
+            rng = None
         else:
             rng, invdate = xwu.find(sht, "图片"), date.today()
         if not rng:
             return None
-        return cls._read_from(rng), invdate
+        return cls._read_from(rng, pwgt_check), invdate
+
+    @classmethod
+    def _select_sheet(cls, sht):
+        mp = {}
+        for x in sht.book.sheets:
+            sn = x.name
+            nl = sn.find("月")
+            if nl <= 0:
+                continue
+            nl = sn[:nl]
+            if nl.isnumeric():
+                mp[int(nl)] = x
+        if mp:
+            sn = sorted([x for x in mp], reverse=True)
+            # Jan contains Dec case
+            if len(sn) > 1 and sn[0] - sn[-1] > 10:
+                sn[0], sn[-1] = sn[-1], sn[0]
+            mp = [mp[x] for x in sn]
+        return mp
 
     @classmethod
     def read_c1_all(cls, sht):
@@ -242,7 +271,7 @@ class C1InvRdr(object):
         return data
 
     @classmethod
-    def _read_from(cls, rng):
+    def _read_from(cls, rng, pwgt_check=True):
         nls = [x for x in xwu.NamedRanges(rng, name_map=cls._rdr_km)]
         if not nls:
             return None
@@ -266,7 +295,7 @@ class C1InvRdr(object):
                         snl = (0, 0)
                     c1 = C1InvItem("C1", je.value, nl.joqty, snl[1], snl[0], nl.remark, [], None, nl.styno)
                     items.append(c1)
-            s0 = cls._extract_st_mtl(c1, nl, _cnstqnw)
+            s0 = cls._extract_st_mtl(c1, nl, _cnstqnw, pwgt_check)
             if s0:
                 c1 = items[-1] = s0
         # now calculate the net weight for each c1
@@ -282,7 +311,7 @@ class C1InvRdr(object):
             else:
                 logger.debug("JO(%s) does not contains metal wgt", c1.jono)
         return s0
-    
+
     @classmethod
     def verify(cls, c1):
         ''' verify if c1's weight is valid. a valid c1 weight should fulfill below
@@ -300,8 +329,13 @@ class C1InvRdr(object):
         return styno and styno[:2].upper().find("P") >= 0
 
     @classmethod
-    def _extract_st_mtl(cls, c1, nl, cnstqnw):
-        ''' extract the stone and metal into c1 '''
+    def _extract_st_mtl(cls, c1, nl, cnstqnw, pwgt_check=True):
+        '''
+        extract the stone and metal into c1
+        @param pwgt_check:
+            True: pwgt will be treated as parts'wgt if is pendant.
+            False: pwgt will always be treated as parts' weight of whatever style,  only used for jocost handling
+        '''
         #stone data
         qnw = [tofloat(nl[x]) for x in cnstqnw]
         if all(qnw):
@@ -319,7 +353,7 @@ class C1InvRdr(object):
             return None
         kt, wgt = cls._tokarat(kt), gw or sw
         #only pendant's pwgt is pwgt, else to mainpart
-        if pwgt and not cls._is_pendant(c1.styno):
+        if pwgt and pwgt_check and not cls._is_pendant(c1.styno):
             wgt += pwgt
             pwgt = 0
         c1 = c1._replace(mtlwgt=addwgt(c1.mtlwgt, WgtInfo(kt, wgt / joqty, 4)))
@@ -438,7 +472,8 @@ class C1JCMkr(object):
                              and_(StoneOutMaster.isout >= -10,
                                   StoneOutMaster.isout <= 10))
             lst = q.with_session(cur).all()
-        if not lst: return
+        if not lst:
+            return None
         ttl = "jobn,styno,running,package_id,quantity,weight,pricen,unit,is_out,bill_id,idx,fill_date,check_date".split(
             ",")
         lst1, lst = lst, [ttl]
@@ -465,7 +500,7 @@ class C1JCMkr(object):
                 "mmid,lastmmdate,jobno,cstname,styno,running,mstone,description,joqty,karat,goldwgt,goldcost,extgoldcost,extgoldcost2,stonecost,laborcost,extlaborcost,extcost,totalcost,unitcost,extgoldwgt,extgoldwgt2,cflag,rmb2hk"
             ).split(",")
             nl = NamedList(xwu.list2dict(ttls))
-            invs = C1InvRdr().read(self._invfldr)
+            invs = C1InvRdr().read(self._invfldr, pwgt_check=False)
             q = Query([
                 JO.name.label("jono"),
                 Customer.name.label("cstname"),

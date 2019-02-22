@@ -153,41 +153,43 @@ class _Utilz(object):
 
     @classmethod
     def fetch_jo_skunos(cls, cur, jes):
-        ''' return a {JO#: sku#} map '''
+        ''' return a {JO#: (sku#, styno,)} map '''
         skmp = {}
         q0 = Query((JO.name, POItem.skuno, )).join(POItem)
         for jn in splitarray(jes):
             q = q0.filter(jesin(jn, JO)).with_session(cur).all()
             if not q:
                 continue
-            skmp.update({x.name.value: trimu(x.skuno) for x in q})
+            skmp.update({x[0].value: trimu(x[1]) for x in q})
         return skmp or None
 
     @classmethod
-    def fetch_ca_jos(cls, cur, jnskump, jnsty):
+    def fetch_ca_jos(cls, cur, jnskump):
         ''' return {skuno: c1jc} map,
-        TODO::subquery's group by seems non-reasonable, but don't know how
+        subquery's group by seems non-reasonable, but don't know how
         my original query need to get argument from master query
-        @param jnsty: a {jo#, sty#} map, need to handle
+        @param cur: the cursor to execute the query
+        @param jnskump: {jo#: (styno, skuno, )} map
         '''
         if not (jnskump and cur):
             return None
-        skus = {x[1]: x[0] for x in jnskump.items() if x[1] and x[1] != na}
+        skus = {x[1]: x[0] for x in jnskump.items() if x[1] and x[1][1] != na}
         q = Query(C1JC)
         sq = Query((C1JC.skuno, C1JC.styno, func.max(C1JC.docno).label("mdocno"),)).group_by(C1JC.skuno, C1JC.styno).subquery()
         mp = {}
+        mk_key = lambda styno, skuno: styno + "_" + skuno
         for sku in splitarray(tuple(skus.keys())):
-            x = q.join(sq, and_(C1JC.skuno == sq.c.skuno, C1JC.docno == sq.c.mdocno)).filter(C1JC.skuno.in_(sku))
+            x = q.join(sq, and_(C1JC.skuno == sq.c.skuno, C1JC.docno == sq.c.mdocno)).filter(C1JC.skuno.in_([x[1] for x in sku]))
             lst = x.with_session(cur).all()
             if not lst:
                 continue
             for x in lst:
-                if x in mp:
+                thekey = mk_key(x.styno, x.skuno)
+                if thekey in mp:
                     continue
-                if x.styno != jnsty.get(skus[x.skuno]):
-                    continue
-                mp[x.skuno] = x
-        return {x[0]: mp[x[1]] for x in jnskump.items() if x[1] and x[1] != na and x[1] in mp}
+                mp[thekey] = x
+        mp = {x[0]: mp.get(mk_key(*x[1])) for x in jnskump.items()}
+        return {x[0]: x[1] for x in mp.items() if x[1]}
 
 
 class Writer(object):
@@ -219,10 +221,12 @@ class Writer(object):
             "黃 王": "YELLOW",
             "玫 瑰": "ROSE"
         }
-        self._vc_mp.update({
-            x[0]: getattr(karatsvc, "COLOR_" + trimu(x[1])) for x in mp.items()
-        })
-
+        # some color, for example, black, not exist in karatsvc, so add it one by one
+        for x in mp.items():
+            try:
+                self._vc_mp[x[0]] = getattr(karatsvc, "COLOR_" + trimu(x[1]))
+            except:
+                self._vc_mp[x[0]] = trimu(x[1])
         # the fixed stone
         # AZ is based on JO# 460049
         self._st_dd = None  #DD
@@ -599,11 +603,12 @@ class Writer(object):
             jos, jerrs = self._hksvc.getjos(jns.keys())
             if jos and logger.isEnabledFor(DEBUG):
                 logger.debug("using %4.2f seconds to get %d jos from HK JO system" % (time() - tc, len(jos)))
-            # JO#(463625,P37209), JO#(463068,E21215), different Sty#, same SKU#
-            # because there're of a set. how?
             skmp = self._utilz.fetch_jo_skunos(curs[0], [JOElement(x) for x in jns])
             if skmp:
-                skmp = self._utilz.fetch_ca_jos(curs[1], skmp, {x.name.value: x.style.name.value for x in jos})
+                # JO#(463625,P37209), JO#(463068,E21215), same customer, different Sty#, same SKU#, return {jo: sku_styno}
+                var = {x.name.value: x for x in jos}
+                skmp = {x[0]: (var[x[0]].style.name.value, x[1]) for x in skmp.items()}
+                skmp = self._utilz.fetch_ca_jos(curs[1], skmp)
             if skmp is None:
                 skmp = {}
             logger.debug("%d history records returned from cache" % len(skmp))

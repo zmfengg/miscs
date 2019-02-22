@@ -320,7 +320,7 @@ class PajBomHdlr(object):
         if not self._dao:
             return False
         pi = self._dao.get(pcode)
-        if not pi:
+        if not pi or not pi[1]:
             return False
         pw = PrdWgt(None)
         for x in prop.get("mstr"):
@@ -333,7 +333,10 @@ class PajBomHdlr(object):
         # extract the bom from pi with the netwgt removed
         pts, boms = _PajBomDAO.new_boms(None, pw, pts, _PajBomDAO.nl_mat), [x for x in pi[1] if x.mid]
         if len(boms) != len(pts):
+            logger.debug("找到pcode(%s)半成品链历史记录, 但与当前BOM不一致，以当前为准", pcode)
             return False
+        x = lambda x: (x.karat, x.wgt)
+        pts, boms = [sorted(y, key=x) for y in (pts, boms)]
         pts = [1 for bom, nl in zip(boms, pts) if bom.mid != nl.mid or int(bom.karat) != int(nl.karat) or abs(float(bom.wgt) - nl.wgt) >= 0.01]
         if pts:
             return False
@@ -344,6 +347,7 @@ class PajBomHdlr(object):
             else:
                 pi = pi._replace(netwgt=float(bi.wgt))
         prop["mtlwgt"] = pi
+        logger.debug("找到pcode(%s)半成品链历史记录", pcode)
         return True
 
 
