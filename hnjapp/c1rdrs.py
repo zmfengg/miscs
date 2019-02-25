@@ -212,13 +212,14 @@ class C1InvRdr(object):
                 rng = xwu.find(sht, "图片", After=x[0])
                 sn = cls._read_from(rng, pwgt_check)
                 if sn:
-                    return sn, x[1].date()
+                    return sn[0], x[1].date()
             rng = None
         else:
             rng, invdate = xwu.find(sht, "图片"), date.today()
         if not rng:
             return None
-        return cls._read_from(rng, pwgt_check), invdate
+        sn = cls._read_from(rng, pwgt_check)
+        return sn[0], invdate if sn else None
 
     @classmethod
     def _select_sheet(cls, sht):
@@ -241,8 +242,11 @@ class C1InvRdr(object):
 
     @classmethod
     def read_c1_all(cls, sht):
-        ''' read all the occurences inside given sheet '''
-        tk = wb = None
+        '''
+        read all the occurences inside given sheet
+        @param sht: a sheet instance. If a string is provided, will be treated as file, then only the sheet with "\d{1,2}月" will be processed
+        '''
+        tk = wb = data = None
         if not isinstance(sht, Sheet):
             if isinstance(sht, str):
                 app, tk = xwu.appmgr.acq()
@@ -261,10 +265,15 @@ class C1InvRdr(object):
                 if not rng or rng in rngs:
                     break
                 rngs.add(rng)
+            rngs, lidx = sorted(rngs, key=lambda x: x.row), 0
             for rng in rngs:
+                if rng.row < lidx:
+                    # in the AIO mode, some title was covered by the top title, just skip it
+                    continue
                 x = cls._read_from(rng)
                 if x:
-                    data.extend(x)
+                    data.extend(x[0])
+                    lidx = x[1]
         if tk:
             wb.close()
             xwu.appmgr.ret(tk)
@@ -278,39 +287,67 @@ class C1InvRdr(object):
         nl = nls[0]
         kns = [1 for x in "jono,gwgt,swgt".split(",") if nl.getcol(x)]
         if len(kns) != 3:
-            logger.debug("sheet(%s) does not contain necessary key columns",
-                         rng.sheet.name)
+            logger.debug("sheet(%s), range(%s) does not contain necessary key columns" % (rng.sheet.name, rng.address))
             return None
-        items, c1 = [], None
+        # last_act states:
+        # 1 -> JO#
+        # 2 -> blank but prior is &le; 2
+        # 3 -> blank but prior is 2, void
+        items, c1, netwgt_c1, jo_lidx, last_act = [], None, {}, {}, 3
         _cnstqnw = "stqty,stwgt".split(",")
         _cnsnl = "setting,labor".split(",")
-        for nl in nls:
+        for idx, nl in enumerate(nls):
             s0 = nl.jono
             if s0:
                 je = JOElement(s0)
                 if je.isvalid():
+                    if idx - jo_lidx.get(je.value, idx) > 0:
+                        logger.debug("Duplicated JO#(%s) found, the prior is near row(%d)" % (je.value, jo_lidx[je.value]))
+                        last_act = 3
+                        continue
                     snl = [tofloat(nl[s0]) for s0 in _cnsnl]
                     if not any(snl):
                         logger.debug("JO(%s) does not contains any labor cost", je.value)
                         snl = (0, 0)
                     c1 = C1InvItem("C1", je.value, nl.joqty, snl[1], snl[0], nl.remark, [], None, nl.styno)
                     items.append(c1)
+                    last_act = 1
+                else:
+                    # avoid an invalid JO#(for example, 耳迫配件) following a JO will send the weights to prior JO
+                    last_act = 3
+                    continue
+            else:
+                if last_act > 2:
+                    continue
+                last_act = 2
             s0 = cls._extract_st_mtl(c1, nl, _cnstqnw, pwgt_check)
             if s0:
                 c1 = items[-1] = s0
+                if c1.jono not in netwgt_c1:
+                    netwgt_c1[c1.jono] = [0, 0]
+                netwgt_c1[c1.jono][0] += tofloat(nl['netwgt'] or 0)
+                netwgt_c1[c1.jono][1] += tofloat(nl['pwgt'] or 0)
+                jo_lidx[c1.jono] = idx
+            else:
+                last_act = 3
         # now calculate the net weight for each c1
         s0 = []
         for c1 in items:
             # stone wgt in karat
+            if c1.jono in ('B70981'):
+                print('x')
             kt = sum((x.wgt for x in c1.stones)) / 5 if c1.stones else 0
             if c1.mtlwgt:
                 wgt = sum((x.wgt for x in c1.mtlwgt.wgts if x)) + kt
                 s0.append(
                     c1._replace(
                         mtlwgt=c1.mtlwgt._replace(netwgt=round(wgt, 2))))
+                nl = (wgt - netwgt_c1[c1.jono][1] / c1.qty, netwgt_c1[c1.jono][0] / c1.qty)
+                if abs(nl[0] - nl[1]) > 0.01:
+                    logger.debug("JO#(%s)'s netwgt contains error, it should be %4.2f but was %4.2f" % (c1.jono, nl[0], nl[1]))
             else:
                 logger.debug("JO(%s) does not contains metal wgt", c1.jono)
-        return s0
+        return s0, rng.last_cell.row + len(nls)
 
     @classmethod
     def verify(cls, c1):
@@ -337,29 +374,31 @@ class C1InvRdr(object):
             False: pwgt will always be treated as parts' weight of whatever style,  only used for jocost handling
         '''
         #stone data
+        hc = 0
         qnw = [tofloat(nl[x]) for x in cnstqnw]
         if all(qnw):
             s0 = nl.stname
             if s0 and isinstance(s0, str):
                 joqty = c1.qty
                 c1.stones.append(C1InvStone(nl.stname, qnw[0] / joqty, round(qnw[1] / joqty, 4), "N/A"))
+                hc += 1
         #wgt data
         kt, gw, sw, pwgt = nl.karat, nl.gwgt, nl.swgt, nl.pwgt
-        if not kt or not isnumeric(kt):
-            return None
-        joqty = c1.qty
-        if not joqty:
-            logger.debug("JO(%s) without qty, skipped" % nl.jono)
-            return None
-        kt, wgt = cls._tokarat(kt), gw or sw
-        #only pendant's pwgt is pwgt, else to mainpart
-        if pwgt and pwgt_check and not cls._is_pendant(c1.styno):
-            wgt += pwgt
-            pwgt = 0
-        c1 = c1._replace(mtlwgt=addwgt(c1.mtlwgt, WgtInfo(kt, wgt / joqty, 4)))
-        if pwgt:
-            c1 = c1._replace(mtlwgt=addwgt(c1.mtlwgt, WgtInfo(kt, pwgt / joqty, 4), True))
-        return c1
+        if kt and isnumeric(kt):
+            joqty = c1.qty
+            if not joqty:
+                logger.debug("JO(%s) without qty, skipped" % nl.jono)
+                return None
+            hc += 1
+            kt, wgt = cls._tokarat(kt), gw or sw
+            #only pendant's pwgt is pwgt, else to mainpart
+            if pwgt and pwgt_check and not cls._is_pendant(c1.styno):
+                wgt += pwgt
+                pwgt = 0
+            c1 = c1._replace(mtlwgt=addwgt(c1.mtlwgt, WgtInfo(kt, wgt / joqty, 4)))
+            if pwgt:
+                c1 = c1._replace(mtlwgt=addwgt(c1.mtlwgt, WgtInfo(kt, pwgt / joqty, 4), True))
+        return c1 if hc else None
 
     @classmethod
     def _tokarat(cls, kt):

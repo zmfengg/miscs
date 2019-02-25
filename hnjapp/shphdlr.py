@@ -1270,7 +1270,7 @@ class ShpImptr():
         then when the ttl is empty(no critical error), should also return
             cidxqty jns nlhdr nls sht ttlqty ttlwgt
         """
-        ttl, var = (None,) * 2
+        ttl, var, mpx = (None,) * 3
         if not wb:
             xwu.appswitch(_appmgr.acq()[0], True)
             ttl = ("文件错误", "文件有误或不存在")
@@ -1301,7 +1301,8 @@ class ShpImptr():
             "mpx",
             "self",
         ) and x[1] is not None)
-        mp.update(mpx)
+        if mpx:
+            mp.update(mpx)
         return mp
 
     def _check_rpt_detail(self, sht, errs):

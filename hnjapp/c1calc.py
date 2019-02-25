@@ -174,7 +174,7 @@ class _Utilz(object):
         if not (jnskump and cur):
             return None
         skus = {x[1]: x[0] for x in jnskump.items() if x[1] and x[1][1] != na}
-        q = Query(C1JC)
+        q = Query(C1JC).order_by(C1JC.name)
         sq = Query((C1JC.skuno, C1JC.styno, func.max(C1JC.docno).label("mdocno"),)).group_by(C1JC.skuno, C1JC.styno).subquery()
         mp = {}
         mk_key = lambda styno, skuno: styno + "_" + skuno
@@ -185,8 +185,7 @@ class _Utilz(object):
                 continue
             for x in lst:
                 thekey = mk_key(x.styno, x.skuno)
-                if thekey in mp:
-                    continue
+                # use the last one, so skip existing checking
                 mp[thekey] = x
         mp = {x[0]: mp.get(mk_key(*x[1])) for x in jnskump.items()}
         return {x[0]: x[1] for x in mp.items() if x[1]}
@@ -786,6 +785,11 @@ class HisMgr(object):
         jc, feas, sts = C1JC(), [], []
         for y in mstr_mp.items():
             setattr(jc, y[0], pp.get(y[1], 0))
+        # sometimes the Sty# in the source file contains Sty_Date_RefJO#, so normalize it
+        if jc.styno and jc.styno.find("_") > 0:
+            jc.styno = jc.styno.split("_")[0]
+        if jc.docno.find(".") > 0:
+            jc.docno = jc.docno.split(".")[0]
         jc.createdate, jc.lastmodified = dates
         jc.tag = 0
         if not jc.skuno:
