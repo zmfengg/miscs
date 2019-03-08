@@ -10,14 +10,15 @@
 import inspect
 import logging
 import os
+from utilz import Config
 
 from hnjcore import JOElement
 
 _logger = logging.getLogger("hnjapp")
-_date_short = "%Y/%m/%d"
-_dfkt = {"4": 925, "5": 925, "M": 8, "B": 9, "G": 10, "Y": 14, "P": 18}
 thispath = os.path.abspath(os.path.dirname(inspect.getfile(inspect.currentframe())))
-
+config = Config(os.path.join(thispath, "res", "conf.json"))
+_dfkt = config.get("jono.prefix_to_karat")
+_date_short = config.get("date.shortform")
 
 def splitjns(jns):
     """ split the jes or runnings into 3 set

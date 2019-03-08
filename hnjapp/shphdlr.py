@@ -1006,6 +1006,7 @@ class _SMLogWtr(object):
     """
     the log writter for ShpMkr/ShpImptr
     """
+    _wgt_threshold = 0.03
 
     def __init__(self, cnsvc, sns=None):
         self._cnsvc = cnsvc
@@ -1116,11 +1117,11 @@ class _SMLogWtr(object):
                 wdf = (wgtact - wgtexp) / wgtexp if wgtexp else NA
                 pfx = "%4.2f-%4.2f" % (wgtact, wgtexp)
                 if wgtexp:
-                    if abs(wdf) <= 0.05:
-                        vvs.append("OK")
-                        # vvs.append(pfx + "(-)")
+                    if abs(wdf) <= cls._wgt_threshold:
+                        # vvs.append("OK")
+                        vvs.append(pfx + "(OK)")
                     else:
-                        flag = flag or wdf > 0.05
+                        flag = flag or wdf > cls._wgt_threshold
                         vvs.append(pfx + "(%s%%)" % ("%4.2f" % (wdf * 100.0)))
                 else:
                     if not flag:

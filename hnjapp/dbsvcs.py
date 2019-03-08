@@ -1,42 +1,47 @@
 # coding=utf-8
 """
- * @Author: zmFeng 
- * @Date: 2018-05-25 14:21:01 
- * @Last Modified by:   zmFeng 
- * @Last Modified time: 2018-05-25 14:21:01 
+ * @Author: zmFeng
+ * @Date: 2018-05-25 14:21:01
+ * @Last Modified by:   zmFeng
+ * @Last Modified time: 2018-05-25 14:21:01
  * the database services, including HK's and py's, and the out-dated bc's
  """
 
 import datetime
 import re
-from collections.abc import Sequence
 from collections import Iterable
-from contextlib import contextmanager
+from collections.abc import Sequence
 from operator import attrgetter
 
-from sqlalchemy import and_, desc, or_, true, func
-from sqlalchemy.orm import Query, Session
+from sqlalchemy import and_, desc, func, or_, true
+from sqlalchemy.orm import Query
 
 from hnjcore import JOElement, KaratSvc, StyElement
-from hnjcore.models.cn import JO as JOcn, StoneIn, StonePk
+from hnjcore.models.cn import JO as JOcn
+from hnjcore.models.cn import MM, Codetable
 from hnjcore.models.cn import Customer as Customercn
-from hnjcore.models.cn import Style as Stylecn, StoneOut, StoneOutMaster
-from hnjcore.models.cn import MM, MMMa, Codetable
+from hnjcore.models.cn import MMMa, StoneIn, StoneOut, StoneOutMaster, StonePk
+from hnjcore.models.cn import Style as Stylecn
+from hnjcore.models.hk import JO, Customer
 from hnjcore.models.hk import Invoice as IV
 from hnjcore.models.hk import InvoiceItem as IVI
 from hnjcore.models.hk import JOItem as JI
+from hnjcore.models.hk import Orderma, PajCnRev, PajInv, PajShp, POItem
 from hnjcore.models.hk import StockObjectMa as SO
-from hnjcore.models.hk import (JO, Customer, Orderma, PajCnRev, PajInv, PajShp,
-                               POItem, Style)
-from hnjcore.utils import samekarat
+from hnjcore.models.hk import Style
 from hnjcore.utils.consts import NA
-from utilz import splitarray, ResourceCtx
+from utilz import ResourceCtx, splitarray
 
 from . import pajcc
+from .common import _logger as logger
+from .common import splitjns
 from .pajcc import MPS, PrdWgt, WgtInfo, addwgt
-from .common import _logger as logger, splitjns
 
-__all__ = ["CNSvc", "formatsn", "HKSvc", "idsin", "idset", "jesin", "namesin", "nameset"]
+__all__ = [
+    "CNSvc", "formatsn", "HKSvc", "idsin", "idset", "jesin", "namesin",
+    "nameset"
+]
+
 
 def fmtsku(skuno):
     if not skuno:
@@ -46,14 +51,29 @@ def fmtsku(skuno):
         return None
     return skuno
 
-class SNFmtr(object):    
+
+class SNFmtr(object):
     _ptn_rmk = re.compile(r"\(.*\)")
     _voidset = set("SN;HB".split(";"))
-    _crmp = {"）":")","（":"(",";":",","六號瓜子耳":"6號瓜子耳","小心形":"小心型","細心":"小心型","中號光銀光子耳":"中號光金瓜子耳","中號光銀瓜子耳":"中號光金瓜子耳"}
-    _rvlst = sorted("不用封底;執模加圈;圈仔執模做加啤件;不用封底;加啤件;耳針位;請提供;飛邊;占位;光底;夾片;#; ;底;針夾;捲底;相盒;吊墜;吊咀;面做相同花紋;面同一花紋;較用;請提供模號;樣品號;模號請提供;夾底片;片夾底;小占位;有字;用;啤沒有耳仔的".split(";"), key = lambda x: len(x), reverse = True)
-    _pfx = sorted("大2號;中號".split(";"), key = lambda x: len(x), reverse = True)
-    _sfx = sorted("夾層;針;小心型;瓜子耳;花".split(";"), key = lambda x: len(x), reverse = True)
-    
+    _crmp = {
+        "）": ")",
+        "（": "(",
+        ";": ",",
+        "六號瓜子耳": "6號瓜子耳",
+        "小心形": "小心型",
+        "細心": "小心型",
+        "中號光銀光子耳": "中號光金瓜子耳",
+        "中號光銀瓜子耳": "中號光金瓜子耳"
+    }
+    _rvlst = sorted(
+        "不用封底;執模加圈;圈仔執模做加啤件;不用封底;加啤件;耳針位;請提供;飛邊;占位;光底;夾片;#; ;底;針夾;捲底;相盒;吊墜;吊咀;面做相同花紋;面同一花紋;較用;請提供模號;樣品號;模號請提供;夾底片;片夾底;小占位;有字;用;啤沒有耳仔的"
+        .split(";"),
+        key=lambda x: len(x),
+        reverse=True)
+    _pfx = sorted("大2號;中號".split(";"), key=lambda x: len(x), reverse=True)
+    _sfx = sorted(
+        "夾層;針;小心型;瓜子耳;花".split(";"), key=lambda x: len(x), reverse=True)
+
     def _splitsn(self, sn):
         if not sn: return
         sfx, ots = "", ""
@@ -71,8 +91,8 @@ class SNFmtr(object):
         else:
             sn = (sn,)
         return sn
-    
-    def formatsn(self, sn, parsemode = 2, retuple = False):
+
+    def formatsn(self, sn, parsemode=2, retuple=False):
         """
         parse/formatted/sort a sn string to tuple or a string
 
@@ -82,14 +102,14 @@ class SNFmtr(object):
         @retuple:   return the result as a tuple instead of string
         """
         for x in self._crmp.items():
-            sn = sn.replace(x[0],x[1])
+            sn = sn.replace(x[0], x[1])
         for x in self._rvlst:
-            sn = sn.replace(x,",")
+            sn = sn.replace(x, ",")
         for x in self._pfx:
-            sn = sn.replace(x,"," + x)
+            sn = sn.replace(x, "," + x)
         for x in self._sfx:
-            sn = sn.replace(x,x + ",")
-        sn = re.sub(self._ptn_rmk,",",sn)
+            sn = sn.replace(x, x + ",")
+        sn = re.sub(self._ptn_rmk, ",", sn)
         if not sn or sn in self._voidset: return
         lst = sorted([x for x in sn.split(",") if x])
         buf, dup = [], set()
@@ -113,16 +133,22 @@ class SNFmtr(object):
                 buf.append(y)
         return buf if retuple else ",".join(buf)
 
+
 formatsn = SNFmtr().formatsn
+
 
 def jesin(jes, objclz):
     """ simulate a in operation for jo.name """
-    if not isinstance(jes, (tuple, list, )):
+    if not isinstance(jes, (
+            tuple,
+            list,
+    )):
         jes = list(jes)
     q = objclz.name == jes[0]
     for y in jes[1:]:
         q = or_(objclz.name == y, q)
     return q
+
 
 #these 4 object for sqlalcehmy's query maker for ids/names
 idsin = lambda ids, objclz: objclz.id.in_(ids)
@@ -130,48 +156,52 @@ idset = lambda ids: {y.id for y in ids}
 namesin = lambda names, objclz: objclz.name.in_(names)
 nameset = lambda names: {y.name for y in names}
 
-def _getjos(self, objclz, q0, jns, extfltr = None):
+
+def _getjos(self, objclz, q0, jns, extfltr=None):
     ss = splitjns(jns)
-    if not(ss and any(ss)): return
-    jes, rns,ids= ss[0],ss[1],ss[2] 
-    rsts = [None,None,None]
+    if not (ss and any(ss)):
+        return None
+    jes, rns, ids = ss[0], ss[1], ss[2]
+    rsts = [None, None, None]
     if ids:
-        rsts[0] = self._getbyids(q0,ids,idsin,objclz,idset, extfltr)
+        rsts[0] = self._getbyids(q0, ids, idsin, objclz, idset, extfltr)
     if rns:
-        rsts[1] = self._getbyids(q0,rns,lambda x,y: y.running.in_(x),objclz,lambda x: set([y.running for y in x]), extfltr)
-    if jes:       
-        rsts[2] = self._getbyids(q0,jes,jesin,objclz,nameset, extfltr)
+        rsts[1] = self._getbyids(q0, rns, lambda x, y: y.running.in_(x), objclz,
+                                 lambda x: set([y.running for y in x]), extfltr)
+    if jes:
+        rsts[2] = self._getbyids(q0, jes, jesin, objclz, nameset, extfltr)
     its, failed = dict(), []
     for x in rsts:
         if not x: continue
-        if x[0]: its.update(dict([(y.id,y) for y in x[0]]))
+        if x[0]: its.update(dict([(y.id, y) for y in x[0]]))
         if x[1]: failed.extend(x[1])
-    return list(its.values()),failed
+    return list(its.values()), failed
+
 
 class SvcBase(object):
     _querysize = 20
 
     def __init__(self, trmgr):
         self._trmgr = trmgr
-    
+
     def sessmgr(self):
         return self._trmgr
 
     def sessionctx(self):
         return ResourceCtx(self._trmgr)
-    
-    def _getbyids(self,q0, objs, qmkr, objclz, smkr, extfltr = None):
+
+    def _getbyids(self, q0, objs, qmkr, objclz, smkr, extfltr=None):
         """
         get object by providing a list of vars, return tuple with valid object tuple and not found set
         """
         if not objs: return
-        if not isinstance(objs,Sequence):
+        if not isinstance(objs, Sequence):
             objs = tuple(objs)
-        objss = splitarray(objs,self._querysize)
+        objss = splitarray(objs, self._querysize)
         al = []
         with self.sessionctx() as cur:
             for x in objss:
-                q = q0.filter(qmkr(x,objclz))
+                q = q0.filter(qmkr(x, objclz))
                 if extfltr is not None: q = q.filter(extfltr)
                 lst = q.with_session(cur).all()
                 if lst: al.extend(lst)
@@ -183,8 +213,9 @@ class SvcBase(object):
             else:
                 na = None
         else:
-            na = set(objs) 
-        return al,na
+            na = set(objs)
+        return al, na
+
 
 class HKSvc(SvcBase):
     _qcaches = {}
@@ -192,10 +223,11 @@ class HKSvc(SvcBase):
 
     def _samekarat(self, jo0, jo1):
         """ check if the 2 given jo's karat/auxkarat are the same
-            this method compare the 2 karats            
+            this method compare the 2 karats
         """
-        lst = ([(self._ktsvc.getfamily(x.orderma.karat), self._ktsvc.getfamily(x.auxkarat)
-                 if x.auxwgt else 0) for x in (jo0, jo1)])
+        lst = ([(self._ktsvc.getfamily(x.orderma.karat),
+                 self._ktsvc.getfamily(x.auxkarat) if x.auxwgt else 0)
+                for x in (jo0, jo1)])
         return lst[0] == lst[1]
 
     def __init__(self, sqleng):
@@ -207,19 +239,23 @@ class HKSvc(SvcBase):
         """ return a JO -> PajShp -> PajInv query, append your query
         before usage, then remember to execute using q.with_session(yousess)
         """
-        return self._qcaches.setdefault("jopajshp&inv",
-                                        Query([PajShp, JO, PajInv]).join(
-                                            JO, JO.id == PajShp.joid)
-                                        .join(PajInv, and_(PajShp.joid == PajInv.joid, PajShp.invno == PajInv.invno)))
+        return self._qcaches.setdefault(
+            "jopajshp&inv",
+            Query([PajShp, JO, PajInv]).join(JO, JO.id == PajShp.joid).join(
+                PajInv,
+                and_(PajShp.joid == PajInv.joid, PajShp.invno == PajInv.invno)))
 
     def _pjsq(self):
         """ return a cached Style -> JO -> PajShp -> PajInv query """
-        return self._qcaches.setdefault("jopajshp&inv",
-                                        Query([PajShp, JO, Style, Orderma, PajInv]).join(
-                                            JO, JO.id == PajShp.joid)
-                                        .join(PajInv, and_(PajShp.joid == PajInv.joid, PajShp.invno == PajInv.invno)))
+        return self._qcaches.setdefault(
+            "jopajshp&inv",
+            Query([PajShp, JO, Style, Orderma, PajInv]).join(
+                JO, JO.id == PajShp.joid).join(
+                    PajInv,
+                    and_(PajShp.joid == PajInv.joid,
+                         PajShp.invno == PajInv.invno)))
 
-    def getjos(self, jesorrunns, extfltr = None):
+    def getjos(self, jesorrunns, extfltr=None):
         """get jos by a collection of JOElements/Strings or Integers
         when the first item is string or JOElement, it will be treated as getbyname, else by runn
         return a tuple, the first item is list containing hnjcore.models.hk.JO
@@ -228,7 +264,7 @@ class HKSvc(SvcBase):
             starts with 'r' for example, 'r410100', id should be integer,
             name should be JOElement or string without 'r' as prefix
         """
-        return _getjos(self,JO, Query(JO),jesorrunns, extfltr)
+        return _getjos(self, JO, Query(JO), jesorrunns, extfltr)
 
     def getjo(self, jeorrunn):
         """ a convenient way for getjos """
@@ -251,23 +287,24 @@ class HKSvc(SvcBase):
             rc = "RING"
         elif sa.find("B") >= 0:
             sa = jo.description
-            rc = "BRACELET" if [1 for x in "鏈 鍊".split() if sa.find(x) >= 0] else "BANGLE" #big5
+            rc = "BRACELET" if [1 for x in "鏈 鍊".split() if sa.find(x) >= 0
+                               ] else "BANGLE"  #big5
         return rc
 
     def getrevcns(self, pcode, limit=0):
-        """ return a list of revcns order by the affected date desc        
+        """ return a list of revcns order by the affected date desc
         The current revcn is located at [0]
-        @param limit: only return the given count of records. limit == 0 means no limits        
+        @param limit: only return the given count of records. limit == 0 means no limits
         """
         from operator import attrgetter
         with self.sessionctx() as cur:
             rows = None
-            q = Query(PajCnRev).filter(PajCnRev.pcode == 
-                                    pcode).order_by(desc(PajCnRev.tag))
+            q = Query(PajCnRev).filter(PajCnRev.pcode == pcode).order_by(
+                desc(PajCnRev.tag))
             if limit:
                 q = q.limit(limit)
             rows = q.with_session(cur).all()
-            if rows and len(rows) > 0:                
+            if rows and len(rows) > 0:
                 rows = sorted(rows, key=attrgetter("tag"))
                 #rows = sorted(rows, key=attrgetter("revdate"))
         return rows
@@ -275,7 +312,7 @@ class HKSvc(SvcBase):
     def getrevcn(self, pcode, calcdate=None):
         """ return the revcn of given calcdate, if no calcdate provided, return the current
         revcn that affect current items
-        @param calcdate: the date you want the revcn to affect        
+        @param calcdate: the date you want the revcn to affect
         """
         rc = None
         with self.sessionctx() as cur:
@@ -291,7 +328,7 @@ class HKSvc(SvcBase):
                 rc = q.with_session(cur).one()
         return rc.uprice if rc else 0
 
-    def findsimilarjo(self, jo, level=1, mindate = datetime.datetime(2015,1,1)):
+    def findsimilarjo(self, jo, level=1, mindate=datetime.datetime(2015, 1, 1)):
         """ return an list of JO based on below criteria
         @param level:   0 for extract SKU match
                         1 for extract karat match
@@ -302,7 +339,7 @@ class HKSvc(SvcBase):
         level = 0 if level < 0 else level
         je = jo.name
         jns, jn = None, None
-        with self.sessionctx() as cur:        
+        with self.sessionctx() as cur:
             #don't lookup too much, only return data since 2015
             q = Query([JO,POItem.skuno]).join(Orderma).join(POItem,POItem.id == JO.poid)\
             .filter(Orderma.styid == jo.orderma.style.id)
@@ -310,7 +347,7 @@ class HKSvc(SvcBase):
                 q = q.filter(JO.createdate >= mindate)
             try:
                 rows = q.with_session(cur).all()
-                if(rows):
+                if (rows):
                     jns = {}
                     for x in rows:
                         jn = x.JO.name
@@ -322,14 +359,19 @@ class HKSvc(SvcBase):
                     skuno = fmtsku(jo.po.skuno)
                     sks = jns[skuno] if skuno and skuno in jns else None
                     if not sks and level > 0:
-                        sks = [x.JO for x in rows if je !=
-                            x.JO.name and self._samekarat(jo, x.JO)]
+                        sks = [
+                            x.JO
+                            for x in rows
+                            if je != x.JO.name and self._samekarat(jo, x.JO)
+                        ]
                         if not sks and level > 1:
                             sks = [x.JO for x in rows]
                     rc = sks
             except Exception as e:
-                if isinstance(e,UnicodeDecodeError):
-                    logger.debug("description/edescription/po.description of JO#(%s) contains invalid Big5 character " % jn.value)
+                if isinstance(e, UnicodeDecodeError):
+                    logger.debug(
+                        "description/edescription/po.description of JO#(%s) contains invalid Big5 character "
+                        % jn.value)
         if rc and len(rc) > 1:
             rc = sorted(rc, key=attrgetter("createdate"), reverse=True)
         return rc
@@ -349,20 +391,28 @@ class HKSvc(SvcBase):
             rk, oth_chn = knws[0], []
             if jo.auxwgt:
                 knws[1] = WgtInfo(jo.auxkarat, float(jo.auxwgt))
-                if(knws[1].karat == 925):  # most of 925's parts is 925
+                if (knws[1].karat == 925):  # most of 925's parts is 925
                     rk = knws[1]
             #only pendant's parts weight should be returned
             if jo.style.name.alpha.find("P") >= 0:
                 # attention, bug of the driver/pyodbc or encoding issue, Query(JI)
                 # returns only one record even if there are several, so get one by one
                 #lst = Query(JI).filter(JI.joid == jo.id, JI.stname.like("M%T%"))
-                lst = Query((JI.remark, JI.stname, JI.unitwgt, )).filter(JI.joid == jo.id, JI.stname.like("%M%T%"))
+                lst = Query((
+                    JI.remark,
+                    JI.stname,
+                    JI.unitwgt,
+                )).filter(JI.joid == jo.id, JI.stname.like("%M%T%"))
                 lst = lst.with_session(cur).all()
                 if lst:
                     for row in lst:
-                        if row.unitwgt and self._ptnmit.search(row.stname) and [1 for x in "\" 寸 吋".split() if row.remark.find(x) >= 0]:
+                        if row.unitwgt and self._ptnmit.search(row.stname) and [
+                                1 for x in "\" 寸 吋".split()
+                                if row.remark.find(x) >= 0
+                        ]:
                             kt = rk.karat
-                            if row.remark.find("銀") >= 0 or row.remark.find("925") >= 0:
+                            if row.remark.find("銀") >= 0 or row.remark.find(
+                                    "925") >= 0:
                                 kt = 925
                             kt = pajcc.WgtInfo(kt, float(row.unitwgt))
                             if not knws[2]:
@@ -383,13 +433,18 @@ class HKSvc(SvcBase):
         """ get the weight of given JO# and calc the china
             return a map with keys (JO,PajShp,PajInv,china,wgts)
          """
-        if(isinstance(je, str)):
+        if (isinstance(je, str)):
             je = JOElement(je)
         elif isinstance(je, JO):
             je = je.name
-        rmap = {"JO": None, "china": None,
-                "PajShp": None, "PajInv": None, "wgts": None}
-        if(not je.isvalid):
+        rmap = {
+            "JO": None,
+            "china": None,
+            "PajShp": None,
+            "PajInv": None,
+            "wgts": None
+        }
+        if (not je.isvalid):
             return rmap
         with self.sessionctx():
             ups = self.getpajinvbyjes([je])
@@ -441,7 +496,7 @@ class HKSvc(SvcBase):
                 jes = (jes)
             elif isinstance(jes, str):
                 jes = (JOElement(jes))
-        jes = [x if isinstance(x,JOElement) else JOElement(x) for x in jes]
+        jes = [x if isinstance(x, JOElement) else JOElement(x) for x in jes]
 
         with self.sessionctx() as cur:
             q0 = self._pjq()
@@ -455,10 +510,10 @@ class HKSvc(SvcBase):
                     lst.extend(rows)
         return lst
 
-    def getpajinvbypcode(self,pcode, maxinvdate = None, limit = 0):
+    def getpajinvbypcode(self, pcode, maxinvdate=None, limit=0):
         """ return a list of pajinv history order by pajinvdate descendantly
         @param maxinvdate: the maximum invdate, those greater than that won't be return
-        @param limit: the maximum count of results returned        
+        @param limit: the maximum count of results returned
         """
         rows = None
         with self.sessionctx() as cur:
@@ -486,26 +541,35 @@ class HKSvc(SvcBase):
             lst = q0.with_session(cur).all()
         return lst
 
+
 class CNSvc(SvcBase):
 
     def getshpforjc(self, df, dt):
         """return py shipment data for PajJCMkr
         @param df: start date(include) a date ot datetime object
-        @param dt: end date(exclude) a date or datetime object 
+        @param dt: end date(exclude) a date or datetime object
         """
         lst = None
         with self.sessionctx() as cur:
             if True:
                 q0 = Query([JOcn, MMMa, Customercn, Stylecn, JOcn, MM])
             else:
-                q0 = Query([JOcn.id, MMMa.refdate, Customercn.name.label("cstname"), JOcn.name.label("jono"), Stylecn.name.label(
-                    "styno"), JOcn.running, JOcn.karat, JOcn.description, JOcn.qty.label("joqty"), MM.qty.label("shpqty"), MM.name.label("mmno")])
+                q0 = Query([
+                    JOcn.id, MMMa.refdate,
+                    Customercn.name.label("cstname"),
+                    JOcn.name.label("jono"),
+                    Stylecn.name.label("styno"), JOcn.running, JOcn.karat,
+                    JOcn.description,
+                    JOcn.qty.label("joqty"),
+                    MM.qty.label("shpqty"),
+                    MM.name.label("mmno")
+                ])
             q = q0.join(Customercn).join(Stylecn).join(MM).join(MMMa)\
                 .filter(and_(MMMa.refdate >= df, MMMa.refdate < dt)).with_session(cur)
             lst = q.all()
         return lst
-    
-    def getjcrefid(self,runn):
+
+    def getjcrefid(self, runn):
         """ return the referenceId of given runn#, return tuple
         tuple[0] = the refid, tuple[1] = (runnf,runnt)
         """
@@ -515,70 +579,76 @@ class CNSvc(SvcBase):
                 filter(and_(Codetable.coden1 <= runn,Codetable.coden2 >= runn))
             x = q.with_session(cur).one_or_none()
         if x:
-            return int(x.coden0),(int(x.coden1),int(x.coden2))
+            return int(x.coden0), (int(x.coden1), int(x.coden2))
 
-    def getjcmps(self,refid):
+    def getjcmps(self, refid):
         """ return the metal ups of given refid as dict """
         x = None
         with self.sessionctx() as cur:
             q = Query(Codetable).filter(and_(Codetable.tblname == "metalma",Codetable.colname == "goldprice")).\
                 filter(Codetable.tag == refid)
             lst = q.with_session(cur).all()
-            return dict([(int(x.coden0),float(x.coden1)) for x in lst])
-    
-    def getstins(self,btnos):
+            return dict([(int(x.coden0), float(x.coden1)) for x in lst])
+
+    def getstins(self, btnos):
         """
         return the stonein's by provding a list of btchnos or btchid
         btchno or id is determined by the fist item in btchnos
         @param btnos: should be a collection of btchno(str) or btchid(int)
         """
-        if not isinstance(btnos,Sequence):
+        if not isinstance(btnos, Sequence):
             btnos = tuple(btnos)
-        isstr = isinstance(btnos[0],str)
+        isstr = isinstance(btnos[0], str)
         if isstr:
             qmkr, smkr = namesin, nameset
         else:
             qmkr, smkr = idsin, idset
-        return self._getbyids(Query(StoneIn),btnos,qmkr,StoneIn,smkr)
+        return self._getbyids(Query(StoneIn), btnos, qmkr, StoneIn, smkr)
 
-    def getstpks(self,pknos):
-        if not isinstance(pknos,Sequence):
+    def getstpks(self, pknos):
+        if not isinstance(pknos, Sequence):
             pknos = tuple(pknos)
-        isstr = isinstance(pknos[0],str)
+        isstr = isinstance(pknos[0], str)
         if isstr:
-            qmkr,smkr =  namesin,nameset
+            qmkr, smkr = namesin, nameset
         else:
-            qmkr,smkr = idsin,idset
-        return self._getbyids(Query(StonePk),pknos,qmkr,StonePk,smkr)
-    
+            qmkr, smkr = idsin, idset
+        return self._getbyids(Query(StonePk), pknos, qmkr, StonePk, smkr)
+
     def getjos(self, jns):
-        return _getjos(self,JOcn, Query(JOcn),jns)
-    
-    def getjostcosts(self,runns):
+        return _getjos(self, JOcn, Query(JOcn), jns)
+
+    def getjostcosts(self, runns):
         """
         return the stone costs by map, running or je as key and cost as value
         """
         if not runns: return None
-        if not isinstance(runns,Sequence): runns = tuple(runns)
-        isjn, jnlv = isinstance(runns[0],str) or isinstance(runns[0],JOElement), 0
-        if isjn and isinstance(runns[0],str):
+        if not isinstance(runns, Sequence): runns = tuple(runns)
+        isjn, jnlv = isinstance(runns[0], str) or isinstance(
+            runns[0], JOElement), 0
+        if isjn and isinstance(runns[0], str):
             runnsx = tuple(runns)
             runns = [JOElement(x) for x in runns]
             jnlv = 1
         else:
             runnsx = runns
-        lst, cdmap  = [], None
+        lst, cdmap = [], None
         sign = lambda x: 0 if x == 0 else 1 if x > 0 else -1
-        cols = [JOcn.name,StoneOutMaster.isout,StonePk.pricen,StonePk.unit,func.sum(StoneOut.qty).label("qty"),func.sum(StoneOut.wgt).label("wgt")]
-        gcols = [JOcn.name,StoneOutMaster.isout,StonePk.pricen,StonePk.unit]
+        cols = [
+            JOcn.name, StoneOutMaster.isout, StonePk.pricen, StonePk.unit,
+            func.sum(StoneOut.qty).label("qty"),
+            func.sum(StoneOut.wgt).label("wgt")
+        ]
+        gcols = [JOcn.name, StoneOutMaster.isout, StonePk.pricen, StonePk.unit]
         if not isjn:
             cols[0], gcols[0] = JOcn.running, JOcn.running
-        q0 = Query(cols).join(StoneOutMaster).join(StoneOut).join(StoneIn).join(StonePk).group_by(*gcols)
+        q0 = Query(cols).join(StoneOutMaster).join(StoneOut).join(StoneIn).join(
+            StonePk).group_by(*gcols)
         with self.sessionctx() as cur:
-            for arr in splitarray(runns,self._querysize):
+            for arr in splitarray(runns, self._querysize):
                 try:
                     if isjn:
-                        q = q0.filter(jesin(arr,JOcn))
+                        q = q0.filter(jesin(arr, JOcn))
                     else:
                         q = q0.filter(JOcn.running.in_(arr))
                     lst1 = q.with_session(cur).all()
@@ -586,13 +656,20 @@ class CNSvc(SvcBase):
                 except:
                     pass
             if lst:
-                lst1 = Query([Codetable.coden0,Codetable.tag]).filter(and_(Codetable.tblname == "stone_pkma",Codetable.colname == "unit")).with_session(cur).all()
-                cdmap = dict([(int(x.coden0),x.tag) for x in lst1])
+                lst1 = Query([Codetable.coden0, Codetable.tag]).filter(
+                    and_(Codetable.tblname == "stone_pkma",
+                         Codetable.colname == "unit")).with_session(cur).all()
+                cdmap = dict([(int(x.coden0), x.tag) for x in lst1])
         if lst and cdmap:
-            costs = dict(zip(runnsx,[0] * len(runns)))
+            costs = dict(zip(runnsx, [0] * len(runns)))
             for x in lst:
-                costs[int(x.running) if not isjn else x.name.value if jnlv == 1 else x.name] += round(sign(float(x.isout)) * float(x.pricen) * (float(x.qty) if cdmap[x.unit] == 0 else float(x.wgt)),2)
+                costs[int(x.running) if not isjn else x.name.value if jnlv ==
+                      1 else x.name] += round(
+                          sign(float(x.isout)) * float(x.pricen) * (float(
+                              x.qty) if cdmap[x.unit] == 0 else float(x.wgt)),
+                          2)
             return costs
+
 
 class BCSvc(object):
     """a handy Hnjhk dao for data access in this tests
@@ -601,13 +678,14 @@ class BCSvc(object):
     _querysize = 20  # batch query's batch, don't be too large
 
     def __init__(self, bcdb=None):
-        if bcdb: self._bcdb = bcdb
-    
+        self._bcdb = bcdb
+
     def getbcsforjc(self, runns):
         """return running and description from bc with given runnings """
         if not (self._bcdb and runns): return
         runns = [str(x) for x in runns]
-        s0 = "select runn,desc,ston from stocks where runn in (%s)";lst = []
+        s0 = "select runn,desc,ston from stocks where runn in (%s)"
+        lst = []
         cur = self._bcdb.cursor()
         try:
             for x in splitarray(runns, self._querysize):
@@ -617,42 +695,42 @@ class BCSvc(object):
         except:
             pass
         finally:
-            if cur: cur.close()        
-        return self._trim(lst)        
-    
+            if cur: cur.close()
+        return self._trim(lst)
+
     @classmethod
     def _trim(self, lst):
-        if not lst: return
+        if not lst:
+            return None
         for x in lst:
-            for idx in range(len(x)):
-                s0 = x[idx]
-                if s0 and isinstance(s0,str) and s0[-1] == " ":
+            for idx, s0 in enumerate(x):
+                if s0 and isinstance(s0, str) and s0[-1] == " ":
                     x[idx] = s0.strip()
         return lst
 
-    def getbcs(self,jnorunn, isstyno = False):
+    def getbcs(self, jnorunn, isstyno=False):
         """ should be jns or runnings
         runnings should be of numeric type
         """
-        if not (self._bcdb and jnorunn): return
+        if not (self._bcdb and jnorunn):
+            return None
         if not isinstance(jnorunn, Sequence):
             jnorunn = tuple(jnorunn)
         if isstyno:
             cn = "styn"
-        else:        
-            cn = "jobn" if isinstance(jnorunn[0],str) else "runn"
+        else:
+            cn = "jobn" if isinstance(jnorunn[0], str) else "runn"
             if cn == "runn":
                 jnorunn = [str(x) for x in jnorunn]
-        
+
         s0, lst = "select * from stocks where %s in (%%s)" % cn, []
         cur = self._bcdb.cursor()
         try:
             for x in splitarray(jnorunn, self._querysize):
                 cur.execute(s0 % ("'" + "','".join(x) + "'"))
                 rows = cur.fetchall()
-                if rows: lst.extend(rows)
-        except:
-            pass
+                if rows:
+                    lst.extend(rows)
         finally:
             if cur: cur.close()
         return self._trim(lst)

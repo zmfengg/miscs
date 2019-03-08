@@ -9,7 +9,8 @@ Created on Apr 17, 2018
 
 from numbers import Number
 
-from utilz import Karat, KaratSvc, karatsvc
+from utilz import Karat, KaratSvc, karatsvc, xwu
+from os import path
 
 __all__ = ["JOElement", "StyElement", "KaratSvc", "Karat", "karatsvc"]
 
@@ -31,6 +32,37 @@ class JOElement(object):
     def tostr(jn):
         ''' conver the JO# to string if is a number, this occur in some excel data '''
         return "%d" % int(jn) if isinstance(jn, Number) else jn
+
+    @staticmethod
+    def from_file(file, vdl=None):
+        '''
+        extract JO# from given file
+        @param file: the full-path file
+        @param vdl: the validator that let pass or not, if nothing is provided, JOElement's own validator will be used
+        '''
+        if not path.exists(file):
+            return None
+        if not vdl:
+            vdl = lambda x: JOElement(x).isvalid()
+        fn = path.splitext(file)[1].lower()
+        if fn.find("xl") >= 0:
+            app, tk = xwu.appmgr.acq()
+            fn = app.books.open(file)
+            try:
+                lst = []
+                for sht in fn.sheets:
+                    var = [y for x in xwu.usedrange(sht).value for y in x if y and isinstance(y, str) and vdl(y)]
+                    if var:
+                        lst.extend(var)
+            finally:
+                if fn:
+                    fn.close()
+                if tk:
+                    xwu.appmgr.ret(tk)
+        else:
+            with open(file, 'rt') as fn:
+                lst = [y for x in fn for y in x.split() if vdl(y)]
+        return lst
 
     def __init__(self, *args):
         cnt = len(args)

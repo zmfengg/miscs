@@ -35,7 +35,8 @@ class JOImgOcr(object):
 
     def __init__(self):
         #_ordbrd = (0.7, 0.1, 1, 0.4); _smpbrd = (0.7, 0.2, 1, 0.45)
-        self._jn_brds = (0.7, 0.1, 1, 0.45)
+        # self._jn_brds = (0.7, 0.1, 1, 0.45)
+        self._jn_brds = (0.65, 0.1, 1, 0.45)
         self._imgtpls, self._tpl_h_w, self._imgwss, self._tpl_b, self._tpl_jolst = (None,) * 5
         self._mt = TM_CCOEFF_NORMED
         self._jn_invalid = {x for x in "(Cc. |J%“¢<£"}
@@ -72,7 +73,7 @@ class JOImgOcr(object):
             if jn is None:
                 jn_set = jn_set.union(self._buildjnlist(fn))
                 logger.debug("%d master JO#s extracted", len(jn_set))
-                remove(fn)
+                # remove(fn)
             else:
                 if jn not in jn_fn:
                     fn_jn[fn], jn_fn[jn] = jn, fn
@@ -350,7 +351,7 @@ class JOImgOcr(object):
         tarfn, showui, sharp_mode = tuple((kwds.get(x, None) for x in "tarfn,showui,sharp_mode".split(",")))
         if not self._imgtpls:
             imgsrc = path.join(thispath, "res")
-            self._imgtpls = [self._sharpen(imread(path.join(imgsrc, fn)), "jo_detect") for fn in ("JOTpl.jpg", "SmpTpl.jpg")]
+            self._imgtpls = [self._sharpen(imread(path.join(imgsrc, fn)), "jo_detect") for fn in ("JOTpl.jpg", "SmpTpl1.jpg", "SmpTpl.jpg")]
             self._tpl_b = imread(path.join(imgsrc, "B.jpg"))
             self._tpl_h_w = [x.shape[:-1] for x in self._imgtpls]
             self._tpl_jolst = self._sharpen(imread(path.join(imgsrc, "TplJOList.jpg")), "jo_detect")
@@ -372,7 +373,8 @@ class JOImgOcr(object):
             # use the non-sharpen one
             imgsrc = imgx
             bottom_right = (hw0[1], top_left[1] + self._tpl_h_w[idx][0])
-            if idx == 1:
+            # new sample order by hand need special care
+            if idx == 2:
                 x = (top_left[0] - 55, top_left[1]), (top_left[0] - 5, bottom_right[1])
                 # if there is a B, use prefix
                 img = self._sharpen(imgsrc[x[0][1]:x[1][1], x[0][0]:x[1][0]], "smpl")
@@ -419,7 +421,7 @@ class JOImgOcr(object):
     def _parsejo(self, txt):
         lst, s0 = [], [self._jn_rpl.get(x, x) for x in txt if x not in self._jn_invalid]
         for idx, ch in enumerate(s0):
-            if ch == '¥':
+            if ch in ('¥', '7'):
                 ch = "Y"
             if not ('A' <= ch <= 'Z' or '0' <= ch <= '9'):
                 continue
@@ -434,8 +436,11 @@ class JOImgOcr(object):
             idx += 1
         lst = "".join(lst)
         # sometimes Y will be treated as '¥'Y+
-        if lst[:2] == 'YY':
+        idx = lst[:2]
+        if idx == 'YY':
             return lst[1:]
+        elif idx == "13":
+            return "B" + lst[2:]
         return lst
 
     """

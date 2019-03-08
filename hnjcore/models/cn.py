@@ -52,10 +52,12 @@ class JO(CNBase):
     qty = Column(Float, name='quantity')
     qtyleft = Column(Float, name="qtyleft")
     karat = Column(Integer, name="karat")
-    deadline = Column(DateTime, nullable=False, name="dead_line")
+    createdate = Column(DateTime, nullable=False, name="createdate")
     lastupdate = Column(DateTime, nullable=False, name="modi_date")
+    deadline = Column(DateTime, nullable=False, name="dead_line")
     docno = Column(VARCHAR(7), nullable=False, name="dept_bill_id")
     ordertype = Column(VARCHAR(1), name="remark", nullable=False)
+    tag = Column(Integer, name="tag")
 
     styid = Column(Integer, ForeignKey('styma.styid'))
     style = relationship("Style")

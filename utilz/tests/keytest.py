@@ -12,7 +12,7 @@ import random
 from datetime import date, datetime
 from time import clock
 from functools import cmp_to_key
-from os import listdir, path
+from os import listdir, path, remove
 from unittest import TestCase, main
 
 from sqlalchemy import VARCHAR, Column, ForeignKey, Integer
@@ -20,11 +20,12 @@ from sqlalchemy.engine import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from xlwings.constants import LookAt
+from tempfile import gettempdir
 
-from utilz import getvalue, imagesize, karatsvc, stsizefmt, xwu
+from utilz import getvalue, imagesize, iswritable, karatsvc, stsizefmt, xwu
 from utilz._jewelry import RingSizeSvc
 from utilz._miscs import (NamedList, NamedLists, appathsep, daterange, getfiles,
-                          list2dict, lvst_dist, monthadd)
+                          list2dict, lvst_dist, monthadd, shellopen, Salt, Config)
 from utilz.resourcemgr import ResourceCtx, ResourceMgr, SessionMgr
 
 from .main import logger, thispath
@@ -76,15 +77,51 @@ class KeySuite(TestCase):
         with ResourceCtx([mgr, mgr1]) as r:
             r[0].run()
             r[1].run()
-        
+
         # Resource is None
         with ResourceCtx(None) as cur:
             self.assertTrue(cur is None)
-        
+
         with ResourceCtx((None, None)) as curs:
             self.assertEqual(2, len(curs))
             self.assertTrue(curs[0] is None)
             self.assertTrue(curs[1] is None)
+
+    def testShellOpen(self):
+        '''
+        test the shellopen function
+        '''
+        from sys import platform
+        if platform.startswith("win"):
+            root = path.join(thispath, "res")
+            fns = listdir(root)
+            self.assertEqual(1, shellopen([path.join(root, x) for x in fns]))
+            self.assertEqual(2, shellopen([path.join(root, x) for x in fns[:2]], True))
+            # maybe I should close the apps launched by shellopen
+        else:
+            self.assertEqual(-1, shellopen(thispath))
+        del platform
+
+    def testWritable(self):
+        '''
+        the iswritable test
+        '''
+        self.assertFalse(iswritable(None))
+        # create a file in current folder(os.getcwd()), not always true
+        # self.assertTrue(iswritable("abcdef"))
+        # drive not exist
+        self.assertFalse(iswritable(r"a:\bde"))
+        tf = gettempdir()
+        self.assertTrue(iswritable(tf))
+        # folder not exist
+        self.assertFalse(iswritable(path.join(tf, *"a b c d e".split())))
+        fn = path.join(tf, str(random.randint(0, 99999)))
+        try:
+            with open(fn, "wt") as fp:
+                fp.writelines("a b c d e".split())
+            self.assertTrue(iswritable(fn))
+        finally:
+            remove(fn)
 
     def testStsize(self):
         """ test for stone size parser
@@ -233,6 +270,66 @@ class KeySuite(TestCase):
         self.assertEqual(date(2018, 2, 28), monthadd(date(2018, 1, 29), 1))
         self.assertEqual(date(2016, 2, 29), monthadd(date(2016, 1, 29), 1))
         self.assertEqual(date(2016, 2, 29), monthadd(date(2016, 1, 30), 1))
+
+    def testSalt(self):
+        '''
+        test the pwd's encode/decode function
+        '''
+        st = Salt()
+        for idx in range(20):
+            s0 = "A very long string"
+            salt = st.encode(s0)
+            self.assertNotEqual(s0, salt)
+            self.assertEqual(s0, st.decocde(salt))
+
+    def testPath(self):
+        '''
+        test the getpath function
+        '''
+        from utilz._miscs import getpath, getmodule
+        from sys import modules
+        for x in (self.testPath, KeySuite, NamedListSuite):
+            self.assertEqual(thispath.lower(), getpath(x).lower())
+        self.assertIsNone(getpath(resfldr))
+        self.assertEqual(modules[__package__], getmodule(__package__))
+
+class ConfigSuite(TestCase):
+    '''
+    tests for make use of the Config class
+    '''
+    _listener_hc, _new_value = 0, None
+
+    def testLoad(self):
+        '''
+        load from one file, then from another
+        '''
+        cfg = Config()
+        cfg.load(path.join(thispath, "res", "conf_0.json"))
+        self.assertEqual("value0", cfg.get("key0"))
+        self.assertListEqual(["1", 2, "3"], cfg.get("keys2"))
+        cfg.load(path.join(thispath, "res", "conf_1.json"))
+        self.assertEqual("value0", cfg.get("key0"))
+        self.assertListEqual(["1", "2", "3"], cfg.get("keys2"))
+        self.assertIsNone(cfg.get("Value0"))
+
+    def testListener(self):
+        '''
+        listener to setting changes
+        '''
+        cfg = Config()
+        cfg.load(path.join(thispath, "res", "conf_0.json"))
+        self.assertEqual("value0", cfg.get("key0"))
+        cfg.addListener("keys2", self._listener)
+        cfg.load(path.join(thispath, "res", "conf_1.json"))
+        self.assertEqual(1, self._listener_hc)
+        self.assertListEqual(["1", "2", "3"], self._new_value)
+        cfg.set("keys2", "a")
+        self.assertEqual(2, self._listener_hc)
+        self.assertEqual("a", self._new_value)
+
+    def _listener(self, key, old_value, new_value):
+        self._listener_hc += 1
+        self._new_value = new_value
 
 
 class NamedListSuite(TestCase):
@@ -576,7 +673,7 @@ class XwuSuite(TestCase):
             print("using %4.2fs for each loop, total loops = %d, total time = %4.2f" % (tc / loops, loops, tc, ))
         finally:
             xwu.appmgr.ret(tk)
-    
+
     def testInsertPhoto(self):
         ''' check the insertphoto function '''
         fn = path.join(thispath, "res", "579616.jpg")

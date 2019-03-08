@@ -1,0 +1,29 @@
+{
+    "stylephoto.h": {
+        "root": "\\\\172.16.8.91\\Jpegs\\style",
+        "level": 3
+    },
+    "stylephoto.i": {
+        "root": "\\\\172.16.8.91\\Quotation\\style",
+        "level": 3
+    },
+    "stylephoto.default": "h",
+    "stylephoto.good_img.min_dim":[
+        1000,
+        1000
+    ],
+    "stylephoto.good_img.from": [2016, 1, 1],
+    "stylephoto.max_draft_size": 40000,
+    "jono.prefix_to_karat": {
+        "4": 925,
+        "5": 925,
+        "M": 8,
+        "B": 9,
+        "G": 10,
+        "Y": 14,
+        "P": 18
+    },
+    "date.shortform": "%Y/%m/%d",
+    "pattern.styno": "[^\\s]?([A-Z]{1,2}\\d{3,6})\\s*$",
+    "pattern.jono": "[^\\s]?([45MBGYPW]\\d{3,6})\\s*$"
+}

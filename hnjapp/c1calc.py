@@ -340,6 +340,9 @@ class Writer(object):
             jo.remark = ";".join(var) + ";" + jo.remark
         var = self._hksvc.getjowgts(jo)
         kt = karatsvc.getkarat(var.main.karat)
+        if not kt:
+            logger.critical("JO(%s) does not have weight data" % jo.name.value)
+            return []
         self._mstr_BL(jo, var, kt, cat)
         var = [x for x in (var.main, var.aux) if x]
         for x, wgt in enumerate(var):
@@ -566,6 +569,9 @@ class Writer(object):
                         rc += "(CZ 3mm%s)" % ("以上" if sz > "0300" else "或下")
                 else:
                     rc = "手爪(副石)3mm或下" if sz <= "0300" else "手爪(副石)6x4mm或下"
+        # hard-code here, GCL should be as pearl
+        if nl.stone and nl.stone[:3] == "GCL":
+            rc = "珠"
         return rc
 
     def _st_waxset_check(self, cat, sts, nl, hints):

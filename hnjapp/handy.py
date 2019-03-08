@@ -108,8 +108,8 @@ def ren_paj_imgs(src_fldr, sm_hk, keep_org=True, shortsz=1500):
             if fn in jns:
                 continue
             jns.add(fn)
-            fn = pcs[x.pcode]
-            if not path.exists(fn):
+            fn = pcs.get(x.pcode)
+            if not (fn and path.exists(fn)):
                 continue
             root, bn = path.split(fn)
             bn = path.splitext(bn)
@@ -440,21 +440,8 @@ def style_photos(dat_fn, tar_fldr):
             rmp[styn] = None
             continue
         flag, fns = True, sorted(fns, key=path.getmtime, reverse=True)
-        for idx, var in enumerate(fns):
-            if idx > 2:
-                break
-            img = Image.open(var)
-            img.load()
-            img = img.convert("RGBA")
-            flag = img.size >= (1000, 1000)
-            if flag:
-                for idx0 in range(10):
-                    x = img.getpixel((idx0, 1))[:3]
-                    # color close to white, but can be non-pure-white(255, 255, 255)
-                    if [1 for y in x if y < 240]:
-                        flag = False
-                        break
-                img.close()
+        for var in fns:
+            flag = StylePhotoSvc.isGood(var)
             if flag:
                 rmp[styn] = (var, True)
                 break
@@ -462,8 +449,6 @@ def style_photos(dat_fn, tar_fldr):
             # use the largest instead of the lastest
             fns = sorted(fns, key=path.getsize, reverse=True)
             rmp[styn] = (fns[0], False)
-        if len(rmp) > 10:
-            break
     roots = (tar_fldr, path.join(tar_fldr, "ref"))
     err_fn = path.join(tar_fldr, "_missing.txt")
     if path.exists(err_fn):

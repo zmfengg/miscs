@@ -14,7 +14,7 @@ from sqlalchemy.ext.declarative.api import declarative_base
 from sqlalchemy.orm import composite, relationship
 from sqlalchemy.sql.schema import Column, ForeignKey, Index
 from sqlalchemy.sql.sqltypes import (DECIMAL, VARCHAR, Integer,
-                                     SmallInteger)
+                                     SmallInteger, Float)
 
 _base = declarative_base()
 ''' a docno column was appended to PajItem on 2019/01/16,
@@ -180,3 +180,27 @@ class PajBom(_base):
     createdate = Column(DATETIME)
     lastmodified = Column(DATETIME)
     tag = Column(SmallInteger) # 0 for current, gt 0 for revision
+
+class Codetable(_base):
+    '''
+    codetable for storing misc data
+    '''
+    __tablename__ = "codetable"
+    __table_args__ = (
+        Index('idx_cd_name', 'name'),
+    )
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(VARCHAR(100))
+    coden0 = Column(Float)
+    coden1 = Column(Float)
+    coden2 = Column(Float)
+    codec0 = Column(VARCHAR(250))
+    codec1 = Column(VARCHAR(250))
+    codec2 = Column(VARCHAR(250))
+    coded0 = Column(DATETIME)
+    coded1 = Column(DATETIME)
+    coded2 = Column(DATETIME)
+    description = Column(VARCHAR(250))
+    createdate = Column(DATETIME)
+    lastmodified = Column(DATETIME)
+    tag = Column(SmallInteger)

@@ -7,28 +7,33 @@
 '''
 
 import tkinter as tk
+from base64 import b64decode, b64encode
 from collections import OrderedDict
 from collections.abc import Iterator, Sequence
 from datetime import date
 from imghdr import what
+from inspect import getabsfile
 from math import ceil
 from numbers import Integral
-from os import listdir, path
-from random import random
+from os import listdir, path, remove
+from random import randint, random
 from re import sub
 from struct import unpack
 from sys import getfilesystemencoding, version_info
+from json import load as load_json
+
+_sh = _se = None
 
 __all__ = [
     "NamedList", "NamedLists", "appathsep", "daterange", "deepget",
-    "easydialog", "easymsgbox", "getfiles", "getvalue", "isnumeric",
+    "easydialog", "easymsgbox", "getfiles", "getvalue", "iswritable", "isnumeric",
     "imagesize", "list2dict", "lvst_dist", "monthadd", "na", "removews",
-    "splitarray", "tofloat", "triml", "trimu", "updateopts"
+    "Config", "Salt", "shellopen", "splitarray", "tofloat", "triml", "trimu", "updateopts"
 ]
 
 na = "N/A"
 
-_jpgsof = {192, 193, 194, 195, 197, 198, 199, 201, 202, 203, 205, 206, 207}
+_jpg_offsets = {192, 193, 194, 195, 197, 198, 199, 201, 202, 203, 205, 206, 207}
 # max date of a month
 _max_dom = (31, 0, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31,)
 
@@ -59,6 +64,28 @@ def splitarray(arr, logsize=100):
         for x in range(int(ceil(1.0 * len(arr) / logsize)))
     ]
 
+def getpath(m):
+    '''
+    return the path of the given object. Due to system problem, it return a lower-case result (at least, under windows)
+    @param m: One of non-built-in class/method/module/package
+    '''
+    try:
+        return path.dirname(getabsfile(m))
+    except:
+        return None
+
+def getmodule(pk_name):
+    '''
+    get the module of given package name. A example to use:
+        getmodule(__package__)
+    @pk_name:
+        name of the package, simply feed by __package__        
+    '''
+    from sys import modules
+    try:
+        return modules[pk_name or __package__]
+    except:
+        return None
 
 def getvalue(dct, key, def_val=None):
     """
@@ -88,6 +115,72 @@ def isnumeric(val):
         flag = False
     return flag
 
+def shellopen(fns, exec=False):
+    '''
+    open given files in the explorer(works only under windows)
+    @param fns:
+        A list of files to be show in the explorer. Files should be in the same folder, or only files in the first folder will be shown
+    @param exec:
+        True to execute it(for example, if it's an excel file, using excel to open it)
+    @return:
+        -1 if platform not support
+        0 if not argument not valid
+        1 if shown
+        2 if executed
+    '''
+    if not fns:
+        return 0
+    global _sh, _se
+    if _sh is None:
+        try:
+            from win32com.shell import shell as _sh
+            from win32api import ShellExecute as _se
+        except:
+            _sh, rc = 0, -1
+    if _sh:
+        rt = rt0 = None
+        fids = []
+        for fn in fns:
+            rt = path.dirname(fn)
+            if rt != rt0 and rt0:
+                continue
+            rt0 = rt
+            idx = _sh.SHILCreateFromPath(fn, 0)[0]
+            if idx:
+                fids.append(idx)
+        pid = _sh.SHILCreateFromPath(rt0, 0)[0]
+        if pid:
+            _sh.SHOpenFolderAndSelectItems(pid, fids)
+            rc = 1
+        if exec:
+            for fn in fns:
+                _se(0, None, fn, None, None, 0)
+            rc = 2
+    return rc
+
+def iswritable(fn):
+    '''
+    check if the given file is writable. According to article in the pydoc, using os.access() might sometimes lead to security hold, use the try/except case (EAFP pattern)
+    '''
+    fp, flag, rv, fnx = (None, ) * 4
+    try:
+        if path.isdir(fn):
+            fnx = path.join(fn, str(random()))
+            fp, rv = open(fnx, "w"), True
+        else:
+            # open(fn, 'w') might create a file in os.getcwd() if it's not already there, so need special care
+            if not path.exists(fn):
+                rv, fnx = True, fn
+            fp = open(fn, "w")
+        flag = True
+    except:
+        pass
+    finally:
+        if fp:
+            fp.close()
+        if rv and fnx and path.exists(fnx):
+            remove(fnx)
+    return flag
 
 def tofloat(val):
     ''' often try to convert a str to float, but using isnumeric() can not
@@ -109,7 +202,7 @@ def appathsep(fldr):
 def updateopts(defaults, kwds):
     """
     return a dict which merge kwds and defaults's value, if neither, the item value is None
-    @param defaults: dict, an example, {"name": ("alias1,alias2", SomeValue)} or 
+    @param defaults: dict, an example, {"name": ("alias1,alias2", SomeValue)} or
         {"name": value}
     @param kwds: dict, always put the one you accepted from your function
     """
@@ -224,7 +317,7 @@ def imagesize(fn):
                 fhandle.seek(0, 0)
                 trunksz = 4096
                 brs, ptr, offset = fhandle.read(trunksz), 0, 2
-                while ftype not in _jpgsof:
+                while ftype not in _jpg_offsets:
                     ptr += offset
                     offset = ptr - len(brs)
                     if offset >= 0:
@@ -639,3 +732,147 @@ def lvst_dist(s, t):
                 p[i - 1] + (0 if s[i - 1] == t_j else 1))
         p, d = d, p
     return p[n] - 1
+
+class Salt(object):
+    '''
+    a simple hash class for storing not human-readable senstive data. Don't call me crypto because crypto is not revisable but I can
+    '''
+    def __init__(self, key_mp=None):
+        self._key_mp = key_mp or {"A": 2, "C": 10, "D": 5, "E": 18, "F": 0, "G": 18, "H": 6, "I": 9, "J": 4, "K": 1, "L": 3, "N": 15, "O": 9, "P": 8, "Q": 10, "R": 12, "S": 8, "T": 17, "U": 5, "V": 2, "X": 11, "Y": 13, "a": 0, "b": 18, "c": 17, "f": 12, "l": 19, "p": 2, "q": 12, "s": 5, "t": 8, "u": 15, "v": 6, "*": 7, "w": 10, "x": 12, "y": 12, "z": 8, "=": 19, "|": 7, "`": 3}
+        self._keys = [x for x in self._key_mp.keys()]
+        self._key_ln = len(self._keys)
+
+    def encode(self, src):
+        '''
+        encode the source using b64 while appending sth. to the suffix and suffix
+        '''
+        rc = b64encode(src.encode()).decode()
+        ptr = randint(0, self._key_ln - 1)
+        hdl = self._key_mp[self._keys[ptr]]
+        salt, idx = "".join([self._keys[randint(0, self._key_ln - 1)] for x in range(hdl)]), hdl % 3
+        if idx == 0:
+            rc = salt + rc
+        elif idx == 1:
+            rc = rc[:len(rc)//2] + salt + rc[len(rc)//2:]
+        else:
+            rc = rc + salt
+        return rc + self._keys[ptr]
+
+    def decocde(self, cookie):
+        '''
+        revise an encoded item
+        '''
+        hdl = cookie[-1]
+        if hdl not in self._key_mp:
+            raise AttributeError("cookie(%s) not encoded by me")
+        hdl = self._key_mp[hdl]
+        idx = hdl % 3
+        if idx == 0:
+            rc = cookie[hdl:-1]
+        elif idx == 1:
+            rc = len(cookie) - 1 - hdl
+            rc = cookie[:rc // 2] + cookie[rc // 2 + hdl:-1]
+        else:
+            rc = cookie[:len(cookie) - 1 - hdl]
+        return b64decode(rc).decode()
+
+class Config(object):
+    '''
+    A dict like config storage, different call can get/set changes here. Also have the ability for change listener to monitor setting changes.
+    It's advised for the consumer for this class to have it's name space.
+    Also, the key won't be normalized, the consumer take control if it
+    By default, this module contains one Config instance for convenience. You can  store settings directly to this instance.
+    
+    example of boot strap:
+        from utilz import config
+        ...
+        if not config.get("_MY_SIGNATURE_"):
+            config.load(json_file)
+        ...
+        config.get("a")
+
+    example of put your own Config:
+        from utilz import config
+        if not config.get("_MY_SIGNATURE_"):
+            config.set("_MY_SIGNATURE_", Config(json_file))
+        ...
+        config.get("_MY_SIGNATURE_").get("a")
+    '''
+
+    def __init__(self, json_file=None):
+        self._dict, self._listeners = {}, {}
+        if json_file:
+            self.load(json_file)
+
+    def get(self, key):
+        '''
+        return the given setting of given key
+        '''
+        return self._dict.get(key) if self._dict else None
+
+    def set(self, key, new_value):
+        '''
+        set value to specified key
+        '''
+        old_val = self._dict.setdefault(key, new_value)
+        lstrs = self._listeners.get(key)
+        if not lstrs:
+            return
+        for lstr in (x for x in lstrs if x):
+            try:
+                lstr(key, old_val, new_value)
+            except:
+                pass
+
+    def addListener(self, key, chg_listener):
+        '''
+        monitor the setting changes
+        @param key: the key or keys that the chg_listener need to monitor
+        @param chg_listener:
+            A method that should have this form: method(key, old_value, new_value) and return value
+        '''
+        lst = self._listeners.setdefault(key, [])
+        if chg_listener not in lst:
+            lst.append(chg_listener)
+
+    def removeListener(self, key, listener):
+        '''
+        remove the listener added to me
+        '''
+        lst = self._listeners.get(key)
+        if not lst:
+            return None
+        if listener not in lst:
+            return None
+        lst.remove(listener)
+        return listener
+
+    def load(self, json_file, refresh=False):
+        '''
+        load setting from the given fn(json file)
+        @param json_file:
+            the file to load data from, or a dict already contains data
+        @param refresh:
+            clear existing settings(if there is)
+        '''
+        if refresh or self._dict is None:
+            self._dict = {}
+        try:
+            if isinstance(json_file, dict):
+                mp = json_file
+            else:
+                with open(json_file, encoding="utf-8") as fp:
+                    mp = load_json(fp)
+                    if not mp:
+                        return
+            di = {x: y for x, y in mp.items() if x not in self._listeners}
+            self._dict.update(di)
+            di = {x: y for x, y in mp.items() if x in self._listeners}
+            if not di:
+                return
+            for key, val in di.items():
+                self.set(key, val)
+        except:
+            pass
+
+config = Config()
