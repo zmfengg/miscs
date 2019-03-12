@@ -147,8 +147,29 @@ def getXBase(fldr, exclusive=False):
     return _wrapper.getXBase(fldr, exclusive)
 
 def newSybEngine(cnnfunc, **kwds):
-    """ create a alchemy enginge based on sybase + existing connection
+    """ create a sqlalchemy enginge based on sybase + existing connection
         @param cnnfunc: the function that will return a pyodbc connection to sybase
+        https://docs.sqlalchemy.org/en/latest/core/engines.html
     """
-    return create_engine(
+    return newEngine("sybase", cnnfunc, **kwds)
+
+
+def newSqliteEngine(cnnfunc, **kwds):
+    '''
+    create a sqlalchemy enginge based on sqlite + existing connection
+    '''
+    return newEngine("sqlite", cnnfunc)
+
+
+def newEngine(svctype, cnnfunc, **kwds):
+    '''
+    create a sqlalchemy engine based on the type and connection provided
+    @param svctype: sth. like sybase/sqlite
+    '''
+    svctype, eng = triml(svctype), None
+    if svctype == "sqlite":
+        eng = create_engine("sqlite:///?criver=xx", creator=cnnfunc, **kwds)
+    elif svctype == "sybase" or svctype == "sybase ase":
+        eng = create_engine(
         "sybase+pyodbc://?driver=xx", creator=cnnfunc, **kwds)
+    return eng

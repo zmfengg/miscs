@@ -106,7 +106,7 @@ class TesseractSuite(TestCase):
         pass
 
 
-@skip("still don't know how to make good use of it")
+#@skip("still don't know how to make good use of it")
 class ArgParserTest(TestCase):
     """
     test for the argument parser
@@ -114,20 +114,54 @@ class ArgParserTest(TestCase):
     """
 
     def testSingle(self):
-        ap = ArgumentParser("testPrg")  # , "usage of what?", "program try the argument parser", add_help=True)
-        ap.add_argument("-w", "--date1[,date2]", default="def_x")
-        ap.parse_args(["-h"])
+        ap = ArgumentParser("One+One", description="One pisitional, one optional", epilog="The optional has 3 names, the key one is \"what\"", add_help=True)
+
+        # the positional arguments can be at whatever place
+        # one argument can have more than one name. if so, the result name should be the first one with "--". The below example is "what"
+        ap.add_argument("-w", "--what", "--what_what", help="what should be d0-d1", default="def_x")
+        ap.add_argument("files", nargs="*", help="the files that need to be processed")
+        np = ap.parse_args(["file1", "file2", "--what", "This-is-me"])
+        self.assertEqual("This-is-me", np.what)
+        self.assertListEqual(["file1", "file2"], np.files)
+        np = ap.parse_args(["file1", "file2"])
+        self.assertEqual("def_x", np.what)
+        self.assertListEqual(["file1", "file2"], np.files)
+        np = ap.parse_args(["file1", "file2", "--what_what", "This-is-me"])
+        self.assertEqual("This-is-me", np.what)
+        self.assertListEqual(["file1", "file2"], np.files)
+
+        np = ap.parse_args(["file1", "file2", "file3", "-w", "This-is-me"])
+        self.assertEqual("This-is-me", np.what)
+        self.assertListEqual(["file1", "file2", "file3"], np.files)
+
+        ap = ArgumentParser("One+One", description="Like above, but the key name chagned from \"what\" to \"what_what\"", add_help=True)
+        ap.add_argument("files", nargs="*")
+        # the result name here is "what_what"
+        ap.add_argument("-w", "--what_what", "--what", help="what should be d0-d1", default="def_x")
+        np = ap.parse_args(["file1", "file2"])
+        self.assertEqual("def_x", np.what_what)
+
+        ap = ArgumentParser("2 positional", description="Like above, but the key name chagned from \"what\" to \"what_what\"", add_help=True)
+        ap.add_argument("domain", help="domain name")
+        ap.add_argument("files", nargs="*", help="the files for the domain")
+        np = ap.parse_args(["hnjchina", "file1", "file2"])
+        self.assertEqual("hnjchina", np.domain)
+        self.assertListEqual(["file1", "file2"], np.files)
+        # inherits, but can not have help again, or it throws exception: argparse.ArgumentError
+        ap = ArgumentParser("Descendant", parents=[ap, ], add_help=False)
+        ap.add_argument("ext", help="the extension")
+        np = ap.parse_args(["hnjchina", "file1", "file2", "exts"])
+        self.assertEqual("hnjchina", np.domain)
+        self.assertEqual("exts", np.ext)
+        self.assertListEqual(["file1", "file2"], np.files)
+
+
+        # below statement show a help screen and throws exception, so ignore it
+        if False:
+            ap.parse_args(["-h", ])
+            print(np)
         return
-        #ap.add_argument("kill", default="def_bill")
-        print(ap.parse_args(["-w", "kk"]))
-        #print(ap.parse_args(["-xxx", "kk"]))
-        # print(ap.parse_args(["-h"]))
-        """
-        print(ap.parse_args(["kill"]))
-        print(ap.parse_args(["-w", "what what"]))
-        print(ap.parse_args(["-w"]))
-        print(ap.parse_args(["-w", "kill"]))
-        """
+
 
     def testGetText(self):
         gettext.bindtextdomain('utilz', r'd:\temp\abx')

@@ -280,7 +280,7 @@ class KeySuite(TestCase):
             s0 = "A very long string"
             salt = st.encode(s0)
             self.assertNotEqual(s0, salt)
-            self.assertEqual(s0, st.decocde(salt))
+            self.assertEqual(s0, st.decode(salt))
 
     def testPath(self):
         '''
@@ -824,4 +824,3 @@ class CatalogTest(TestCase):
 
 if __name__ == "__main__":
     main()
-

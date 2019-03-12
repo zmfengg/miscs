@@ -7,6 +7,8 @@
  represents some contants system wide
  """
 
+from utilz import na
+
 __all__ = ["NA"]
 
-NA = "N/A"
+NA = na

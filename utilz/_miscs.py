@@ -758,7 +758,7 @@ class Salt(object):
             rc = rc + salt
         return rc + self._keys[ptr]
 
-    def decocde(self, cookie):
+    def decode(self, cookie):
         '''
         revise an encoded item
         '''
