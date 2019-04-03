@@ -9,31 +9,30 @@ c1 calculation excel data filler and so on...
 
 '''
 from datetime import datetime
-from time import time
-from numbers import Number
 from decimal import Decimal
+from logging import DEBUG
+from numbers import Number
 from os import listdir, path
-from re import compile as cmpl
+from time import time
 
-from sqlalchemy import func, and_
+from sqlalchemy import and_, func
 from sqlalchemy.orm import Query
 from xlwings.constants import LookAt
 
-from hnjapp.dbsvcs import idset, idsin, jesin, JOElement
-from hnjcore.models.cn import JO as JOcn
-from hnjcore.models.cn import Plating, StoneMaster, Style
-from hnjcore.models.hk import JO, POItem
-from hnjcore.models.hk import JOItem as JI
-from utilz import (NamedList, ResourceCtx, karatsvc, na, splitarray,
-                   stsizefmt, trimu, getvalue)
-from utilz.xwu import NamedRanges, appmgr, find, hidden, fromtemplate
 from hnjapp.c1rdrs import C1InvRdr
+from hnjapp.dbsvcs import JOElement, jesin
+from hnjcore.models.cn import JO as JOcn, Plating, StoneMaster, Style
+from hnjcore.models.hk import JO, POItem
+from utilz import (NamedList, ResourceCtx, getvalue, karatsvc, na, splitarray,
+                   stsizefmt, trimu)
+from utilz.xwu import NamedRanges, appmgr, find, fromtemplate, hidden
 
+from .common import Utilz, config
 from .common import _logger as logger
-from logging import DEBUG
 from .localstore import C1JC, C1JCFeature, C1JCStone, FeaSOrN
 
-class _Utilz(object):
+
+class _C1Utilz(object):
     CN_JONO = "工单"
     CN_MIT = "MIT"
     MICRON_MISSING = -1000
@@ -202,36 +201,14 @@ class Writer(object):
         self._hksvc, self._cnsvc = hksvc, cnsvc
         self._cache_sm = getvalue(kwds, "cache engine")
         self._nl = None
-        self._ptn_pk = cmpl(r"([A-Z]{2})-([A-Z@])-([A-Z\d]{1,4})-([A-Z\d])")
-        self._ptn_micron = cmpl(r"咪\s*(\d*\.?\d{0,2})")
 
-        # vermail color detection map
-        #VWhite and #VBlue
-        self._st_vw, self._st_vb = set((
-            "DD",
-            "CZ",
-        )), set("DF")
-        self._vx, self._vx_white, self._vx_blue = "電", "電白", "電藍"
-        self._vc_mp = {"咪": "_MICRON_"}  # Micro has higher priority
-        mp = {
-            "白": "WHITE",
-            "黑": "BLACK",
-            "藍": "BLUE",
-            "黃 王": "YELLOW",
-            "玫 瑰": "ROSE"
-        }
-        # some color, for example, black, not exist in karatsvc, so add it one by one
-        for x in mp.items():
-            try:
-                self._vc_mp[x[0]] = getattr(karatsvc, "COLOR_" + trimu(x[1]))
-            except:
-                self._vc_mp[x[0]] = trimu(x[1])
+        # stone vermail color
+        self._st_vc = config.get("vermail.stones")        
         # the fixed stone
         # AZ is based on JO# 460049
         self._st_dd = None  #DD
-        mp = {"AZ": "玉", "ON": "安力士"}
-        self._st_fixed = {y: x[1] for x in mp.items() for y in x[0].split()}
-        self._utilz = _Utilz()
+        self._st_fixed = {y: x[1] for x in config.get("c1calc.stone_dialect", {}).items() for y in x[0].split()}
+        self._utilz = _C1Utilz()
         self._init_stx()
 
     @property
@@ -242,7 +219,7 @@ class Writer(object):
         """ load stone data from workflow """
         kw = "_INITED_"
         if kw not in self._st_fixed:
-            mp = {"JADE": "玉", "PEARL": "珠"}
+            mp = config.get("c1calc.fixed_stone")
             q = Query((
                 StoneMaster.name,
                 StoneMaster.sttype,
@@ -290,7 +267,7 @@ class Writer(object):
         sht.book.app.api.CutCopyMode = False
         rng0.offset(1, 0).select()
 
-    def _from_his(self, c1jc, **kwds):
+    def _from_his(self, c1jc):
         """ return a list of list with filled data from history """
         def _dec_2_flt(arr):
             for idx, val in enumerate(arr):
@@ -323,7 +300,7 @@ class Writer(object):
             _dec_2_flt(nl.data)
         return []
 
-    def _from_jo(self, jo, **kwds):
+    def _from_jo(self, jo):
         """
         return a list of list with filled data from JO, don't need to return
         the first list, because it's already in the master.
@@ -331,43 +308,38 @@ class Writer(object):
         """
         cat = self._hksvc.getjocatetory(jo)
         # here the mstr record is already inside self._nl
-        nl, nls, lsts, var = self._nl, kwds.get("dtls"), [], None
-        if nls:
-            # sort the details by name before operation, MIT always at the end
-            mstr, pt = nl.data if cat == "EARRING" else None, False  #earring's Pin has _special offer
-            nls, nl1, var = self._extract_jis(jo, cat, nls)
-        if var:
-            jo.remark = ";".join(var) + ";" + jo.remark
-        var = self._hksvc.getjowgts(jo)
-        kt = karatsvc.getkarat(var.main.karat)
+        nl, lsts, var = self._nl, [], None
+        # sort the details by name before operation, MIT always at the end
+        mstr, pt = nl.data if cat == "EARRING" else None, False  #earring's Pin has _special offer
+        wgts = self._hksvc.getjowgts(jo)
+        nls, nl1, var = self._extract_jis(jo, wgts)
+        kt = karatsvc.getkarat(wgts.main.karat)
         if not kt:
             logger.critical("JO(%s) does not have weight data" % jo.name.value)
             return []
-        self._mstr_BL(jo, var, kt, cat)
-        var = [x for x in (var.main, var.aux) if x]
+        self._mstr_BL(jo, wgts, kt, cat, var)
+        var = [x for x in (wgts.main, wgts.aux) if x]
         for x, wgt in enumerate(var):
             nl["f_karat%d" % x] = self._karat_cvt(wgt.karat)
             nl["f_wgt%d" % x] = wgt.wgt
-        if nls:
-            pt = False
-            for var in nls:
-                nl1.setdata(var)
-                if mstr and nl1.setting and nl1.setting.find("耳迫") >= 0:  # big5
-                    pt = True
-                for x in nl1.colnames:
-                    nl[x] = nl1[x]
-                lsts.append(nl.newdata(True))
-            if pt:
-                nl.setdata(mstr)
-                kt = karatsvc.getkarat(kt.karat)
-                if kt.karat == 925 or kt.category == karatsvc.CATEGORY_BRONZE:
-                    nl.f_parts = "银迫"
-                else:
-                    nl.f_parts = "9K迫" if kt.color == karatsvc.COLOR_YELLOW else "9KRW迫"
-            return lsts[:-1]
-        return []
+        pt = False
+        for var in nls or []:
+            nl1.setdata(var)
+            if mstr and nl1.setting and nl1.setting.find("耳迫") >= 0:  # big5
+                pt = True
+            for x in nl1.colnames:
+                nl[x] = nl1[x]
+            lsts.append(nl.newdata(True))
+        if pt:
+            nl.setdata(mstr)
+            kt = karatsvc.getkarat(kt.karat)
+            if kt.karat == 925 or kt.category == karatsvc.CATEGORY_BRONZE:
+                nl.f_parts = "银迫"
+            else:
+                nl.f_parts = "9K迫" if kt.color == karatsvc.COLOR_YELLOW else "9KRW迫"
+        return lsts[:-1]
 
-    def _mstr_BL(self, jo, pw, kt, cat):
+    def _mstr_BL(self, jo, pw, kt, cat, vcs):
         """ the business logic of master record """
         nl = self._nl
         if pw.part and pw.part.wgt and karatsvc.getkarat(pw.main.karat).category == karatsvc.CATEGORY_SILVER:
@@ -383,13 +355,11 @@ class Writer(object):
                 1 for x in "相 盒".split() if jo.description.find(x) >= 0
         ]:  #big5
             nl.f_spec = "相盒"
-        vcs = self._extract_vcs(jo.remark)
-        if vcs:
-            for vc in vcs:
-                if vc == "_MICRON_":
-                    nl.f_micron = self._get_micron(jo)
-                elif not nl.f_tt and kt.color != vc:
-                    nl.f_pen = "是"
+        for vc in vcs or []:
+            if vc == "VK":
+                nl.f_micron = self._get_micron(jo)
+            elif not nl.f_tt and kt.color != vc:
+                nl.f_pen = "是"
         if sum((1 for x in "打 噴 沙 砂".split() if jo.remark.find(x) >= 0)) > 1:
             nl.f_other = (nl.f_other or 0) + 5
         if jo.description.find("套") >= 0:  # big5
@@ -412,96 +382,41 @@ class Writer(object):
         q = sorted(q, key=lambda x: x.filldate, reverse=True)
         return q[0].uprice
 
-    def _extract_vcs(self, rmk):
-        """ the vermail color, None or an list """
-        idx, rc = rmk.find(self._vx), None
-        if idx < 0:
-            return rc
-        lst = set()
-        for var in rmk.split(self._vx)[1:]:
-            var, rc = var[:6], None
-            for x in self._vc_mp.items():
-                if [1 for y in x[0].split() if var.find(y) >= 0]:
-                    rc = x[1]
-                    break
-            if rc:
-                lst.add(rc)
-        return lst
-
-    def _extract_pk(self, rmk):
-        """ extract the PK# from the remark """
-        mt = self._ptn_pk.search(rmk)
-        if not mt:
-            return None
-        pts = [x for x in mt.groups()]
-        if pts[2].isnumeric():
-            pts[2] = "%04d" % int(pts[2])
-        mt = "".join(pts)
-        # CZ need special care, don't return PK#
-        if mt and mt[:2] == "CZ":
-            mt = None
-        return mt
-
-    def _extract_ji(self, ji, nl_ji):
-        """ extract the JOItem to the given NamedList """
-        st = trimu(ji.stname)
-        sto, shp, shpo = (None,) * 3
-        blk = lambda st, x: None if st == self._utilz.CN_MIT else x
-        st = "".join([x for x in st if "A" <= x <= "Z"])
-        sz, qty, wgt = [blk(st, x) for x in (ji.stsize, ji.qty, ji.wgt)]
-        if st != self._utilz.CN_MIT:
-            pk = self._extract_pk(ji.remark)
-            if pk:
-                st, shp = pk, None
-                sto, shpo = st[:2], st[2]
-            else:
-                st, shp = sto, shpo = self._utilz.extract_st_sns(st)
-        else:
-            sto = st
-        if sz == ".":
-            sz = None
-        if sz:
-            sz = "'" + stsizefmt(sz, True)
-        nl_ji.setdata(
-            [st, shp, sz, qty, wgt, ji.remark,
-             stsizefmt(sz), None, sto, shpo])
-
-    def _extract_jis(self, jo, cat, jis):
+    def _extract_jis(self, jo, wgts):
         """ calc the main/side stone, sort and calc the BL """
         # ms is mainstone sign, can be one of M/S/None
-        nl_ji = NamedList(
-            "stone shape stsize stqty stwgt setting szcal ms sto shpo".split())
-        sts, mns, discards, is_ds = [], [], set(), (
-            jo.remark.find("碟") >= 0 or jo.style.name.alpha.find("M") >= 0)
+        mp = Utilz.extract_jis((jo, ), self._hksvc)
+        jis, nl_ji, miscs = mp[jo.id] if mp else (None, ) * 3
+        vx = Utilz.extract_vcs(jo, [nl_ji.setdata(x).sto for x in jis] if jis else None, wgts)
+        if not mp:
+            return None, None, vx
+        ms_cand = []
+        cat = Utilz.getStyleCategory(jo.style.name.value, jo.description)
+        is_ds = jo.remark.find("碟") >= 0 or jo.style.name.alpha.find("M") >= 0
         _ms_chk = lambda cat, nl_ji: nl_ji.stqty == (1 if cat != "EARRING" else 2) and nl_ji.szcal >= "0300"
         for ji in jis:
-            self._extract_ji(ji, nl_ji)
-            if not nl_ji.sto:
-                discards.add(nl_ji.setting)
-                continue
+            nl_ji.setdata(ji)
+            if nl_ji.stsize:
+                nl_ji.stsize = "'" + nl_ji.stsize
+            if nl_ji.stone and nl_ji.stone.find('CZ') == 0 and len(nl_ji.stone) > 2:
+                nl_ji.stone, nl_ji.shape = nl_ji.sto, nl_ji.shpo = nl_ji.stone[:2], nl_ji.stone[2]
             # main stone detection
             if _ms_chk(cat, nl_ji):
                 nl_ji.ms = "M"
-                mns.append(nl_ji.data)
+                ms_cand.append(nl_ji.data)
             else:
                 nl_ji.ms = "S" if nl_ji.stqty else "X"
-            sts.append(nl_ji.data)
-            # this stone need WHITE
-            if nl_ji.sto in self._st_vw:
-                discards.add(self._vx_white)
-            elif not is_ds and nl_ji.sto in self._st_vb:
-                discards.add(self._vx_blue)
-                is_ds = True
+            # TODO maybe here use the DF to switch the is_ds flag
         if is_ds:
-            self._jis_diskset(sts, nl_ji)
-        if len(mns) > 1:
+            self._jis_diskset(jis, nl_ji)
+        if len(ms_cand) > 1:
             # find out the actual MS, set others to S(ide):
             pk = nl_ji.getcol("szcal")
-            mns = sorted(mns, key=lambda x: x[pk], reverse=True)
-            for x in mns[1:]:
+            ms_cand = sorted(ms_cand, key=lambda x: x[pk], reverse=True)
+            for x in ms_cand[1:]:
                 nl_ji.setdata(x)["ms"] = "S"
         _ms_chk = False
-        for ji in sts:
+        for ji in jis:
             nl_ji.setdata(ji)
             pk = self._calc_st_set(cat, nl_ji)
             if pk and not _ms_chk and pk.find("腊") >= 0:
@@ -509,20 +424,30 @@ class Writer(object):
             nl_ji.setting = pk or nl_ji.setting
         # when one wax, all should be wax, in the case of DDR/CZR, an example
         # is 463783
-        if _ms_chk and len(sts) > 1:
-            self._st_waxset_check(cat, sts, nl_ji, _ms_chk)
-        mns = {"M": "0", "S": "1"}
+        if _ms_chk and len(jis) > 1:
+            self._st_waxset_check(cat, jis, nl_ji, _ms_chk)
+        for ji in miscs:
+            nl_ji.setdata(ji)
+            if not nl_ji.sto:
+                vx.add(nl_ji.setting)
+            else:
+                if nl_ji.sto == Utilz.MISC_LKSZ:
+                    continue
+                nl_ji.stqty, nl_ji.stwgt = (None, ) * 2
+                jis.append(ji)
 
+        ms_cand = {"M": "0", "S": "1"}
         def srt_key(data):
             nl_ji.setdata(data)
-            return "%s,%s,%s,%s" % (mns.get(nl_ji.ms, "Z"), nl_ji.sto,
+            return "%s,%s,%s,%s" % (ms_cand.get(nl_ji.ms, "Z"), nl_ji.sto,
                                     nl_ji.shpo, nl_ji.szcal)
 
-        sts, discards = sorted(
-            sts, key=srt_key), tuple(discards) if discards else []
+        jis, vx = sorted(
+            jis, key=srt_key), tuple(vx) if vx else []
         pk, ji = [nl_ji.getcol(x) for x in "szcal setting".split()]
-        return [x[:pk] for x in sts], NamedList(
-            nl_ji.colnames[:ji + 1]), discards
+        return [x[:pk] for x in jis], NamedList(
+            nl_ji.colnames[:ji + 1]), vx
+
 
     def _jis_diskset(self, sts, nl_ji):
         """ create a diskset item """
@@ -617,24 +542,7 @@ class Writer(object):
             if skmp is None:
                 skmp = {}
             logger.debug("%d history records returned from cache" % len(skmp))
-            jo = Query((
-                JO.id,
-                JI.stname,
-                JI.stsize,
-                JI.stsize,
-                JI.qty,
-                JI.unitwgt.label("wgt"),
-                JI.remark,
-            )).join(JI)
-            dtls, lsts = [x for x in jos if x.name.value not in skmp], {}
-            if dtls:
-                logger.debug("%d jos need jo detail info. from HK, might take quite a long time" % len(dtls))
-                tc = time()
-                dtls = jo.filter(idsin(idset(dtls), JO)).with_session(curs[0]).all()
-                logger.debug("using %4.2f seconds to get %d jo detail info. records from HK JO system" % ((time() - tc), len(dtls)))
-                for jo in dtls:
-                    lsts.setdefault(jo.id, []).append(jo)
-            dtls, lsts, nl = lsts, [], self._nl
+            lsts, nl = [], self._nl
             handlers = {True: self._from_his, False: self._from_jo}
             jos = sorted(
                 jos,
@@ -645,7 +553,7 @@ class Writer(object):
                 nl["c1cost"] = float(jns[var] or 0)
                 nl.jono, nl.styno = "'" + var, jo.style.name.value
                 tc = skmp.get(var)
-                var = handlers[bool(tc)](tc or jo, dtls=dtls.get(jo.id))
+                var = handlers[bool(tc)](tc or jo)
                 if var:
                     if not tc:
                         # the mstr record not in nl any more, fetch it from top of lsts
@@ -688,7 +596,7 @@ class Writer(object):
             wb.close()
             wb, sht = sht, self.find_sheet(sht)
             #find the micron if there is
-            extra = {("'" + JOElement.tostr(x[1])): self._extract_micron(x[2]) for x in nls if x[2] and x[2].find("咪") >= 0}
+            extra = {("'" + JOElement.tostr(x[1])): Utilz.extract_micron(x[2]) for x in nls if x[2] and x[2].find("咪") >= 0}
             find(sht[0], self._utilz.alias["c1cost"]).offset(1, 0).value = [(x[0], x[1]) for x in nls if x[0] > 0]
         self._nl = sht[-1]
 
@@ -703,11 +611,6 @@ class Writer(object):
             self._write(nls, sht[0])
         return wb
 
-    def _extract_micron(self, rmk):
-        ''' extract the micro from remark by C1 '''
-        mt = self._ptn_micron.search(rmk.replace("。", "."))
-        return float(mt.group(1)) if mt else None
-
 
 class HisMgr(object):
     """
@@ -715,7 +618,7 @@ class HisMgr(object):
     """
     def __init__(self, cache_sm, hksvc):
         self._sessmgr, self._hksvc = cache_sm, hksvc
-        self._utilz = _Utilz()
+        self._utilz = _C1Utilz()
 
     @property
     def _sessionctx(self):

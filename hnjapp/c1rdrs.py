@@ -305,7 +305,7 @@ class C1InvRdr(object):
                         logger.debug("Duplicated JO#(%s) found, the prior is near row(%d)" % (je.value, jo_lidx[je.value]))
                         last_act = 3
                         continue
-                    snl = [tofloat(nl[s0]) for s0 in _cnsnl]
+                    snl = [tofloat(nl.get(s0, 0)) for s0 in _cnsnl]
                     if not any(snl):
                         logger.debug("JO(%s) does not contains any labor cost", je.value)
                         snl = (0, 0)
@@ -334,8 +334,6 @@ class C1InvRdr(object):
         s0 = []
         for c1 in items:
             # stone wgt in karat
-            if c1.jono in ('B70981'):
-                print('x')
             kt = sum((x.wgt for x in c1.stones)) / 5 if c1.stones else 0
             if c1.mtlwgt:
                 wgt = sum((x.wgt for x in c1.mtlwgt.wgts if x)) + kt
@@ -410,6 +408,8 @@ class C1InvRdr(object):
             rc = 8
         elif kt >= 370 and kt <= 385:
             rc = 9
+        elif kt >= 410 and kt <= 420:
+            rc = 10
         elif kt >= 580 and kt <= 590:
             rc = 14
         elif kt >= 745 and kt <= 755:
@@ -611,6 +611,7 @@ class C1JCMkr(object):
                 else:
                     logger.debug(
                         "%s:No invoice data for JO(%s)" % (actname, runn))
+                    nl.goldwgt = None # set the [] to None to avoid excel filling deadloop
                     continue
                 prdwgt = invs.get(
                     nl.jobno[1:]).mtlwgt  # A "'" should be skipped
@@ -686,7 +687,8 @@ class C1STHdlr(object):
                             StoneIn.name == u.btchno).with_session(cur).all()
                 for x in lst:
                     ipt = x.qty == u.qty and abs(x.wgt - u.wgt) < 0.001
-                    if ipt: break
+                    if ipt:
+                        break
             except:
                 pass
             return ipt
@@ -731,7 +733,8 @@ class C1STHdlr(object):
 
         return btnos,pkmap,usgs,btmap,pkfmted
         """
-        if not path.exists(fn): return
+        if not path.exists(fn):
+            return
         fns = [fn]
         kxl, app = xwu.app(False)
 
@@ -763,10 +766,13 @@ class C1STHdlr(object):
                     logger.debug("not enough key column provided")
                     break
                 for nl in nls:
-                    if nl.karat: continue
-                    if not nl.btchno: break
+                    if nl.karat:
+                        continue
+                    if not nl.btchno:
+                        break
                     pkno = _fmtpkno(nl.pkno)
-                    if not pkno: continue
+                    if not pkno:
+                        continue
                     flag = pkno[1]
                     pkno = pkno[0]
                     if pkno != nl.pkno or flag:
@@ -798,7 +804,8 @@ class C1STHdlr(object):
                             continue
                     skipcnt = 0
                     #has batch, but qty is empty, sth. blank, but not so blank as above criteria
-                    if not nl.qty: continue
+                    if not nl.qty:
+                        continue
                     btchno = _fmtbtno(btchno)
                     if btchno not in btmap:
                         continue
@@ -810,7 +817,8 @@ class C1STHdlr(object):
                     usgs.append(nl)
                 wb.close()
         finally:
-            if kxl: app.quit()
+            if kxl:
+                app.quit()
         return pkmap, btmap, usgs, pkfmted
 
     def _getjoshpdate(self, jes):
@@ -851,7 +859,7 @@ class C1STHdlr(object):
                             if x[1] in lst])
             mbtid = cur.query(func.max(StoneIn.id)).first()[0]
         ionmap = {}
-        for x in {"补烂": "补石,*退烂石", "补失": "补石,*退失石", "配出": "配出"}.items():
+        for x in {"补烂": "补石,*退烂石", "补失": "补石,*退失石", "配出": "配出", '加退': '加退'}.items():
             ionmap[x[0]] = [msomids[y] for y in x[1].split(",")]
         usgs = self._rviptusg(usgs, ionmap)
         jonos = set()

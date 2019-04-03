@@ -28,7 +28,7 @@ from utilz.resourcemgr import ResourceCtx
 from hnjapp.localstore import Codetable
 from hnjapp.dbsvcs import SvcBase
 
-from .common import _logger as logger, config
+from .common import _logger as logger, config, Utilz
 
 try:
     from os import scandir
@@ -42,12 +42,12 @@ class StylePhotoSvc(object):
     '''
     TYPE_STYNO = "styno"
     TYPE_JONO = "jono"
-    _insts = {}
+    _insts, _p17_dc = {}, None
 
     def __init__(self, root=r"\\172.16.8.91\Jpegs\style", level=3):
         self._root = root
         self._min_level = 2
-        self._level = max(min(5, level), self._min_level)
+        self._level = max(min(5, level), self._min_level)        
 
     def _build_root(self, styno):
         parts = [styno[:x] for x in range(self._min_level, self._level + 1)]
@@ -243,7 +243,15 @@ class StylePhotoSvc(object):
                 return
         rst.setdefault("missing", []).append((mk_key(nl),
                                                 fns[0] if fns else None))
-
+    @classmethod
+    def getCategory(cls, styno, jodsc=None):
+        '''
+        return the style category, for example, RING/EARRING.
+        In the case of bracelet/bangle, providing the style# only won't return accumulate result, you should use getCategory("B1234", "钻石手镯")
+        @param styno(str): The style# or a p17code, or a description
+        @param jodsc(str): The JO's description(in chinese, gbk or big5)
+        '''
+        return Utilz.getStyleCategory(styno, jodsc)
 
 class PhotoQueryAsMail(object):
     '''

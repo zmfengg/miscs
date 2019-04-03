@@ -25,7 +25,7 @@ from json import load as load_json
 _sh = _se = None
 
 __all__ = [
-    "NamedList", "NamedLists", "appathsep", "daterange", "deepget",
+    "NamedList", "NamedLists", 'config', "appathsep", "daterange", "deepget",
     "easydialog", "easymsgbox", "getfiles", "getvalue", "iswritable", "isnumeric",
     "imagesize", "list2dict", "lvst_dist", "monthadd", "na", "removews",
     "Config", "Salt", "shellopen", "splitarray", "tofloat", "triml", "trimu", "updateopts"
@@ -415,7 +415,7 @@ def removews(s0):
     """
     remove the white space
     """
-    return sub(r"\s{2,}", " ", s0.strip()) if s0 else None
+    return sub(r"\s{2,}", " ", s0.strip()) if s0 else ""
 
 
 def trimu(s0, removewsps=True):
@@ -528,7 +528,7 @@ class NamedList(object):
             return self._data[self._nmap[name]]
         if name in self._nmap:
             name = self._nmap[name]
-        return self._data[name] if self._dtype == 2 else getattr(
+        return None if self._dtype == 0 else self._data[name] if self._dtype == 2 else getattr(
             self._data, name)
 
     def __setattr__(self, name, val):
@@ -804,11 +804,11 @@ class Config(object):
         if json_file:
             self.load(json_file)
 
-    def get(self, key):
+    def get(self, key, df=None):
         '''
         return the given setting of given key
         '''
-        return self._dict.get(key) if self._dict else None
+        return self._dict.get(key, df) if self._dict else df or None
 
     def set(self, key, new_value):
         '''

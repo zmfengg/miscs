@@ -10,4 +10,4 @@ from . import pajcc
 from . import pajrdrs
 from . import quordrs
 from . import dbsvcs
-from .common import config, _logger as logger
+from .common import config, _logger as logger, P17Decoder

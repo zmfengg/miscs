@@ -421,7 +421,7 @@ class JOImgOcr(object):
     def _parsejo(self, txt):
         lst, s0 = [], [self._jn_rpl.get(x, x) for x in txt if x not in self._jn_invalid]
         for idx, ch in enumerate(s0):
-            if ch in ('¥', '7'):
+            if ch in ('¥'):
                 ch = "Y"
             if not ('A' <= ch <= 'Z' or '0' <= ch <= '9'):
                 continue
@@ -430,6 +430,8 @@ class JOImgOcr(object):
                     continue
                 elif ch in ('2', '3', '8', '6'):
                     ch = "B"
+                elif ch in ('7'):
+                    ch = 'Y'
             if not ch:
                 continue
             lst.append(ch)

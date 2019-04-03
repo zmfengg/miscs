@@ -29,19 +29,19 @@ from hnjcore.models.hk import JO as JOhk
 from hnjcore.models.hk import Orderma, PajCnRev, PajInv, PajShp
 from hnjcore.models.hk import Style as Styhk
 from hnjcore.utils.consts import NA
-from utilz import (NamedList, NamedLists, ResourceCtx, splitarray, 
+from utilz import (NamedList, NamedLists, ResourceCtx, splitarray,
                    daterange, getfiles, isnumeric, appathsep, deepget, karatsvc,
-                   xwu, updateopts)
+                   trimu, xwu, updateopts, stsizefmt)
 from utilz.xwu import find, findsheet, NamedRanges, insertphoto, col
 
 from .common import _getdefkarat
-from .common import _logger as logger
+from .common import _logger as logger, P17Decoder
 from .localstore import PajCnRev as PajCnRevSt
 from .localstore import PajInv as PajInvSt
 from .localstore import PajItem as PajItemSt
 from .localstore import PajWgt as PrdWgtSt
 from .pajbom import PajBomHdlr, _PajBomDAO as PajBomDAO
-from .pajcc import (MPS, PAJCHINAMPS, P17Decoder, PajCalc, PrdWgt, WgtInfo,
+from .pajcc import (MPS, PAJCHINAMPS, PajCalc, PrdWgt, WgtInfo,
                     _tofloat, addwgt)
 from .dbsvcs import HKSvc
 from .miscsvcs import StylePhotoSvc
@@ -62,6 +62,11 @@ def _removenonascii(s0):
             [x for x in s0 if ord(x) > 31 and ord(x) < 127 and x != "?"])
     return s0
 
+
+PajShpItem = namedtuple(
+        "PajShpItem",
+        "fn,orderno,jono,qty,pcode,invno,invdate,mtlwgt,stwgt,shpdate,lastmodified,filldate"
+    )
 
 class PajShpHdlr(object):
     """
@@ -112,10 +117,10 @@ class PajShpHdlr(object):
             path.getmtime(fn)).replace(microsecond=0).replace(second=0)
 
     @classmethod
-    def _readquodata(cls, sht, qmap):
-        """extract gold/stone weight data from the QUOXX sheet
+    def _read_stone_data(cls, sht):
+        """
+        extract stone data from quo sheet
         @param sht:  the DL_QUOTATION sheet that need to read data from
-        @param qmap: the dict with p17 as key and (goldwgt,stwgt) as value
         """
         rng = xwu.find(sht, "Item*No", lookat=LookAt.xlPart)
         if not rng:
@@ -124,36 +129,26 @@ class PajShpHdlr(object):
         # or sht.range(rng.end('right'),rng.end('down')).value failed
         _ptngwt = re.compile(r"[\d.]+")
         vvs = sht.range(rng, rng.current_region.last_cell).value
+        qmap = {}
         nls = NamedLists(vvs, {
             "pcode": "Item,",
-            "stone": "stone,",
-            "metal": "metal ,"
+            "stone": "stone",
+            "stshape": 'Stone\nShape',
+            'stsize': 'Stone Size',
+            'stwgt': 'Stone Weight'
         }, False)
+        sm = _StMaker()
         for tr in nls:
             p17 = tr.pcode
             if not p17:
                 continue
-            if isvalidp17(p17) and p17 not in qmap:
-                sw = 0 if not tr.stone else \
-                    sum([float(x)
-                         for x in _ptngwt.findall(tr.stone)])
-                mtls = tr.metal
-                if isinstance(mtls, numbers.Number):
-                    mw = (WgtInfo(0, mtls),)
-                else:
-                    s0, mw = tr.metal.replace("：", ":"), []
-                    if s0.find(":") > 0:
-                        for x in s0.split("\n"):
-                            ss = x.split(":")
-                            mt = _ptngwt.search(ss[0])
-                            karat = 925 if not mt else int(mt.group())
-                            mt = _ptngwt.search(ss[1])
-                            wgt = float(mt.group()) if mt else 0
-                            mw.append(WgtInfo(karat, wgt))
-                    else:
-                        mt = _ptngwt.search(s0)
-                        mw.append(WgtInfo(0, float(mt.group()) if mt else None))
-                qmap[p17] = (mw, sw)
+            if not isvalidp17(p17):
+                continue
+            st = tr.stone
+            if not st or trimu(st).find('NO STONE') >= 0:
+                continue
+            qmap[p17] = sm.make_stones(tr.stshape, tr.stone, tr.stsize, tr.stwgt)
+        return qmap
 
     def _hasread(self, fmd, fn, invno=None):
         """
@@ -261,11 +256,42 @@ class PajShpHdlr(object):
         invno, dups = self.read_invno(sht), []
         idx = self._hasread(fmd, fn, invno)
         if idx == 1:
-            return
-        elif idx == 2:
+            return None
+        if idx == 2:
             dups.append(invno)
         items = self.read_inv_raw(sht, invno, fmd)
         return items, dups
+
+    @staticmethod
+    def _is_ring(pcode):
+        return isvalidp17(pcode) and pcode[1] == "4"
+
+    @staticmethod
+    def _getbomwgt(bomap, bomapring, pcode):
+        """ in the case of ring, there is only one code there
+        """
+        if not (bomap and pcode):
+            return None
+        prdwgt = bomap.get(pcode)
+        if not prdwgt:  # and is ring
+            if bomapring and PajShpHdlr._is_ring(pcode):
+                pcode0 = pcode
+                pcode = PajShpHdlr._extring(pcode)
+                prdwgt = bomapring.get(pcode)
+                pcode = pcode0
+        if not prdwgt:
+            logger.debug("failed to get bom wgt for pcode(%s)" % pcode)
+        return prdwgt
+
+    @staticmethod
+    def _str2date(s_date):
+        if isinstance(s_date, str):
+            s_date = datetime.strptime(s_date, "%Y-%m-%d").date()
+        return s_date
+
+    @staticmethod
+    def _extring(x):
+        return x[:8] + x[10:]
 
     @classmethod
     def read_shp(cls, fn, fshd, fmd, sht, bomwgts=None):
@@ -274,17 +300,9 @@ class PajShpHdlr(object):
         @param fmd: the last-modified date
         @param fn: the full-path filename
         """
-
         vvs = xwu.usedrange(sht).value
         if not vvs:
             return None
-        PajShpItem = namedtuple(
-            "PajShpItem",
-            "fn,orderno,jono,qty,pcode,invno,invdate,mtlwgt,stwgt,shpdate,lastmodified,filldate"
-        )
-
-        def _extring(x):
-            return x[:8] + x[10:]
 
         items, td0 = {}, datetime.today()
         shd = {
@@ -312,29 +330,6 @@ class PajShpHdlr(object):
         for x in nls:
             x.jono = JOElement(x.jono).value
 
-        _is_ring = lambda pcode: isvalidp17(pcode) and pcode[1] == "4"
-
-        def _getbomwgt(bomap, bomapring, pcode):
-            """ in the case of ring, there is only one code there
-            """
-            if not (bomap and pcode):
-                return None
-            prdwgt = bomap.get(pcode)
-            if not prdwgt:  # and is ring
-                if bomapring and _is_ring(pcode):
-                    pcode0 = pcode
-                    pcode = _extring(pcode)
-                    prdwgt = bomapring.get(pcode)
-                    pcode = pcode0
-            if not prdwgt:
-                logger.debug("failed to get bom wgt for pcode(%s)" % pcode)
-            return prdwgt
-
-        def _str2date(s_date):
-            if isinstance(s_date, str):
-                s_date = datetime.strptime(s_date, "%Y-%m-%d").date()
-            return s_date
-
         bfn = path.basename(fn).replace("_", "")
         shd = PajShpHdlr.get_shp_date(sht.name, False) or fshd
         # when sheet's shpdate differs from file's shpdate, use the maximum one
@@ -343,83 +338,91 @@ class PajShpHdlr(object):
             bomwgts = PajBomHdlr().readbom(sht.book)
         if bomwgts:
             bomwgtsrng = {
-                _extring(x[0]): x[1]["mtlwgt"]
+                cls._extring(x[0]): x[1]["mtlwgt"]
                 for x in bomwgts.items()
-                if _is_ring(x[0])
+                if cls._is_ring(x[0])
             }
             bomwgts = {x[0]: x[1]["mtlwgt"] for x in bomwgts.items()}
         else:
             bomwgtsrng, bomwgts = (None,) * 2
         if not th.getcol("cost"):
-            for tr in nls:
-                if not tr.pcode:
-                    break
-                if not tr.odseq or tr.odseq[:2] == "CR" or not isvalidp17(
-                        tr.pcode):
-                    logger.debug("repairing(%s) item found, skipped", tr.pcode)
-                    continue
-                jono = tr.jono
-                mwgt = _getbomwgt(bomwgts, bomwgtsrng, tr.pcode)
-                bomsrc = bool(mwgt)
-                if not bomsrc:
-                    mwgt, bomsrc = tr.get("mtlwgt", 0), False
-                    mwgt = PrdWgt(WgtInfo(_getdefkarat(jono), mwgt, 4))
-                invno = tr.invno or "N/A"
-                if th.getcol('orderno'):
-                    odno = tr.orderno
-                elif len(
-                    [x for x in "odx,odseq".split(",") if th.getcol(x)]) == 2:
-                    odno = tr.odx + "-" + tr.odseq
-                else:
-                    odno = "N/A"
-                stwgt = tr.get("stwgt")
-                if stwgt is None or isinstance(stwgt, str):
-                    stwgt = 0
-                thekey = "%s,%s,%s" % (jono, tr.pcode, invno)
-                if thekey in items:
-                    # order item's weight does not have karat event, so append it to
-                    # the main, but bom source case, no weight-recalculation is neeeded
-                    si = items[thekey]
-                    wi = si.mtlwgt
-                    if not bomsrc:
-                        wi = wi._replace(
-                            main=wi.main._replace(
-                                wgt=_tofloat((wi.main.wgt * si.qty +
-                                              mwgt.main.wgt * tr.qty) /
-                                             (si.qty + tr.qty), 4)))
-                    items[thekey] = si._replace(qty=si.qty + tr.qty, mtlwgt=wi)
-                else:
-                    ivd = _str2date(tr.invdate)
-                    si = PajShpItem(bfn, odno, jono, tr.qty, tr.pcode, invno,
-                                    ivd, mwgt, stwgt, ivd, fmd, td0)
-                    items[thekey] = si
+            cls._read_order(fmd, td0, bomwgtsrng, locals())
         else:
-            # new sample case, extract weight data from the quo sheet, but deprecated
-            # get from bom instead
-            """
-            if not qmap:
-                wb, qmap = sht.book, {}
-                for x in [xx for xx in wb.sheets if xx.api.Visible == -1 and xx.name.lower().find('dl_quotation') >= 0]:
-                    PajShpHdlr._readquodata(x, qmap)
-            """
-            for tr in nls:
-                # no cost item means repairing
-                if not tr.get("cost"):
-                    continue
-                p17 = tr.pcode
-                if not p17:
-                    break
-                ivd, odno = _str2date(tr.invdate), tr.get("orderno", NA)
-                prdwgt = _getbomwgt(bomwgts, bomwgtsrng, p17)
-                if not prdwgt:
-                    prdwgt = PrdWgt(WgtInfo(0, 0))
-                mtl_stone = (0, 0)
-                si = PajShpItem(bfn, odno,
-                                JOElement(tr.jono).value, tr.qty, p17, tr.invno,
-                                ivd, prdwgt, mtl_stone[1], ivd, fmd, td0)
-                # new sample won't have duplicated items
-                items[random.random()] = si
+            cls._read_sample(locals())
         return items
+
+    @staticmethod
+    def _read_order(fmd, td0, bomwgtsrng, kwds):
+        th, items, bfn, bomwgts = [kwds.get(x) for x in 'th items bfn bomwgts'.split()]
+        for tr in kwds['nls']:
+            if not tr.pcode:
+                break
+            if not tr.odseq or tr.odseq[:2] == "CR" or not isvalidp17(
+                    tr.pcode):
+                logger.debug("repairing(%s) item found, skipped", tr.pcode)
+                continue
+            jono = tr.jono
+            mwgt = PajShpHdlr._getbomwgt(bomwgts, bomwgtsrng, tr.pcode)
+            bomsrc = bool(mwgt)
+            if not bomsrc:
+                mwgt, bomsrc = tr.get("mtlwgt", 0), False
+                mwgt = PrdWgt(WgtInfo(_getdefkarat(jono), mwgt, 4))
+            invno = tr.invno or "N/A"
+            if th.getcol('orderno'):
+                odno = tr.orderno
+            elif len(
+                [x for x in "odx,odseq".split(",") if th.getcol(x)]) == 2:
+                odno = tr.odx + "-" + tr.odseq
+            else:
+                odno = "N/A"
+            stwgt = tr.get("stwgt")
+            if stwgt is None or isinstance(stwgt, str):
+                stwgt = 0
+            thekey = "%s,%s,%s" % (jono, tr.pcode, invno)
+            if thekey in items:
+                # order item's weight does not have karat event, so append it to
+                # the main, but bom source case, no weight-recalculation is neeeded
+                si = items[thekey]
+                wi = si.mtlwgt
+                if not bomsrc:
+                    wi = wi._replace(
+                        main=wi.main._replace(
+                            wgt=_tofloat((wi.main.wgt * si.qty +
+                                            mwgt.main.wgt * tr.qty) /
+                                            (si.qty + tr.qty), 4)))
+                items[thekey] = si._replace(qty=si.qty + tr.qty, mtlwgt=wi)
+            else:
+                ivd = PajShpHdlr._str2date(tr.invdate)
+                si = PajShpItem(bfn, odno, jono, tr.qty, tr.pcode, invno,
+                                ivd, mwgt, stwgt, ivd, fmd, td0)
+                items[thekey] = si
+
+    @staticmethod
+    def _read_sample(kwds):
+        # new sample case, extract weight data from the quo sheet, but deprecated
+        # get from bom instead
+        items, fmd, td0, bfn, bomwgts, bomwgtsrng = [kwds.get(x) for x in 'items fmd td0 bfn bomwgts bomwgtsrng'.split()]
+        for tr in kwds['nls']:
+            # no cost item means repairing
+            if not tr.get("cost"):
+                continue
+            p17 = tr.pcode
+            if not p17:
+                break
+            ivd, odno = PajShpHdlr._str2date(tr.invdate), tr.get("orderno", NA)
+            prdwgt = PajShpHdlr._getbomwgt(bomwgts, bomwgtsrng, p17)
+            if not prdwgt:
+                prdwgt = PrdWgt(WgtInfo(0, 0))
+            mtl_stone = (0, 0)
+            si = PajShpItem(bfn, odno,
+                            JOElement(tr.jono).value, tr.qty, p17, tr.invno,
+                            ivd, prdwgt, mtl_stone[1], ivd, fmd, td0)
+            # new sample won't have duplicated items
+            items[random.random()] = si
+        sht = [x for x in kwds['sht'].book.sheets if trimu(x.name).find('QUOTATION') >= 0]
+        if sht:
+            sts = PajShpHdlr._read_stone_data(sht[0])
+            #TODO:send the results to pajshpitem's stones
 
     def _persist(self, shps, invs):
         """save the data to db
@@ -444,7 +447,7 @@ class PajShpHdlr(object):
                 jns.update([JOElement(x.jono) for x in invs[1].values()])
             if jns:
                 jns = self._hksvc.getjos(jns)[0]
-                jns = dict([(x.name, x) for x in jns])
+                jns = {x.name: x for x in jns}
                 if shps[1]:
                     for dct in [x._asdict() for x in shps[1].values()]:
                         je = JOElement(dct["jono"])
@@ -780,10 +783,13 @@ class _BomSheetBldr(object):
     @staticmethod
     def _cond(api, con, clr=37):
         # https://support.microsoft.com/en-us/help/895562/the-conditional-formatting-may-be-set-incorrectly-when-you-use-vba-in
-        xwu.apirange(api).select()        
-        api.formatconditions.add(FormatConditionType.xlExpression,
-                                    FormatConditionOperator.xlEqual, con)
-        api.formatconditions(api.formatconditions.count).interior.colorindex = clr
+        try:
+            xwu.apirange(api).select()
+            api.formatconditions.add(FormatConditionType.xlExpression,
+                                        FormatConditionOperator.xlEqual, con)
+            api.formatconditions(api.formatconditions.count).interior.colorindex = clr
+        except:
+            pass
 
 
 class PajJCMkr(object):
@@ -1356,3 +1362,112 @@ class PajUPTracker(object):
                     if sht not in shts:
                         sht.delete()
             app.visible = True
+
+class _StMaker(object):
+    _ptn_stwgt = re.compile(r'\d[\.]?\d*')
+    _stn_div = ('*', '#', '(', '-')
+    
+    @classmethod
+    def make_stones(cls, shps, sts, szs, wgts):
+        '''
+        make a tuple of stone data
+        '''
+        if not sts:
+            return None
+        sts = [cls._split(x) for x in (sts, wgts, szs)]
+        if not all(sts):
+            return None
+        sts, wgts, szs = sts
+        lst = []
+        if not shps:
+            shps = ('R', ) * len(sts) #default is round
+        else:
+            shps = shps.split('\n')
+            while len(shps) < len(sts):
+                shps.append(shps[-1])
+        for idx, st in enumerate(sts):
+            if not st:
+                break
+            qnz = cls._extract_qns(szs[idx])
+            lst.append((qnz[0], cls._extract_shape(shps[idx]), cls._extract_name(st), qnz[1], cls._extract_wgt(wgts[idx])))
+        return lst
+
+    @staticmethod
+    def _split(ss):
+        for x in ('\n', '<br />', ):
+            rc = ss.split(x)
+            if len(rc) > 1:
+                return rc
+        return (ss, )
+
+    @staticmethod
+    def _extract_shape(shp):
+        if not shp:
+            return 'R'
+        # TODO:: some normalization
+        return shp
+
+    @classmethod
+    def _extract_wgt(cls, s0):
+        '''
+        one format is numeric only, the other is 'ttl \d[\.]?\d* cts'
+        '''
+        mt = cls._ptn_stwgt.search(s0)
+        return float(mt.group()) if mt else -1
+
+    @classmethod
+    def _extract_name(cls, st):
+        '''
+        extract the stone name out from name by PAJ
+        '''
+        #dia is special, it use '-' to tell specify the grade while _stn_div contains '-', which make dia testing fail. So hardcode it here
+        if st[:3] == 'DIA':
+            return 'DIA'
+        rc = cls._extract_name_all(st, cls._stn_div)
+        if not rc:
+            lst = []
+            rc = trimu(st).split()
+            for idx, x in enumerate(rc):
+                pos = [ii for ii, y in enumerate(x) if y < 'A' or y > 'Z']
+                if pos and not (idx == 0 and pos[0] == 0):
+                    break
+                lst.append(x)
+            rc = ' '.join(lst)
+        return rc
+
+    @classmethod
+    def _extract_name_all(cls, st, divs):
+        if not divs:
+            return st
+        rc = None
+        for ii, s in enumerate(divs):
+            idx = st.find(s)
+            if idx > 0: # if div appear in at the first place, ignore it
+                rc = trimu(st[:idx])
+                rc = cls._extract_name_all(rc, divs[ii+1:]) or rc
+                break
+        return rc
+
+    @staticmethod
+    def _extract_qns(sz):
+        '''
+        extract the qty and size out from the size string
+        '''
+        for idx in range(len(sz) - 1, -1, -1):
+            ch = sz[idx]
+            if ch < '0' or ch > '9':
+                break
+        if idx > 0:
+            ch = sz[idx]
+            if ch in ('m', 'M'):
+                sz, qty = stsizefmt(sz[:idx + 1]), int(sz[idx + 1:])
+            elif ch == '-':
+                idx = idx * 2 + 1
+                sz, qty = sz[:idx], int(sz[idx])
+            elif ch == '"':
+                sz, qty = sz[:idx], int(sz[idx + 1:])
+            elif ch in ('p', 'P'):
+                sz, qty = sz[:4], int(sz[4:])
+        else:
+            return (None, ) * 2
+        return qty, "'" + sz

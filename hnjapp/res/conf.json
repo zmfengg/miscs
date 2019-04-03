@@ -14,6 +14,77 @@
     ],
     "stylephoto.good_img.from": [2016, 1, 1],
     "stylephoto.max_draft_size": 40000,
+    "style.categories":[
+
+        {
+            "category": "BRACELET",
+            "patterns":[
+                "^B[A-Z]?\\d{3,6}"
+            ],
+            "keywords":[
+                "手鏈",
+                "手链"
+            ]
+        },
+        {
+            "category": "BANGLE",
+            "patterns":[
+                "^B[A-Z]?\\d{3,6}"
+            ],
+            "keywords":[
+                "鐲",
+                "厄",
+                "镯"
+            ]
+        },
+        {
+            "category": "EARRING",
+            "patterns":[
+                "^E[A-Z]?\\d{3,6}"
+            ],
+            "keywords":[
+                "耳"
+            ]
+        },
+        {
+            "category": "NECKLACE",
+            "patterns":[
+                "^N[A-Z]?\\d{3,6}"
+            ],
+            "keywords":[
+                "項",
+                "頸",
+                "项",
+                "颈"
+            ]
+        },
+        {
+            "category": "PENDANT",
+            "patterns":[
+                "^P[A-Z]?\\d{3,6}"
+            ],
+            "keywords":[
+                "吊"
+            ]
+        },
+        {
+            "category": "RING",
+            "patterns":[
+                "^R[A-Z]?\\d{3,6}",
+                "^S[A-Z]?\\d{3,6}",
+                "^T[A-Z]?\\d{3,6}"
+            ],
+            "keywords":[
+                "戒",
+                "介"
+            ]
+        }
+    ],
+    "jo.description.chain":[
+        "鏈",
+        "鍊",
+        "\""
+    ],
     "jono.prefix_to_karat": {
         "4": 925,
         "5": 925,
@@ -23,7 +94,187 @@
         "Y": 14,
         "P": 18
     },
+    "vermail.verb": "電",
+    "vermail.defs":[
+        {
+            "name": "VB",
+            "color": "BLACK",
+            "big5": ["黑"]
+        },
+        {
+            "name": "VY",
+            "color": "YELLOW",
+            "big5": [
+                "王",
+                "黃"
+            ]
+        },
+        {
+            "name": "VW",
+            "color": "WHITE",
+            "big5": [
+                "白",
+                "銠"
+            ]
+        },
+        {
+            "name": "VR",
+            "color": "ROSE",
+            "big5": [
+                "玫",
+                "瑰"
+            ]
+        },
+        {
+            "name": "VBR",
+            "color": "COFFEE",
+            "big5": [
+                "啡"
+            ]
+        },
+        {
+            "name": "VGR",
+            "color": "GREEN",
+            "big5": [
+                "綠"
+            ]
+        },
+        {
+            "name": "VBL",
+            "color": "BLUE",
+            "big5":[
+                "藍"
+            ]
+        },
+        {
+            "name": "VK",
+            "color": "VK",
+            "priority": 10,
+            "big5":[
+                "咪"
+            ],
+            "_remark_": "Infact, V18K in HNJ's case"
+        },
+        {
+            "name": "V18K",
+            "color": "V18K",
+            "big5":[
+                "18咪"
+            ]
+        },
+        {
+            "name": "VPT900",
+            "color": "VPT900",
+            "big5":[
+                "PT900咪"
+            ]
+        }
+    ],
+    "vermail.stones":{
+        "DD": "VW",
+        "CZ": "VW",
+        "DF": "VBL"
+    },
+    "locket.shapes":{
+        "EL": "八角形",
+        "FL": "梅花形",
+        "HL": "心形",
+        "OL": "旦形",
+        "PL": "梨形",
+        "RL": "圆形",
+        "SL": "方形",
+        "TL": "菱形",
+        "RRL": "元形旋轉"
+    },
+    "jo.stone.abbr": [
+        ["RD", "DD", "R"],
+        ["TD", "DD", "T"],
+        ["RZ", "CZ", "R"]
+    ],
     "date.shortform": "%Y/%m/%d",
     "pattern.styno": "[^\\s]?([A-Z]{1,2}\\d{3,6})\\s*$",
-    "pattern.jono": "[^\\s]?([45MBGYPW]\\d{3,6})\\s*$"
+    "pattern.jono": "[^\\s]?([45MBGYPW]\\d{3,6})\\s*$",
+    "pattern.jo.pkno": "([A-Z]{2})-([A-Z@])-([A-Z\\d]{1,4})-([A-Z\\d])",
+    "pattern.jo.microns":[
+        "咪\\s*(\\d*\\.?\\d{0,2})",
+        "電(\\d*[\\.\\d{0,2}]?)咪",
+        "電([一二叁肆伍])咪"
+    ],
+    "pattern.mit": "^M[iI]T\\.?",
+    "pattern.locket.pics": "(\\d)頁",
+    "snno.translation":{
+        "6號瓜子耳": "HB2551B",
+        "8號瓜子耳": "HB2551",
+        "大2號瓜子耳": "HB441B",
+        "大2號光金瓜子耳": "HB441C",
+        "大耳迫(銀)": "HB207",
+        "大號實心瓜子耳": "PT8016BL",
+        "大號瓜子耳": "HB441A",
+        "耳勾": "HB013",
+        "耳夾": "HB195",
+        "耳迫": "HB924",
+        "肥耳仔": "HB539肥耳",
+        "瓜子耳": "HB1586C",
+        "夾針A": "HB1353A",
+        "夾針B": "HB1353B",
+        "夾針C": "HB1353C",
+        "龍蝦扣": "HB400",
+        "龍蝦扣3X8": "HB038,HB012",
+        "龍蝦扣4X9": "HB327",
+        "雙鴨利": "HB078",
+        "小號實心瓜子耳": "PT5012BL",
+        "魚勾扣": "HB011,HB037",
+        "長夾針": "HB1078",
+        "中號實心瓜子耳": "PT8012BL",
+        "中號瓜子耳": "HB339",
+        "中號光金瓜子耳": "HB441D"
+    },
+    "bc.colnames": "lymd,lcod,styn,mmon,mmo2,runn,detl,quan,gwgt,gmas,jobn,ston,descn,desc,rem1,rem2,rem3,rem4,rem5,rem6,rem7,rem8",
+    "bc.colnames.alias": "date,location,styno,mp_year,mp_month,runn,cstname,qty,wgt,karat,jono,stone,descn,description,rem1,rem2,rem3,rem4,rem5,rem6,rem7,rem8",
+    "bc.description.wochain.customers":[
+        "ESO",
+        "ET",
+        "EJE",
+        "ELH"
+    ],
+    "bc.description.stone.maxcnt": 2,
+    "bc.description.stone.categories":{
+        "RAINBOW":[
+            "AC",
+            "AM",
+            "BA",
+            "BT",
+            "CT",
+            "FT",
+            "GA",
+            "GM",
+            "IT",
+            "LQ",
+            "MT",
+            "PA",
+            "PD",
+            "RQ",
+            "RW",
+            "ST",
+            "TP",
+            "WT"
+        ],
+        "DIAMOND":[
+            "BD",
+            "DD",
+            "DF",
+            "FD",
+            "MI",
+            "XD",
+            "YD"
+        ]
+    },
+    "c1calc.stone_dialect":{
+        "AZ": "玉",
+        "ON": "安力士"
+    },
+    "c1calc.fixed_stone":{
+        "JADE": "玉",
+        "PEARL": "珠"
+    }
 }

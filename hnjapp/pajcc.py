@@ -11,13 +11,10 @@ all weight related field are GM based
 '''
 
 from collections import namedtuple
-from csv import DictReader
 from decimal import Decimal
-from os import path
 
 from hnjcore import karatsvc
 from utilz import getvalue as gv
-from utilz import trimu
 
 from .common import _logger as logger
 
@@ -121,7 +118,8 @@ class WgtInfo(namedtuple("WgtInfo", "karat,wgt")):
 
     @staticmethod
     def __new__(cls, karat, wgt, precious=2):
-        if karat and wgt:
+        # if karat and wgt:
+        if karat:
             return super().__new__(cls, karat, _tofloat(wgt, precious))
         return super().__new__(cls, 0, 0)
     
@@ -497,65 +495,3 @@ class PajCalc():
             r0 = round(r0 * cn.discount, 2)
             mc = cls.calcmtlcost(incr.wgts, tarmps, lossrate=incr.lossrate, vendor="PAJ")
         return PajChina(r0, cn.increment, tarmps, cn.discount, mc)
-
-
-class P17Decoder():
-    """
-    classeto fetch the parts(for example, karat) out from a p17
-    """
-
-    def __init__(self):
-        self._cats_ = self._getp17cats()
-        self._ppart = None
-
-    @classmethod
-    def _getp17cats(cls):
-        """return the categories of all the P17s(from database)
-        @return: a map of items containing "catid/cat/digits. This module should not have db code, so hardcode here
-        """
-        rdr = path.join(path.dirname(__file__), "res", "pcat.csv")
-        with open(rdr, "r") as fh:
-            rdr = DictReader(fh, dialect='excel-tab')
-            return {trimu(x["name"]): (x["cat"], x["digits"]) for x in rdr}
-
-    @classmethod
-    def _getdigits(cls, p17, digits):
-        """ parse the p17's given code out
-        @param p17: the p17 code need to be parse out
-        @param digits: the digits, like "1,11"
-        """
-        rc = ""
-        for x in digits.split(","):
-            pts = x.split("-")
-            rc += p17[int(x) - 1] if len(pts) == 1 else p17[int(pts[0]) - 1:(
-                int(pts[1]))]
-        return rc
-
-    def _getpart(self, cat, code):
-        """fetch the cat + code from database"""
-        # todo:: no database now, try from csv or other or sqlitedb
-        # "select description from uv_p17dc where category = '%(cat)s' and codec = '%(code)s'"
-        if not self._ppart:
-            fn = path.join(path.dirname(__file__), "res", "ppart.csv")
-            with open(fn, "r") as fh:
-                rdr = DictReader(fh)
-                self._ppart = {x["catid"] + x["codec"]: x["description"].strip()\
-                    for x in rdr}
-        code = self._ppart.get(self._cats_[cat][0] + code, code)
-        if not isinstance(code, str):
-            code = code["description"]
-        return code
-
-    def decode(self, p17, parts=None):
-        """parse a p17's parts out
-        @param p17: the p17 code
-        @param parts: the combination of the parts name delimited with ",". None to fetch all
-        @return the actual value if only one parts, else return a dict with part as key
-        """
-        ns, ss = tuple(trimu(x) for x in parts.split(",")) if parts\
-            else self._cats_.keys(), []
-        for x in ns:
-            ss.append((x,
-                       self._getpart(x, self._getdigits(p17,
-                                                        self._cats_[x][1]))))
-        return ss[0][1] if len(ns) <= 1 else dict(ss)

@@ -24,9 +24,9 @@ from utilz import (NamedList, NamedLists, ResourceCtx, getfiles, getvalue,
                    karatsvc, tofloat, triml, xwu)
 from utilz.xwu import appmgr as _appmgr
 
-from .common import _logger as logger
+from .common import _logger as logger, P17Decoder
 from .localstore import PajBom, PajItem
-from .pajcc import P17Decoder, PrdWgt, WgtInfo, addwgt
+from .pajcc import PrdWgt, WgtInfo, addwgt
 
 
 class PajBomHdlr(object):
@@ -125,16 +125,17 @@ class PajBomHdlr(object):
     def _isring(self, pcode):
         return self._pcdec.decode(pcode, "PRODTYPE").find("戒") >= 0
 
-    def readbom(self, fldr):
+    def readbom(self, fldr, cvt2tbl=True):
         """
         read BOM from given folder
         @param fldr: the folder contains the BOM file(s)
+        @param cvt2tbl: convert the sheet to excel table
         return a dict with "pcode" as key and dict as items
             the item dict has keys("pcode","mtlwgt")
         """
         pmap = {}
         if isinstance(fldr, Book):
-            self._read_book(fldr, pmap)
+            self._read_book(fldr, pmap, cvt2tbl)
         else:
             fns = getfiles(fldr, "xls") if path.isdir(fldr) else (fldr,)
             if not fns:
@@ -143,7 +144,7 @@ class PajBomHdlr(object):
             try:
                 for fn in fns:
                     wb = app.books.open(fn)
-                    self._read_book(wb, pmap)
+                    self._read_book(wb, pmap, cvt2tbl)
                     wb.close()
             finally:
                 if kxl and app:
@@ -361,7 +362,7 @@ class PajBomHdlr(object):
                 return True
         return False
 
-    def _read_book(self, wb, pmap):
+    def _read_book(self, wb, pmap, cvt2tbl=True):
         """
         read bom in the given wb to pmap
         """
@@ -384,16 +385,18 @@ class PajBomHdlr(object):
         if bg_sht:
             self._append_bd(bg_sht, shts[0][0])
         for sht, rdr in {shts[0]: self._read_mstr, shts[1]: self._read_pts}.items():
-            rdr(sht, pmap)
+            rdr(sht, pmap, cvt2tbl)
 
     @classmethod
     def _get_data(cls, sht_rng, nmp):
         vvs = sht_rng[1].end("left").expand("table").value
         return NamedLists(vvs, nmp)
 
-    def _read_mstr(self, sht_rng, pmap):
+    def _read_mstr(self, sht_rng, pmap, cvt2tbl=True):
         """ read the bom master to pmap(dict) """
-        sht_rng[0].name = "BOM_mstr"
+        if cvt2tbl:
+            sht_rng[0].name = "BOM_mstr"
+            xwu.maketable(xwu.usedrange(sht_rng[0]), sht_rng[0].name)
         nl, mstrs, netwgts = self._nmps["mstr"], set(), {}
         for nl in self._get_data(sht_rng, nl):
             pcode = nl.pcode
@@ -418,9 +421,12 @@ class PajBomHdlr(object):
         for pcode, kt in netwgts.items():
             pmap[pcode]["netwgt"] = round(kt, 2)
 
-    def _read_pts(self, sht_rng, pmap):
+    def _read_pts(self, sht_rng, pmap, cvt2tbl=True):
         """ read parts from the sheet to pmap(dict) """
-        sht_rng[0].name, pts = "BOM_part", set()
+        if cvt2tbl:
+            sht_rng[0].name = "BOM_part"
+            xwu.maketable(xwu.usedrange(sht_rng[0]), sht_rng[0].name)
+        pts = set()
         nmp = [x for x in self._nmps["parts"] if x.find("pcode") < 0]
         _mat_id = lambda x: "%s,%f" % (x.matid, x.wgt or 0)
         for nl in self._get_data(sht_rng, self._nmps["parts"]):

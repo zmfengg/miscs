@@ -23,7 +23,7 @@ except:
 
 __all__ = [
     "app", "appmgr", "col", "find", "fromtemplate", "hidden", "insertphoto",
-    "list2dict", "NamedRanges", "safeopen", "usedrange"
+    "list2dict", "maketable", "NamedRanges", "safeopen", "usedrange"
 ]
 _validappsws = set(
     "visible,enableevents,displayalerts,asktoupdatelinks,screenupdating".split(
@@ -188,6 +188,20 @@ def find(sht, val, **kwds):
             if rng:
                 st.add(rng)
     return rng
+
+
+def maketable(rng, name=None):
+    '''
+    convert given range a table. Return the created table object
+    '''
+    try:
+        sht = rng.sheet
+        sht = sht.api.ListObjects.Add(1, rng.api, None, 1)
+        if name:
+            sht.Name = 'data'
+        return sht
+    except:
+        return None
 
 
 def contains(sht, vals):

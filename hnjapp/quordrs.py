@@ -1380,7 +1380,7 @@ class AckPriceCheck(object):
             jos = data.values()
             jes = [JOElement(x["jono"]) for x in jos]
             logger.debug(
-                "begin to fetch jo data for analyse, JO count to fetch  is %d" %
+                "begin to fetch jo data for analyst, JO count to fetch  is %d" %
                 len(jes))
             ts = time.time()
             jes = hksvc.getjos(jes)[0]

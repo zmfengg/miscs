@@ -23,7 +23,8 @@ from hnjapp.pajcc import (MPS, PajCalc, PrdWgt, WgtInfo, addwgt, cmpwgt,
                           karatsvc)
 from hnjcore import JOElement
 from hnjcore.models.hk import JO, Orderma, PajShp, Style
-from utilz import ResourceCtx, getfiles, trimu
+from hnjcore.models.cn import StoneMaster
+from utilz import ResourceCtx, getfiles, trimu, NamedList
 from utilz.xwu import NamedLists, NamedRanges, appmgr, find, usedrange
 
 from .common import _logger as logger
@@ -467,3 +468,32 @@ def style_photos(dat_fn, tar_fldr):
             fh.writelines(("\n".join(fns), ))
         fns = err_fn
     return tar_fldr, fns
+
+def stocktake_data(sessMgr, fn=None):
+    fn = fn or r"\\172.16.8.46\pb\DptFile\pajForms\miscs\现存宝石\总数统计.xlsx"
+    app = appmgr.acq()[0]
+    mp = {}
+    try:
+        wb = app.books.open(fn)
+        for sn in ('1', '2', '4.1', '4.2'):
+            nls = [x for x in NamedRanges(usedrange(wb.sheets[sn]))]
+            print("%d records from sheet(%s)" % (len(nls), sn))
+            for nl in (nl for nl in nls if nl['已寄'] == 'N'):
+                pfx, qty, wgt = [nl[x] for x in ('包头', '数量', '重量')]
+                pfx = pfx[:2]
+                lst = mp.setdefault(pfx, [0, 0])
+                lst[0] += qty or 0
+                lst[1] += round(wgt or 0, 3)
+        with ResourceCtx(sessMgr) as cur:
+            pkmp = cur.query(StoneMaster).filter(StoneMaster.name.in_([x for x in mp])).all()
+            pkmp = {pk.name: pk for pk in pkmp}
+            lst = ['石料 中文描述 数量 重量(卡)'.split()]
+            for pk, qnw in mp.items():
+                lst.append([pk, pkmp[pk].cdesc, qnw[0], qnw[1]])
+        wb.close()
+        wb = app.books.add()
+        wb.sheets[0].cells(1, 1).value = lst
+        wb.sheets[0].autofit()
+    finally:
+        app.visible = True
+        #appmgr.ret(tk)

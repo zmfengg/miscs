@@ -20,21 +20,20 @@ from hnjcore import JOElement, KaratSvc, StyElement
 from hnjcore.models.cn import JO as JOcn
 from hnjcore.models.cn import MM, Codetable
 from hnjcore.models.cn import Customer as Customercn
-from hnjcore.models.cn import MMMa, StoneIn, StoneOut, StoneOutMaster, StonePk
+from hnjcore.models.cn import MMMa, StoneIn, StoneOut, StoneOutMaster, StonePk, StoneMaster
 from hnjcore.models.cn import Style as Stylecn
-from hnjcore.models.hk import JO, Customer
+from hnjcore.models.hk import JO, JOItem as JI
 from hnjcore.models.hk import Invoice as IV
 from hnjcore.models.hk import InvoiceItem as IVI
-from hnjcore.models.hk import JOItem as JI
 from hnjcore.models.hk import Orderma, PajCnRev, PajInv, PajShp, POItem
 from hnjcore.models.hk import StockObjectMa as SO
 from hnjcore.models.hk import Style
 from hnjcore.utils.consts import NA
-from utilz import ResourceCtx, splitarray
+from utilz import ResourceCtx, splitarray, karatsvc, trimu, NamedList
 
 from . import pajcc
 from .common import _logger as logger
-from .common import splitjns
+from .common import splitjns, config, Utilz
 from .pajcc import MPS, PrdWgt, WgtInfo, addwgt
 
 __all__ = [
@@ -42,6 +41,7 @@ __all__ = [
     "nameset"
 ]
 
+_ptn_mit = re.compile(config.get("pattern.mit"))
 
 def fmtsku(skuno):
     if not skuno:
@@ -75,7 +75,8 @@ class SNFmtr(object):
         "夾層;針;小心型;瓜子耳;花".split(";"), key=lambda x: len(x), reverse=True)
 
     def _splitsn(self, sn):
-        if not sn: return
+        if not sn:
+            return
         sfx, ots = "", ""
         for x in sn:
             if ord(x) > 128:
@@ -233,7 +234,8 @@ class HKSvc(SvcBase):
     def __init__(self, sqleng):
         """ init me with a sqlalchemy's engine """
         super(HKSvc, self).__init__(sqleng)
-        self._ptnmit = re.compile("M[iI]T")
+        # self._ptnmit = re.compile("M[iI]T")
+
 
     def _pjq(self):
         """ return a JO -> PajShp -> PajInv query, append your query
@@ -266,6 +268,24 @@ class HKSvc(SvcBase):
         """
         return _getjos(self, JO, Query(JO), jesorrunns, extfltr)
 
+    def getjis(self, jos):
+        with self.sessionctx() as cur:
+            q = Query((
+                    JO.id,
+                    JI.stname,
+                    JI.stsize,
+                    JI.qty,
+                    JI.unitwgt.label("wgt"),
+                    JI.remark,
+                )).join(JI)
+            lst = q.filter(idsin(idset(jos), JO)).with_session(cur).all()
+            if not lst:
+                return None
+            jis = {}
+            for x in lst:
+                jis.setdefault(x[0], []).append(x)
+        return jis
+
     def getjo(self, jeorrunn):
         """ a convenient way for getjos """
         with self.sessionctx():
@@ -273,23 +293,7 @@ class HKSvc(SvcBase):
         return jos[0][0] if jos else None
 
     def getjocatetory(self, jo):
-        """ return the product category, for example, RING, of the JO """
-        sa, rc = jo.style.name.alpha, None
-        if sa.find("E") >= 0:
-            rc = "EARRING"
-        elif sa.find("W") >= 0:
-            rc = "WATCH"
-        elif sa.find("P") >= 0:
-            rc = "PENDANT"
-        elif sa.find("N") >= 0:
-            rc = "NECKLACE"
-        elif sa.find("R") >= 0 or sa.find("T") >= 0:
-            rc = "RING"
-        elif sa.find("B") >= 0:
-            sa = jo.description
-            rc = "BRACELET" if [1 for x in "鏈 鍊".split() if sa.find(x) >= 0
-                               ] else "BANGLE"  #big5
-        return rc
+        return Utilz.getStyleCategory(jo.style.name.value, jo.description)
 
     def getrevcns(self, pcode, limit=0):
         """ return a list of revcns order by the affected date desc
@@ -406,7 +410,7 @@ class HKSvc(SvcBase):
                 lst = lst.with_session(cur).all()
                 if lst:
                     for row in lst:
-                        if row.unitwgt and self._ptnmit.search(row.stname) and [
+                        if row.unitwgt and _ptn_mit.search(row.stname) and [
                                 1 for x in "\" 寸 吋".split()
                                 if row.remark.find(x) >= 0
                         ]:
@@ -682,7 +686,8 @@ class BCSvc(object):
 
     def getbcsforjc(self, runns):
         """return running and description from bc with given runnings """
-        if not (self._bcdb and runns): return
+        if not (self._bcdb and runns):
+            return None
         runns = [str(x) for x in runns]
         s0 = "select runn,desc,ston from stocks where runn in (%s)"
         lst = []
@@ -691,15 +696,17 @@ class BCSvc(object):
             for x in splitarray(runns, self._querysize):
                 cur.execute(s0 % ("'" + "','".join(x) + "'"))
                 rows = cur.fetchall()
-                if rows: lst.extend(rows)
+                if rows:
+                    lst.extend(rows)
         except:
             pass
         finally:
-            if cur: cur.close()
+            if cur:
+                cur.close()
         return self._trim(lst)
 
     @classmethod
-    def _trim(self, lst):
+    def _trim(cls, lst):
         if not lst:
             return None
         for x in lst:
@@ -732,5 +739,268 @@ class BCSvc(object):
                 if rows:
                     lst.extend(rows)
         finally:
-            if cur: cur.close()
+            if cur:
+                cur.close()
         return self._trim(lst)
+
+
+    def build_from_jo(self, jn, hksvc, cnsvc, hints=None):
+        '''
+        create a bc item based on provided jn
+        @param jn: A JO#(str)
+        @param hksvc: An HKsvc instance(to fetch JO data from)
+        @hints: a dict contains hints from other system, for example
+            wgts: PrdWgt
+            stones:
+            plating:
+            vermail:
+        description split into 4 parts:
+        1.karat + plating where plating can be from JO.remark or stones
+        2.stones
+        3.category
+        4.suffix
+        then data that should also be send to rem1 to rem8 is:
+        1.1 aux wgt(if there is)
+        1.2 parts wgt(if there is)
+        2.1 Any stone data
+        99.1 SN#
+        '''
+
+        with hksvc.sessionctx():
+            jo = hksvc.getjos((jn, ))[0][0]
+            if not jo:
+                return None
+            mp = {"jo": jo}
+            mp["wgts"] = (hints.get("mtlwgt") if hints else None) or hksvc.getjowgts(jo)
+            var = Utilz.extract_jis((jo, ), hksvc)
+            if var:
+                var = var[jo.id]
+                for idx, x in enumerate("stones nl_stone miscs".split()):
+                    mp[x] = var[idx]
+            if False:
+                # TODO:: change to other than extract_vcs
+                for fn, x in zip((Utilz.extract_vcs, Utilz.extract_micron), ("plating", "micron")):
+                    mp[x] = fn(jo.remark)
+            if hints:
+                key = '_raw_data'
+                if key in hints:
+                    mp[key] = hints[key]
+                # TODO put data from hints to mp to build better result because for most case, there is nothing in JO# for new sample case
+            return _JO2BC(cnsvc).build(mp)
+
+class _JO2BC(object):
+    def __init__(self, cnsvc=None):
+        self._pp = self._pp_x = None
+        self._v_c2n = {x["color"]: x["name"] for x in config.get("vermail.defs")}
+        x = config.get("bc.description.stone.categories")
+        self._snno_mp = config.get("snno.translation")
+        self._stcats = {z: x for x, y in x.items() for z in y}
+        self._cnsvc = cnsvc
+
+    def build(self, pp):
+        self._pp = pp
+        self._pp_x = {}
+        nl_bc = NamedList(config.get("bc.colnames.alias"))
+        vx = self._pp.get("_raw_data")
+        if vx:
+            # fill the existing data, assume basic data was already there
+            nl_bc.setdata(vx)
+        else:
+            nl_bc.newdata()
+            self._fill_basic(nl_bc)
+        self._make_desc(nl_bc)
+        self._make_rmks(nl_bc)
+        vx, nl = [self._pp.get(x) for x in ("stones", "nl_stone")]
+        if vx:
+            # TODO:: determine the main stone, or -- if nothing
+            nl.stone = '--'
+        return nl_bc
+
+    def _fill_basic(self, nl):
+        jo, wgts = (self._pp[x] for x in "jo wgts".split())
+        nl.styno = nl.location = jo.style.name.value
+        nl.qty, nl.wgt, nl.karat = jo.qty, wgts.main.wgt, wgts.main.karat
+        td = datetime.date.today()
+        nl.date, nl.mp_year, nl.mp_month = td.strftime("%Y%m%d 00:0000"), td.strftime("%y"), td.strftime("%m")
+        nl.cstname, nl.jono, nl.descn = trimu(jo.orderma.customer.name), jo.name.value, jo.description
+
+    def _make_desc(self, nl_bc):
+        rc = self._make_karat_plating()
+        rc += self._make_desc_stones(nl_bc)
+        tc = self._make_style_cat()
+        rc, tc = rc + " " + tc[0], tc[1]
+        #<pendant's chain>
+        # ^E customer don't need wo chain except ESO/ET/EJE/ELH
+        if tc in ("PENDANT", 'LOCKET'):
+            nl, wgts, jo = [self._pp.get(x) for x in ('nl_stone wgts jo'.split())]
+            chns = config.get("jo.description.chain")
+            if wgts.part or \
+                [1 for x in chns if jo.description.find(x) >= 0] or \
+                [1 for x in self._pp.get("miscs", []) if nl.setdata(x).sto == Utilz.MISC_MIT and [1 for x in chns if nl.setting.find(x) >= 0]]:
+                rc += ' ROPE CHAIN'
+                # check if wgts contains part, if not, insert one
+                if not wgts.part:
+                    self._pp["wgts"] = PrdWgt(wgts.main, wgts.aux, WgtInfo(wgts.main.karat, 0))
+            else:
+                vx = trimu(jo.orderma.customer.name)
+                # rule according to e-mail title('EJE 新樣品 P41001_P41002') sent in Jul 12, 2018
+                if vx[0] != 'E' or vx in config.get('bc.description.wochain.customers'):
+                    rc += ' W/O CHAIN'
+        #</pendant's chain>
+        nl_bc.description = rc
+
+    def _make_karat_plating(self):
+        wgts = self._pp.get('wgts')
+        rc = "&".join((karatsvc.getkarat(x.karat).name for x in (wgts.main, wgts.aux) if x and x.karat))
+        vx = self._pp.get("plating")
+        if vx:
+            vx = "&".join([self._v_c2n.get(x, "V" + x) for x in vx])
+            self._pp_x.setdefault("plating", []).append(karatsvc.getkarat(wgts.main.karat).name + " " + vx)
+            rc += " " + vx
+        vx = self._pp.get("micron")
+        if vx:
+            vx = ("VK %" + ("d" if vx - int(vx) == 0 else "2.1f") + " MIC") % vx
+            self._pp_x.setdefault("plating", []).append(vx)
+            rc += " VK" #according to advice by Kang, Vermail's thickness should not be shown in description
+        return rc
+
+    def _make_style_cat(self):
+        jo, vx = self._pp["jo"], None
+        tc = Utilz.getStyleCategory(jo.style.name.value, jo.description)
+        if tc in ("PENDANT", "LOCKET"):
+            pc = re.compile(config.get("pattern.locket.pics"))
+            pc = pc.search(jo.description)
+            if pc:
+                pc = pc.group(1)
+            nl = self._pp.get("nl_stone")
+            vx = [x for x in self._pp.get("miscs", []) if nl.setdata(x).sto == Utilz.MISC_LKSZ]
+            if not vx:
+                vx = jo.description.find("相盒") >= 0 or jo.remark.find("相盒") >= 0
+            if not (vx or pc):
+                vx = ""
+            elif vx and isinstance(vx, (tuple, list)):
+                nl.setdata(vx[0])
+                self._pp_x["locket"], vx = "%s:%s" % (nl.stone, nl.stsize), 'LOCKET '
+            else:
+                self._pp_x["locket"], vx = "LKSZ:TODO", 'LOCKET '
+            if pc:
+                self._pp_x['locket_pic'] = "%s PIC" % pc
+        elif tc == "EARRING":
+            if jo.description.find("啤") > 0 or jo.remark.find("啤") >= 0:
+                vx = 'CREOLE '
+        return (vx or "") + tc, tc
+
+    def _make_rmks(self, nl_bc):
+        lst = []
+        wgts = self._pp["wgts"]
+        wgts = (wgts.aux, wgts.part)
+        if wgts[0]:
+            lst.append("%s %4.2f" % (karatsvc.getkarat(wgts[0].karat).name, wgts[0].wgt))
+        if wgts[1]:
+            lst.append("*%sPTS %4.2f" % (karatsvc.getkarat(wgts[1].karat).name, wgts[1].wgt))
+        vx = self._pp_x.get("plating")
+        if vx:
+            lst.extend(vx)
+        for vx in (self._pp_x.get(x) for x in ("locket", "locket_pic")):
+            if vx:
+                lst.append(vx)
+        vx, nl = [self._pp.get(x) for x in ("stones", "nl_stone")]
+        if vx:
+            for x in vx:
+                lst.append(self._make_rem_stone(nl.setdata(x)))
+        vx = self._extract_snno(self._pp["jo"].snno)
+        if vx:
+            vx[0] = "SN#" + vx[0]
+            lst.extend(vx)
+        else:
+            lst.append('SN#N/A')
+        mc = 8
+        # merge them to 8 items if there are more
+        for idx, vx in enumerate(lst[:mc]):
+            setattr(nl_bc, "rem%d" % (idx + 1), vx)
+        if len(lst) > mc:
+            setattr(nl_bc, "rem%d" % mc, ",".join(lst[mc - 1:]))
+        return nl_bc
+
+
+    def _make_rem_stone(self, nl):
+        rc = str(nl.stqty) if nl.stqty > 1 else ""
+        rc += nl.shpo + nl.sto
+        if nl.stwgt and nl.stwgt != nl.stqty and self._is_st_bywgt(nl.sto):
+            rc += "-%4.2f" % nl.stwgt
+        if nl.stsize and not self._is_st_bywgt(nl.sto):
+            rc += "-" + nl.stsize + "MM"
+        return rc
+
+
+    def _is_st_bywgt(self, stname):
+        with self._cnsvc.sessionctx() as cur:
+            pk = cur.query(StonePk).join(StoneMaster).filter(StoneMaster.name == stname).first()
+            if not pk:
+                return False
+            return pk.unit in (1, 3, 5)
+
+
+    def _make_desc_stones(self, nl_bc):
+        vx, nl = [self._pp.get(x) for x in ("stones", "nl_stone")]
+        if not vx:
+            nl_bc.stone = "--"
+            return ""
+        mc = config.get('bc.description.stone.maxcnt', 3)
+        # whenever there is DIA, make it out
+        cats, rc, sms = {}, [], {}
+        lmb_sn = lambda pk: pk[:2]
+        for x in vx:
+            nl.setdata(x)
+            st = lmb_sn(nl.setdata(x).stone)
+            if st not in sms:
+                sms[st] = None
+            cats.setdefault(self._stcats.get(st, '*MULTI_STONE'), []).append(x)
+        if self._cnsvc:
+            with self._cnsvc.sessionctx() as cur:
+                lst = cur.query(StoneMaster).filter(StoneMaster.name.in_(sms.keys())).all()
+                sms = {x.name: x.edesc for x in lst}
+        else:
+            sms = {}
+        for cn, sts in cats.items():
+            if len(sts) > mc:
+                rc.append(cn)
+            else:
+                for x in sts:
+                    nl.setdata(x)
+                    sn = lmb_sn(nl.stone)
+                    rc.append(sms.get(sn, sn))
+        return ' ' + " ".join(rc)
+
+    def _extract_snno(self, snno):
+        # HB1729夾片底HB923,中號光金瓜子耳
+        # HB2056底HB943夾片HB114夾層HB982,中號光金瓜子耳
+        # #
+        # HB1762底P27473,中號光金瓜子耳
+        # #HB2600底夾片HB1485,PT5012BL
+        if not snno:
+            return None
+        lst, part, ods, push = [], "", 0, False
+        for ch in snno:
+            if ch in ('#', ' '):
+                continue
+            od = min(max(ord(ch), 250), 251)
+            if ods:
+                push = ods != od or ch == ','
+                if push and ch == ',':
+                    ch = ""
+            if push:
+                lst.append((part, ods))
+                part, push = "", False
+            ods = od
+            part += ch
+        if part:
+            lst.append((part, ods))
+        ods = []
+        for part, od in lst:
+            if od == 251:
+                #chinese, big5, need translation, if not translated, ignore it
+                part = self._snno_mp.get(part)
+            if part:
+                ods.append(part)
+        return ods

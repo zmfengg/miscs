@@ -126,8 +126,8 @@ class _SMSns(object):
         """
         errlst.append(self.new_err(*args))
         type_name = args[2]
-        if type_name == "wc_wgt":
-            #check if the weight is too critical
+        #check if the weight is too critical. (append 20190312 but when it's a QC sample, don't do it. QCSample flag is inside args[5] if there is
+        if type_name == "wc_wgt" and len(args) < 6:
             jwgt, shpwgt = args[4]
             if not cmpwgt(jwgt, shpwgt, 50):
                 type_name = [x for x in args]
@@ -396,14 +396,16 @@ class ShpMkr(object):
                         mp["location"],
                     ]
                     if haswgt:
-                        if jo.ordertype != "O":
+                        if jo.ordertype not in ("O", 'Q'):
                             jn = None
                         else:
                             jn.extend(("wc_wgt", "重量不符"))
                     else:
                         jn.extend(("ec_wgt_missing", "欠重量资料"))
                     if jn:
-                        jn.append((jwgt, mp["mtlwgt"]))
+                        jn.append((jwgt, mp["mtlwgt"], ))
+                        if jo.ordertype == 'Q':
+                            jn.append("_QCSAMPLE_")
                         self._sns.eap(*jn)
                 jn = (
                     jo.karat,
@@ -499,170 +501,6 @@ class ShpMkr(object):
         if tmp:
             for x in tmp:
                 self._sns.eap(errlst, x, x, "wc_qty", "工单(%s)有落货无发票" % x, None)
-
-    def _write_bc(self, wb, shplst, newrunmp, shp_date):
-        """
-        create a bc template
-        """
-        lsts, rcols = [], "lymd,lcod,styn,mmon,mmo2,runn,detl,quan,gwgt,gmas,jobn,ston,descn,desc,rem1,rem2,rem3,rem4,rem5,rem6,rem7,rem8".split(
-            ",")
-        dups = len("rem")
-        dups = [int(x[dups:]) for x in rcols if x.find("rem") == 0]
-        rems = (
-            min(dups),
-            max(dups) + 1,
-        )
-        bc_by_sty, bc_by_jn = self._write_bc_get_data(shplst, shp_date, rems)
-        dups, hls, lymd = {}, [], shp_date.strftime("%Y%m%d %H:%M%S")
-
-        lsts.append(rcols)
-        nl = NamedList(list2dict(rcols))
-        shplst = sorted(
-            shplst,
-            key=
-            lambda mpx: "A%06d%s" % (mpx["running"], mpx["jono"]) if mpx["running"] else "B%06d%s" % (0, mpx["jono"])
-        )
-        for it in shplst:
-            jn = it["jono"]
-            if jn in dups:
-                continue
-            pfx = "XX" if jn not in newrunmp else ""
-            dups[jn], styno = 1, it["styno"]
-            flag, bc, rmks = self._write_bc_select(bc_by_jn, bc_by_sty, jn,
-                                                   styno, rems)
-            nl.setdata([None] * len(rcols))
-            nl.lymd, nl.lcod, nl.styn, nl.mmon = lymd, styno, styno, "'" + lymd[
-                2:4]
-            nl.mmo2, nl.runn, nl.detl = lymd[4:6], "'%d" % it["running"] if it[
-                "running"] else NA, it["cstname"]
-            nl.quan, nl.jobn = it["qty"], "'" + jn
-            nl.descn = pfx + ("SKU一致:" if flag else "") + it["description"]
-            prdwgt = it["mtlwgt"]
-            nl.gmas, nl.gwgt = prdwgt.main.karat, "'" + str(prdwgt.main.wgt)
-            if not bc:
-                nl.ston, nl.desc = "--", "TODO"
-            else:
-                nl.ston, nl.desc = bc.ston, bc.desc
-                rmks = [
-                    x for x in
-                    [getattr(bc, "rem%d" % y).strip() for y in range(*rems)]
-                    if x
-                ]
-            nrmks = []
-            for x in ((prdwgt.aux, "*%s %4.2f"), (prdwgt.part, "*%sPTS %4.2f")):
-                if x[0]:
-                    nrmks.append(x[1] % (karatsvc.getkarat(x[0].karat).name,
-                                         _adjwgtneg(x[0].wgt)))
-            if prdwgt.part:
-                wgt = prdwgt.part.wgt
-                if wgt < 0:
-                    hls.append((len(lsts), nl.getcol("rem%d" % len(nrmks))))
-                else:
-                    if prdwgt.part.karat == 925:
-                        if wgt < 1.0 or wgt > 2.0:
-                            hls.append((len(lsts),
-                                        nl.getcol("rem%d" % len(nrmks))))
-                    else:
-                        if wgt < 0.3 or wgt > 1.0:
-                            hls.append((len(lsts),
-                                        nl.getcol("rem%d" % len(nrmks))))
-            cn = len(nrmks) + len(rmks) - rems[1] + 1
-            if cn > 0:
-                rmks[-cn - 1] = ";".join(rmks[-cn - 1:])
-                nrmks.extend(rmks[:-cn])
-            else:
-                nrmks.extend(rmks)
-            for idx, rmk in enumerate(nrmks):
-                nl["rem%d" % (idx + 1)] = rmk
-            lsts.append(nl.data)
-        sht = self._sns.get(wb, "sn_bc")
-        sht.range(1, 1).value = lsts
-        if hls:
-            rng = sht.range(1, 1)
-            for x in hls:
-                _hl(rng.offset(x[0], x[1]), 6)
-        sht.autofit()
-        return hls
-
-    def _write_bc_get_data(self, shplst, shp_date, rems):
-        """
-        get candidates for writing bc report
-        """
-        # sometimes different customer has same SKU#, but, their orderid will be different, so orderma table don't need to be invoked
-        refjo, refpo = aliased(JOhk), aliased(POItem)
-        with self._hksvc.sessionctx() as cur:
-            dt = shp_date - timedelta(days=720)
-            jes = set(JOElement(x["jono"]) for x in shplst)
-            logger.debug("begin to select same sku items for BC")
-            t0 = clock()
-            # below query runs quite fast(0.01s) under common client, but very slow(11+s) in sqlalchemy, don't know the reason, maybe check fry pyodbc/sqlchemy
-            q = Query([JOhk.name, refjo.running]).join(
-                (refjo, and_(JOhk.orderid == refjo.orderid, JOhk.id != refjo.id)), (POItem, JOhk.poid == POItem.id),
-                (refpo,
-                 and_(POItem.skuno != '', refpo.id == refjo.poid,
-                      refpo.skuno == POItem.skuno, refjo.poid == refpo.id))).filter(
-                          and_(POItem.id > 0, refjo.createdate > dt, refjo.createdate < shp_date))
-            lst = []
-            for arr in splitarray(jes, 20):
-                qx = q.filter(jesin(arr, JOhk))
-                lst0 = qx.with_session(cur).all()
-                if lst0:
-                    lst.extend(lst0)
-            logger.debug("using %fs to fetch %d records for above action" %
-                         (clock() - t0, len(lst)))
-            josku = {x[1]: x[0].value for x in lst if x[1] > 0} if lst else {}
-
-        bc_by_jn = self._bcsvc.getbcs([x for x in josku]) or {}
-        # get the longest rmks for each sku# because manually input might sometimes
-        # missing some data
-        bc_by_styn, lens = {}, {}
-        for x in bc_by_jn:
-            q = self._extr_bc_rmks(x, rems)
-            q = (len(q), sum([len(x) for x in q]))
-            qx = josku.get(int(x.runn))
-            if q > lens.get(qx, (0, 0)):
-                bc_by_styn[qx], lens[qx] = x, q
-        bc_by_jn = bc_by_styn
-        #no good candidates, fetch by sty#
-        bc_by_styn = {
-            x.get("styno") for x in shplst if x["jono"] not in bc_by_jn
-        }
-        bc_by_styn, bcs = {}, self._bcsvc.getbcs(bc_by_styn, True)
-        if bcs:
-            for it in bcs:
-                bc_by_styn.setdefault(it.styn, []).append(it)
-        for x in bc_by_styn:
-            bc_by_styn[x] = sorted(
-                bc_by_styn[x], key=lambda x: x.runn, reverse=True)
-        return bc_by_styn, bc_by_jn
-
-    @classmethod
-    def _write_bc_select(cls, bc_by_jn, bc_by_sty, jn, styno, rems):
-        """
-        select a bc record based on provided arguments. First return the extract,
-        if not, select the one with same karat and more remarks
-        @return flag: True if the extract JO# is found
-        @return bc: an BCSystem instance
-        @return rmks: the remarks fields as an list
-        """
-        bc, rmks = bc_by_jn.get(jn), []
-        flag = bool(bc)
-        if not flag:
-            bcs = bc_by_sty.get(styno)
-            if bcs:
-                for bcx in bcs[:10]:
-                    if not samekarat(jn, bcx.jobn):
-                        continue
-                    mc0 = cls._extr_bc_rmks(bcx, rems)
-                    if len(mc0) > len(rmks):
-                        rmks, bc = mc0, bcx
-                if not bc:
-                    bc, rmks = bcs[0], cls._extr_bc_rmks(bcs[0], rems)
-        return flag, bc, rmks
-
-    @staticmethod
-    def _extr_bc_rmks(bc, rems):
-        return [x for x in (getattr(bc, "rem%d" % y).strip() for y in range(*rems)) if x]
 
     def _nsofsettings(self, fn=None):
         if self._nsofsts is None:
@@ -832,6 +670,7 @@ class ShpMkr(object):
         rdrmap = {
             "长兴珠宝": ("c2", self._read_c2),
             "诚艺,胤雅": ("c1", self._read_c1),
+            "帝宝": ("c3", self._read_c1),
             "十七,物料编号,paj,diamondlite": ("paj", self._read_paj)
         }
         for sht in wb.sheets:
@@ -944,7 +783,7 @@ class ShpMkr(object):
                 if not errlst or (errlst and self._debug):
                     mp = {} # map to hold the new created runnings
                     self._write_rpts(wb, shplst, mp, shp_date)
-                    hls = self._write_bc(wb, shplst, mp, shp_date)
+                    hls = _SMBCHdlr(self._bcsvc, self._hksvc, self._cnsvc, self._sns).write(wb, shplst, mp, shp_date)
                     self._write_wgts(wb, shplst)
                     if hls:
                         PajShpHdlr.build_bom_sheet(wb, min_rowcnt=10, main_offset=3, bom_check_level=1)
@@ -973,8 +812,8 @@ class ShpMkr(object):
         else:
             xwu.usedrange(sht).value = None
         nmp = {'jono': "工单", 'type': '类型', 'main': '主体重', 'chain': '链重', 'net': '连石重', 'aio': "全部备注"}
-        lst = tuple(nmp.values())
-        nl, lst = NamedList(tuple(nmp.keys())), [lst, ]
+        # lst = tuple(nmp.values())
+        nl, lst = NamedList(tuple(nmp.keys())), []
         for x in smps:
             lst.append(nl.newdata(True))
             nl.jono, nl.type = "'" + x["jono"], x["ordertype"]
@@ -995,12 +834,15 @@ class ShpMkr(object):
                 aio.append(cls._fmt_wgtinfo(var, "链重"))
                 nl.chain = aio[-1]
             nl.aio = "\n".join(aio)
+        lst = sorted(lst, key=lambda x: x[nl.getcol("jono")])
+        lst.insert(0, tuple(nmp.values()))
         sht.cells(1, 1).value = lst
         sht.autofit()
         sht.cells(1, nl.getcol("aio") + 1).column_width = 20
         sht.autofit("r")
         xwu.freeze(sht.cells(2, 2))
-        sht.api.ListObjects.Add(1, xwu.usedrange(sht).api, None, 1).Name = "Wgts"
+        xwu.maketable(xwu.usedrange(sht), "Wgts")
+        #sht.api.ListObjects.Add(1, xwu.usedrange(sht).api, None, 1).Name = "Wgts"
 
 class _SMLogWtr(object):
     """
@@ -1023,7 +865,6 @@ class _SMLogWtr(object):
             if not sht:
                 continue
             xwu.freeze(sht.range("D2"))
-            sht.autofit("c")
 
     def _write_err(self, sht, logs):
         """
@@ -1046,6 +887,7 @@ class _SMLogWtr(object):
         vvs = list({"%s%s%s" % x: x for x in vvs}.values())
         vvs.insert(0, ttl)
         sht.range(1, 1).value = vvs
+        sht.autofit("c")
         return sht
 
     def _write_warn(self, sht, logs):
@@ -1058,7 +900,7 @@ class _SMLogWtr(object):
             "wc_qty": self._enc_qty,
             "wc_smp": self._enc_smp
         }
-        ridx, ttl = 0, "cstname,jono,styno,location,type,msg".split(",")
+        ridx, ttl = 0, "cstname,ordertype,jono,styno,location,type,msg".split(",")
         rmpfx = lambda x: (x[1:] if x[0] == "'" else x) if isinstance(x, str) else x
 
         jns = set(rmpfx(mp.get("jono")) for mp in logs)
@@ -1075,8 +917,9 @@ class _SMLogWtr(object):
                 else:
                     mp["cstname"], mp["styno"], mp["ordertype"] = (NA,) * 3
         logs = sorted(
-            logs, key=lambda x: x["type"] + "," + x["styno"] + "," + x["jono"])
-        jn = None
+            logs, key=lambda x: [x.get(y) for y in "type cstname ordertype styno jono".split()])
+        # hdrs holds the table ranges(if there is). Use table for better user experience
+        jn, hdr, hdrs = None, None, []
         for mp in logs:
             jomp = encs.get(mp["type"])
             if not jomp:
@@ -1092,14 +935,23 @@ class _SMLogWtr(object):
             # write a title row for each warning category
             if mp["type"] != jn:
                 jn = mp["type"]
+                if hdr:
+                    hdrs.append(hdr.expand("right").expand("down"))
                 ridx += 1
                 sht.range(ridx, 1).value = ttl + jomp(None)
-                _hl(sht.range(ridx, 1).expand("right"), 37)
+                hdr = sht.range(ridx, 1).expand("right")
+                # when using table, high-lighting is not necessary
+                # _hl(hdr, 37)
             ridx += 1
             sht.range(ridx, 1).value = [
                 "%s" % mp.get(x) if x != "type" else self._sns.get_error(
                     mp.get(x))[1] for x in ttl
             ] + vvs
+        sht.autofit("c")
+        if hdr:
+            hdrs.append(hdr.expand("right").expand("down"))
+        for hdr in hdrs:
+            xwu.maketable(hdr)
         return sht
 
     @classmethod
@@ -1579,3 +1431,192 @@ class _SMIOHlpr(object):
         for knv in iorst.items():
             self._shtio.range(self._ridx,
                               self._itio.getcol(knv[0]) + 1).value = knv[1]
+
+
+class _SMBCHdlr(object):
+    '''
+    class help to handle the bc issue for shipment
+    '''
+
+    def __init__(self, bcsvc, hksvc, cnsvc, sns):
+        self._bcsvc, self._hksvc, self._cnsvc, self._sns = bcsvc, hksvc, cnsvc, sns
+
+
+    def write(self, wb, shplst, newrunmp, shp_date):
+        """
+        create a bc template
+        """
+        lsts, rcols = [], "lymd,lcod,styn,mmon,mmo2,runn,detl,quan,gwgt,gmas,jobn,ston,descn,desc,rem1,rem2,rem3,rem4,rem5,rem6,rem7,rem8".split(
+            ",")
+        dups = len("rem")
+        dups = [int(x[dups:]) for x in rcols if x.find("rem") == 0]
+        rems = (
+            min(dups),
+            max(dups) + 1,
+        )
+        bc_by_sty, bc_by_jn = self._get_data(shplst, shp_date, rems)
+        dups, hls, lymd = {}, [], shp_date.strftime("%Y%m%d %H:%M%S")
+
+        lsts.append(rcols)
+        nl = NamedList(list2dict(rcols))
+        shplst = sorted(
+            shplst,
+            key=
+            lambda mpx: "A%06d%s" % (mpx["running"], mpx["jono"]) if mpx["running"] else "B%06d%s" % (0, mpx["jono"])
+        )
+        for it in shplst:
+            jn = it["jono"]
+            if jn in dups:
+                continue
+            pfx = "XX" if jn not in newrunmp else ""
+            dups[jn], styno = 1, it["styno"]
+            flag, bc, rmks = self._select(bc_by_jn, bc_by_sty, jn,
+                                                   styno, rems)
+            nl.setdata([None] * len(rcols))
+            nl.lymd, nl.lcod, nl.styn, nl.mmon = lymd, styno, styno, "'" + lymd[
+                2:4]
+            nl.mmo2, nl.runn, nl.detl = lymd[4:6], "'%d" % it["running"] if it[
+                "running"] else NA, it["cstname"]
+            nl.quan, nl.jobn = it["qty"], "'" + jn
+            nl.descn = pfx + ("SKU一致:" if flag else "") + it["description"]
+            prdwgt = it["mtlwgt"]
+            nl.gmas, nl.gwgt = prdwgt.main.karat, "'" + str(prdwgt.main.wgt)
+            if not bc:
+                # maybe let the builder fill existing nl
+                it["_raw_data"] = nl.data
+                bc = self._bcsvc.build_from_jo(jn, self._hksvc, self._cnsvc, it)
+                if not bc:
+                    nl.ston, nl.desc = "--", "TODO"
+                else:
+                    nl.setdata(bc.data)
+            else:
+                nl.ston, nl.desc = bc.ston, bc.desc
+                rmks = [
+                    x for x in
+                    [getattr(bc, "rem%d" % y).strip() for y in range(*rems)]
+                    if x
+                ]
+            nrmks = []
+            for x in ((prdwgt.aux, "*%s %4.2f"), (prdwgt.part, "*%sPTS %4.2f")):
+                if x[0] and x[0].karat:
+                    nrmks.append(x[1] % (karatsvc.getkarat(x[0].karat).name,
+                                         _adjwgtneg(x[0].wgt)))
+            if prdwgt.part and prdwgt.part.karat:
+                wgt = prdwgt.part.wgt
+                if wgt < 0:
+                    hls.append((len(lsts), nl.getcol("rem%d" % len(nrmks))))
+                else:
+                    if prdwgt.part.karat == 925:
+                        if wgt < 1.0 or wgt > 2.0:
+                            hls.append((len(lsts),
+                                        nl.getcol("rem%d" % len(nrmks))))
+                    else:
+                        if wgt < 0.3 or wgt > 1.0:
+                            hls.append((len(lsts),
+                                        nl.getcol("rem%d" % len(nrmks))))
+            cn = len(nrmks) + len(rmks) - rems[1] + 1
+            if cn > 0:
+                rmks[-cn - 1] = ";".join(rmks[-cn - 1:])
+                nrmks.extend(rmks[:-cn])
+            else:
+                nrmks.extend(rmks)
+            for idx, rmk in enumerate(nrmks):
+                nl["rem%d" % (idx + 1)] = rmk
+            lsts.append(nl.data)
+        sht = self._sns.get(wb, "sn_bc")
+        sht.range(1, 1).value = lsts
+        self._fmt_sht(sht, hls)
+        return hls
+
+    @staticmethod
+    def _fmt_sht(sht, hls):
+        sht.autofit()
+        if hls:
+            rng = sht.range(1, 1)
+            for x in hls:
+                _hl(rng.offset(x[0], x[1]), 6)
+        xwu.maketable(xwu.usedrange(sht), "BCData")
+        # hide cols A:H, free to M column
+        sht.range("A:H").api.EntireColumn.Hidden = True
+        xwu.freeze(sht.range("M2"), False)
+
+
+    def _get_data(self, shplst, shp_date, rems):
+        """
+        get candidates for writing bc report
+        """
+        # sometimes different customer has same SKU#, but, their orderid will be different, so orderma table don't need to be invoked
+        refjo, refpo = aliased(JOhk), aliased(POItem)
+        with self._hksvc.sessionctx() as cur:
+            dt = shp_date - timedelta(days=720)
+            jes = set(JOElement(x["jono"]) for x in shplst)
+            logger.debug("begin to select same sku items for BC")
+            t0 = clock()
+            # below query runs quite fast(0.01s) under common client, but very slow(11+s) in sqlalchemy, don't know the reason, maybe check fry pyodbc/sqlchemy
+            q = Query([JOhk.name, refjo.running]).join(
+                (refjo, and_(JOhk.orderid == refjo.orderid, JOhk.id != refjo.id)), (POItem, JOhk.poid == POItem.id),
+                (refpo,
+                 and_(POItem.skuno != '', refpo.id == refjo.poid,
+                      refpo.skuno == POItem.skuno))).filter(
+                          and_(POItem.id > 0, refjo.createdate > dt, refjo.createdate < shp_date))
+            lst = []
+            for arr in splitarray(jes, 20):
+                qx = q.filter(jesin(arr, JOhk))
+                lst0 = qx.with_session(cur).all()
+                if lst0:
+                    lst.extend(lst0)
+            logger.debug("using %fs to fetch %d records for above action" %
+                         (clock() - t0, len(lst)))
+            josku = {x[1]: x[0].value for x in lst if x[1] > 0} if lst else {}
+
+        bc_by_jn = self._bcsvc.getbcs([x for x in josku]) or {}
+        # get the longest rmks for each sku# because manually input might sometimes
+        # missing some data
+        bc_by_styn, lens = {}, {}
+        for x in bc_by_jn:
+            q = self._extr_rmks(x, rems)
+            q = (len(q), sum([len(x) for x in q]))
+            qx = josku.get(int(x.runn))
+            if q > lens.get(qx, (0, 0)):
+                bc_by_styn[qx], lens[qx] = x, q
+        bc_by_jn = bc_by_styn
+        #no good candidates, fetch by sty#
+        bc_by_styn = {
+            x.get("styno") for x in shplst if x["jono"] not in bc_by_jn
+        }
+        bc_by_styn, bcs = {}, self._bcsvc.getbcs(bc_by_styn, True)
+        if bcs:
+            for it in bcs:
+                bc_by_styn.setdefault(it.styn, []).append(it)
+        for x in bc_by_styn:
+            bc_by_styn[x] = sorted(
+                bc_by_styn[x], key=lambda x: x.runn, reverse=True)
+        return bc_by_styn, bc_by_jn
+
+    @classmethod
+    def _select(cls, bc_by_jn, bc_by_sty, jn, styno, rems):
+        """
+        select a bc record based on provided arguments. First return the extract,
+        if not, select the one with same karat and more remarks
+        @return flag: True if the extract JO# is found
+        @return bc: an BCSystem instance
+        @return rmks: the remarks fields as an list
+        """
+        bc, rmks = bc_by_jn.get(jn), []
+        flag = bool(bc)
+        if not flag:
+            bcs = bc_by_sty.get(styno)
+            if bcs:
+                for bcx in bcs[:10]:
+                    if not samekarat(jn, bcx.jobn):
+                        continue
+                    mc0 = cls._extr_rmks(bcx, rems)
+                    if len(mc0) > len(rmks):
+                        rmks, bc = mc0, bcx
+                if not bc:
+                    bc, rmks = bcs[0], cls._extr_rmks(bcs[0], rems)
+        return flag, bc, rmks
+
+    @staticmethod
+    def _extr_rmks(bc, rems):
+        return [x for x in (getattr(bc, "rem%d" % y).strip() for y in range(*rems)) if x]
