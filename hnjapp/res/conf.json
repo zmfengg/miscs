@@ -99,11 +99,13 @@
         {
             "name": "VB",
             "color": "BLACK",
+            "priority": 50,
             "big5": ["黑"]
         },
         {
             "name": "VY",
             "color": "YELLOW",
+            "priority": 10,
             "big5": [
                 "王",
                 "黃"
@@ -112,6 +114,7 @@
         {
             "name": "VW",
             "color": "WHITE",
+            "priority": 5,
             "big5": [
                 "白",
                 "銠"
@@ -120,6 +123,7 @@
         {
             "name": "VR",
             "color": "ROSE",
+            "priority": 15,
             "big5": [
                 "玫",
                 "瑰"
@@ -128,6 +132,7 @@
         {
             "name": "VBR",
             "color": "COFFEE",
+            "priority": 55,
             "big5": [
                 "啡"
             ]
@@ -135,6 +140,7 @@
         {
             "name": "VGR",
             "color": "GREEN",
+            "priority": 60,
             "big5": [
                 "綠"
             ]
@@ -142,6 +148,7 @@
         {
             "name": "VBL",
             "color": "BLUE",
+            "priority": 51,
             "big5":[
                 "藍"
             ]
@@ -149,7 +156,7 @@
         {
             "name": "VK",
             "color": "VK",
-            "priority": 10,
+            "priority": 100,
             "big5":[
                 "咪"
             ],
@@ -158,6 +165,7 @@
         {
             "name": "V18K",
             "color": "V18K",
+            "priority": 105,
             "big5":[
                 "18咪"
             ]
@@ -165,6 +173,7 @@
         {
             "name": "VPT900",
             "color": "VPT900",
+            "priority": 95,
             "big5":[
                 "PT900咪"
             ]
@@ -269,6 +278,14 @@
             "YD"
         ]
     },
+    "bc.sns":[
+        ["R", "DD", "RD"],
+        ["T", "DD", "TD"]
+    ],
+    "bc.stone.bywgt":[
+        "DD",
+        "DF"
+    ],
     "c1calc.stone_dialect":{
         "AZ": "玉",
         "ON": "安力士"
@@ -276,5 +293,125 @@
     "c1calc.fixed_stone":{
         "JADE": "玉",
         "PEARL": "珠"
-    }
+    },
+    "c1shp.stone.alias":[
+        ["蓝玛瑙", "R", "AG"],
+        ["紫晶", "R", "AM"],
+        ["天青", "R", "AQ"],
+        ["紫CZ", "R", "AZ"],
+        ["蓝晶", "R", "BT"],
+        ["托帕石", "R", "BT"],
+        ["绿CZ", "R", "CG"],
+        ["黄晶", "R", "CT"],
+        ["CZ", "R", "CZ"],
+        ["旦CZ", "O", "CZ"],
+        ["深蓝CZ", "P", "CZ"],
+        ["梯钻", "T", "DD"],
+        ["元占", "R", "DD"],
+        ["钻石", "R", "DD"],
+        ["蓝钻", "R", "DF"],
+        ["透辉石", "R", "DI"],
+        ["玻璃制仿宝石", "R", "GC"],
+        ["人造绿宝", "R", "GD"],
+        ["加力", "R", "GN"],
+        ["石榴石", "R", "GN"],
+        ["方绿玉", "S", "JD"],
+        ["绿玉", "R", "JD"],
+        ["圆绿玉", "R", "JD"],
+        ["安力士", "S", "ON"],
+        ["绿晶", "R", "PD"],
+        ["元珠", "R", "PL"],
+        ["圆珠", "R", "PL"],
+        ["电氣石", "R", "PT"],
+        ["米珠", "F", "PW"],
+        ["面包珠", "R", "PW"],
+        ["薯仔珠", "G", "PW"],
+        ["红宝", "R", "RB"],
+        ["人造红宝", "R", "RC"],
+        ["黑蓝宝", "R", "SA"],
+        ["蓝宝", "R", "SA"],
+        ["宝蓝CZ", "R", "SC"],
+        ["蓝CZ", "R", "SC"],
+        ["人造蓝宝", "R", "SC"],
+        ["白晶", "R", "WT"],
+        ["黑CZ", "R", "ZE"],
+        ["克CZ", "R", "ZE"],
+        ["__C3", "_SHAPE_", "_STONE_"],
+        ["马眼蓝晶", "M", "BT"],
+        ["旦形蓝晶", "O", "BT"],
+        ["单反", "R", "DD"]
+    ],
+    "pajshp.stone.shape.alias":{
+        "HT": "H",
+        "MQ": "M",
+        "OV": "O",
+        "PR": "P",
+        "RA": "E",
+        "RD": "R",
+        "SQPP": "S",
+        "近圆": "R",
+        "近圆球": "R",
+        "近圆球形": "R",
+        "近圆形": "R",
+        "配模(平底CAB面)": "F"
+    },
+    "pajshp.stone.stone.alias":{
+        "WHITE AGATE": "AG",
+        "AFRICA AMETHYST": "AM",
+        "GEN. AQUAMARINE": "AQ",
+        "AQUAMARINE": "AQ",
+        "SYNTHETIC DARK AMETHYST A": "BA",
+        "BLUE TOPAZ": "BT",
+        "LONDON BLUE TOPAZ": "BT",
+        "CITRINE": "CT",
+        "WHITE CZ": "CZ",
+        "3A WHITE CZ": "CZ",
+        "DIA": "DD",
+        "DIAMOND": "DD",
+        "CREATED EMERALD": "EC",
+        "CHINESE WHITE CRYSTAL": "GC",
+        "SILVER SIDE CLEAR GLASS": "GC",
+        "CZECH CRYSTAL": "GC",
+        "GARNET": "GN",
+        "QUARTZ": "GQ",
+        "IOLITE": "IO",
+        "LAPIS LAZULI": "LP",
+        "WHITE MOON STONE": "MS",
+        "PINK AMETHYST": "PA",
+        "SYN. PINK CORUNDUM": "PC",
+        "SYN PINK CORUNDUM": "PC",
+        "SYNTHETIC PINK CORUNDUM": "PC",
+        "SYNTHETIC PINK CORUNDUM（": "PC",
+        "PERIDOT": "PD",
+        "PERIDTO": "PD",
+        "G WHIT PL": "PL",
+        "G WT PL": "PL",
+        "G WHT PL": "PL",
+        "WHT PL": "PL",
+        "CZECH LIGHT PEACH": "PQ",
+        "FRESH WATER PEARL": "PW",
+        "SYNTHETIC RED CORUNDUM": "RC",
+        "GEN. RHODOLITE": "RH",
+        "ROSE QUARTZ": "RQ",
+        "DARK ROSE QUARTZ": "RQ",
+        "G SAPPHIRE": "SA",
+        "BLACK SAPPHIRE": "SA",
+        "SYNTHETIC BLUE CORUNDUM": "SC",
+        "SYN BLUE CORD": "SC",
+        "SYNIHETIC BLUE CORUNDUM": "SC",
+        "STABILIZED TURQOISE": "TZ",
+        "STABILIZED CONSTRUCTED": "TZ",
+        "PK CZ": "UP",
+        "PINK CZ": "UP",
+        "WHITE TOPAZ": "WT",
+        "4A WHITE TOPAZ": "WT",
+        "MEDIUM PURPLE RED CZ": "ZA",
+        "#30 BLUE CZ": "ZB",
+        "#38 BLUE CZ": "ZB",
+        "YELLOW CZ": "ZC",
+        "BLACK SPINEL": "ZS",
+        "TANZ CZ": "ZT"
+    },
+    "default.file.c1aio": "\\\\172.16.8.46\\pb\\dptfile\\quotation\\2017外发工单工费明细\\CostForPatrick\\AIO_F.xlsx",
+    "default.file.c1cc.tpl": "\\\\172.16.8.46\\pb\\DptFile\\pajForms\\C1价格计算器.xltx"
 }

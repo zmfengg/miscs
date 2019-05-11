@@ -182,7 +182,6 @@ class JOImgOcr(object):
         """
         return a set of JO#s from the provided image file
         """
-
         img = imread(list_fn)
         img = cvtColor(img, COLOR_BGR2GRAY)
         try:

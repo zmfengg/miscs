@@ -191,7 +191,8 @@ class _C1Utilz(object):
 
 
 class Writer(object):
-    """ read/write data from excel
+    """
+    read JO data from source excel and then create the c1cc file from it
     @param hksvc: the services help to handle HK data
     @param cnsvc: the services help to handle CN data
     @param his_engine|engine: the creator function help to create the history engine
@@ -203,7 +204,7 @@ class Writer(object):
         self._nl = None
 
         # stone vermail color
-        self._st_vc = config.get("vermail.stones")        
+        self._st_vc = config.get("vermail.stones")
         # the fixed stone
         # AZ is based on JO# 460049
         self._st_dd = None  #DD
@@ -579,18 +580,18 @@ class Writer(object):
         return self._utilz.find_sheet(wb)
 
     def _tpl_file(self):
-        return r'\\172.16.8.46\pb\DptFile\pajForms\C1价格计算器.xltx'
+        return config.get("default.file.c1cc.tpl")
 
     def run(self, wb):
         """ read JOs and write report back """
-        # there is at the most one data sheet in the book
+        # there is at most one data sheet in the book
         sht, extra = self.find_sheet(wb), None
         if not sht:
-            logger.debug("workbook(%s) is not a valid workbook" % wb.name)
             # check if it's a C1, if yes, prepare the calc
-            nls = C1InvRdr.read_c1_all(wb)
-            nls = [((x.labor or 0) + (x.setting or 0), x.jono, x.remarks) for x in nls]
+            nls = C1InvRdr.getReader(wb).read(wb, "c1cc")
+            nls = [((x.labor or 0) + (x.setting or 0), x.jono, x.remarks) for y in nls for x in y[0]]
             if not nls:
+                logger.debug("file(%s) is not valid c1cc or c1cost file" % wb.name)
                 return
             sht = fromtemplate(self._tpl_file())
             wb.close()

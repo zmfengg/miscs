@@ -21,7 +21,7 @@ from hnjcore.models.hk import JO as JOhk
 from hnjcore.models.hk import Orderma, PajShp
 from hnjcore.models.hk import Style as Styhk
 from utilz import (NamedList, NamedLists, ResourceCtx, getfiles, getvalue,
-                   karatsvc, tofloat, triml, xwu)
+                   karatsvc, tofloat, triml, xwu, na)
 from utilz.xwu import appmgr as _appmgr
 
 from .common import _logger as logger, P17Decoder
@@ -159,25 +159,27 @@ class PajBomHdlr(object):
         a tuple of (row(in excel term), rowcount) for place marker for each segment
         a namedlist for column lookup of the first returned argument
         '''
+        if not pcodeset:
+            return None
         pmap = {}
         main_offset, min_rowcnt = kwds.get("main_offset", 3), kwds.get("min_rowcnt", 7)
-        bcwgts = kwds.get("bc_wgts", {})
-
+        bcwgts = kwds.get("bc_wgts") or {}
         self._read_book(wb, pmap)
         self._adjust_wgts(pmap)
-
+        if na in pcodeset:
+            # the caller does not provided any pcode, try to build based on returned bom's semi-chain item(if there is).
+            lsts = {x["pcode"] for x in pmap.values() if x["mtlwgt"].part and x["mtlwgt"].part.wgt < 0}
+            if not lsts:
+                return None
+            pcodeset = {x[0]: x[1] for x in pcodeset.items() if x[0] in lsts}
         lsts = 'jono rcat mkarat mwgt mid mname pkarat pqty pwgt mpflag image'.split()
         main_offset = min(max(2, main_offset), 5)
         min_rowcnt = max(main_offset + 4 * (2 if bcwgts else 1), min_rowcnt)
         nl = NamedList(lsts)
         lsts, mkrs = [lsts, ], []
-        if pcodeset:
-            #sort by JO#
-            pmap = sorted([x for x in pmap.items() if x[0] in pcodeset], key=lambda x: pcodeset.get(x[0])[0])
-        else:
-            pmap = [x for x in pmap.items() if x[0] in pcodeset]
+        pmap = sorted([x for x in pmap.items() if x[0] in pcodeset], key=lambda x: pcodeset.get(x[0])[0])
         for pcode, x in pmap:
-            if pcodeset and pcode not in pcodeset:
+            if pcode not in pcodeset:
                 continue
             fn, kts = [], []
             pts, mstrs = [x.get(y, []) for y in "parts mstr".split()]
@@ -205,7 +207,7 @@ class PajBomHdlr(object):
                     self._fill_dtl(pts[idx], nl)
             idx += 1
             jn = fn[0][nl.getcol("jono")][1:]
-            amrc = min_rowcnt - 0 if jn in bcwgts else 4
+            amrc = max(min_rowcnt - 0 if jn in bcwgts else 4, main_offset + 2 + 1)
             if idx < amrc:
                 for idx in range(amrc - idx):
                     fn.append(nl.newdata(True))

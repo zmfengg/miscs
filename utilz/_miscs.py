@@ -14,7 +14,7 @@ from datetime import date
 from imghdr import what
 from inspect import getabsfile
 from math import ceil
-from numbers import Integral
+from numbers import Integral, Number
 from os import listdir, path, remove
 from random import randint, random
 from re import sub
@@ -28,7 +28,7 @@ __all__ = [
     "NamedList", "NamedLists", 'config', "appathsep", "daterange", "deepget",
     "easydialog", "easymsgbox", "getfiles", "getvalue", "iswritable", "isnumeric",
     "imagesize", "list2dict", "lvst_dist", "monthadd", "na", "removews",
-    "Config", "Salt", "shellopen", "splitarray", "tofloat", "triml", "trimu", "updateopts"
+    "Config", "Salt", "shellopen", "Number2Word", "splitarray", "tofloat", "triml", "trimu", "updateopts"
 ]
 
 na = "N/A"
@@ -79,7 +79,7 @@ def getmodule(pk_name):
     get the module of given package name. A example to use:
         getmodule(__package__)
     @pk_name:
-        name of the package, simply feed by __package__        
+        name of the package, simply feed by __package__
     '''
     from sys import modules
     try:
@@ -385,11 +385,9 @@ def _isleap(year):
     lp = False
     if year % 4:
         return False
-    elif year % 100:
+    if year % 100:
         lp = True
-    elif year % 400:
-        pass
-    else:
+    elif not year % 400:
         lp = True
     return lp
 
@@ -782,7 +780,7 @@ class Config(object):
     It's advised for the consumer for this class to have it's name space.
     Also, the key won't be normalized, the consumer take control if it
     By default, this module contains one Config instance for convenience. You can  store settings directly to this instance.
-    
+
     example of boot strap:
         from utilz import config
         ...
@@ -874,5 +872,100 @@ class Config(object):
                 self.set(key, val)
         except:
             pass
+
+class Number2Word(object):
+    '''
+    number to English word
+    Usage:
+    n2w = Number2Word()
+    s = n2w.convert(123.45)
+    s = n2w.convert(123.45, join_hund=True, join_ten=True)
+    references:
+    https://en.wikipedia.org/wiki/Long_and_short_scales#Long_scale
+    https://lingojam.com/NumbersToWords
+    accept below constructor arguments, all default is False:
+    @param join_hund: create an "AND" between hundred and ten
+    @param join_ten: create an "-" between ten and digit
+    @param show_no_cents: show "And No Cents" when there no cent
+    @param case: one of U[pper]/L[ower]
+    '''
+    def __init__(self, **kwds):
+        self._join_ten = self._join_hund = self._show_no_cents = None
+        self._case = "U"
+        if not kwds:
+            kwds = {}
+        for x in "join_hund".split():
+            if x not in kwds:
+                kwds[x] = True
+            self._config(kwds)
+        ss = ["One Two Three Four Five Six Seven Eight Nine Ten Eleven Twelve Thirteen Fourteen Fifteen Sixteen Seventeen Eighteen Nineteen Twenty Thirty Forty Fifty Sixty Seventy Eighty Ninety", ", Thousand , Million , Billion , Trillion ", "And", "Hundred", "Dollar", "Cent", "No", "s"]
+        if self._case in ('U', 'L'):
+            for idx, s0 in enumerate(ss):
+                s0 = s0.upper() if self._case == 'U' else s0.lower()
+                ss[idx] = s0
+        self._digits, self._pwrs = ss[0].split(), ss[1].split(',')
+        self._ttl = {x[0]: x[1] for x in zip(('and', 'hundred', 'dollar', 'cent', 'no', 'cpl',), ss[2:])}
+
+    def _config(self, kwds):
+        self._join_hund, self._join_ten, self._show_no_cents = [kwds.get(x, False) for x in "join_hund join_ten show_no_cents".split()]
+
+    def convert(self, theVal, **kwds):
+        '''
+        translate the number to Words
+        you can provide convert option to override the ones in the constructor, except for case(U/L)
+        '''
+        # hold current settings
+        if kwds:
+            cents = {x[0]: x[1] for x in zip("join_hund join_ten show_no_cents".split(), (self._join_ten, self._join_hund, self._show_no_cents, ))}
+            self._config(kwds)
+            kwds = cents
+        theVal, cents = str(theVal) if isinstance(theVal, Number) else theVal.strip(), None
+        idx = theVal.find(".")
+        if idx >= 0:
+            cents, theVal = self._ten((theVal[idx+1:] + "00")[:2]), theVal[:idx]
+        dollars, cnt, segs = "", -1, []
+        while theVal:
+            segs.append(theVal[-3:])
+            theVal = theVal[:-3] if len(theVal) > 3 else None
+        for cnt, s0 in enumerate(reversed(segs)):
+            s0 = self._hund(s0, dollars)
+            if s0:
+                dollars += s0 + self._pwrs[len(segs) - cnt - 1]
+        dc = lambda cnt, unit: ("%s %s%s" % (self._ttl['no'], unit, self._ttl['cpl']) if self._show_no_cents else "") if not cnt else "%s %s" % (self._dig("1"),  unit) if cnt == self._dig("1") else "%s %s%s" % (cnt, unit, self._ttl['cpl'])
+        dollars, cents = dc(dollars, self._ttl["dollar"]), dc(cents, self._ttl['cent'])
+        if dollars and (cents or self._show_no_cents):
+            cents = (" %s " % self._ttl['and']) + cents
+        if kwds:
+            self._config(kwds)
+        return dollars + cents
+
+    def _hund(self, txt, pfx=None):
+        if not int(txt):
+            return ""
+        txt = ("000" + txt)[-3:]
+        h = self._dig(txt[0]) + " %s" % self._ttl['hundred'] if txt[0] != "0" else ""
+        t = self._ten(txt[1:])
+        if h:
+            t = (" %s " % self._ttl['and'] if self._join_hund else " ") + t
+        elif pfx:
+            t = ("%s " % self._ttl['and'] if self._join_hund else "") + t
+        return h + t
+
+    def _ten(self, txt):
+        s0 = txt[0]
+        if s0 == "0":
+            s0 = self._dig(txt[-1])
+        elif s0 == "1":
+            s0 = self._digits[int(txt) - 1]
+        else: # If value between 20-99...
+            s1, idx = self._dig(txt[-1]), int(txt[0]) + 17
+            s0 = self._digits[idx]
+            if s1:
+                s0 += ("-" if self._join_ten else " ")  + s1
+        return s0
+
+    def _dig(self, txt):
+        txt = int(txt)
+        return self._digits[txt - 1] if txt else ""
 
 config = Config()

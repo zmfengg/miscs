@@ -6,13 +6,13 @@
 * @Last Modified time: 2018-06-16 14:41:00
 '''
 
-import datetime
 import logging
 import random
 from datetime import date, datetime
 from time import clock
 from functools import cmp_to_key
 from os import listdir, path, remove
+from tempfile import gettempdir
 from unittest import TestCase, main
 
 from sqlalchemy import VARCHAR, Column, ForeignKey, Integer
@@ -20,17 +20,16 @@ from sqlalchemy.engine import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from xlwings.constants import LookAt
-from tempfile import gettempdir
 
 from utilz import getvalue, imagesize, iswritable, karatsvc, stsizefmt, xwu
 from utilz._jewelry import RingSizeSvc
-from utilz._miscs import (NamedList, NamedLists, appathsep, daterange, getfiles,
-                          list2dict, lvst_dist, monthadd, shellopen, Salt, Config)
+from utilz._miscs import (Config, NamedList, NamedLists, Salt, appathsep,
+                          daterange, getfiles, list2dict, lvst_dist, monthadd,
+                          shellopen, Number2Word)
 from utilz.resourcemgr import ResourceCtx, ResourceMgr, SessionMgr
 
 from .main import logger, thispath
 
-#resfldr = appathsep(appathsep(thispath) + "res")
 resfldr = path.join(thispath, "res")
 
 
@@ -237,6 +236,42 @@ class KeySuite(TestCase):
         self.assertAlmostEqual(47.0, rgsvc.getcirc("US", "4 1/4"),
                                "the circumference of US#4 1/4 is 47.0mm")
 
+    def testNumber2Words(self):
+        '''
+        the numeric to English(spell) function text
+        '''
+        n2w = Number2Word()
+        nbrs = {
+            0.01: "ONE CENT",
+            0.1: "TEN CENTS",
+            0.11: "ELEVEN CENTS",
+            1: "ONE DOLLAR",
+            1.1: "ONE DOLLAR AND TEN CENTS",
+            1.11: "ONE DOLLAR AND ELEVEN CENTS",
+            10: "TEN DOLLARS",
+            10.1: "TEN DOLLARS AND TEN CENTS",
+            10.11: "TEN DOLLARS AND ELEVEN CENTS",
+            123: "ONE HUNDRED AND TWENTY THREE DOLLARS",
+            123.4: "ONE HUNDRED AND TWENTY THREE DOLLARS AND FORTY CENTS",
+            123.45: "ONE HUNDRED AND TWENTY THREE DOLLARS AND FORTY FIVE CENTS",
+            2026.34: "TWO THOUSAND AND TWENTY SIX DOLLARS AND THIRTY FOUR CENTS",
+            49129: "FORTY NINE THOUSAND ONE HUNDRED AND TWENTY NINE DOLLARS"
+        }
+        for n in nbrs.items():
+            self.assertEqual(n[1], n2w.convert(n[0]))
+        n2w = Number2Word(show_no_cents=True)
+        self.assertEqual("ONE DOLLAR AND NO CENTS", n2w.convert(1))
+        n2w = Number2Word(show_no_cents=True, join_ten=True)
+        self.assertEqual("ONE DOLLAR AND FORTY-FIVE CENTS", n2w.convert(1.45))
+        self.assertEqual("ONE DOLLAR AND FORTY FIVE CENTS", n2w.convert(1.45, join_ten=False))
+        self.assertEqual("ONE DOLLAR AND FORTY-FIVE CENTS", n2w.convert(1.45), 'the join_ten option should have been restored')
+        t = clock()
+        for idx in range(1000):
+            n2w.convert(idx + 0.11)
+        t = clock() - t
+        print("%f ms to run" % (t * 1000))
+
+
     def testImagesize(self):
         """ the imagesize function(power by PIL) """
         fns = getfiles(path.join(thispath, "res"), "65x27")
@@ -277,7 +312,7 @@ class KeySuite(TestCase):
         '''
         st = Salt()
         for idx in range(20):
-            s0 = "A very long string"
+            s0 = "A very long string %d" % idx
             salt = st.encode(s0)
             self.assertNotEqual(s0, salt)
             self.assertEqual(s0, st.decode(salt))
@@ -298,6 +333,7 @@ class ConfigSuite(TestCase):
     tests for make use of the Config class
     '''
     _listener_hc, _new_value = 0, None
+    _key = _old_value = None
 
     def testLoad(self):
         '''
@@ -330,6 +366,7 @@ class ConfigSuite(TestCase):
     def _listener(self, key, old_value, new_value):
         self._listener_hc += 1
         self._new_value = new_value
+        self._key, self._old_value = key, old_value
 
 
 class NamedListSuite(TestCase):
@@ -586,6 +623,25 @@ class XwuSuite(TestCase):
         # test the find's all function
         nl = xwu.find(sht, "Name", lookat=LookAt.xlPart, find_all=True)
         self.assertEqual(9, len(nl), "the are 9 items has name as part")
+
+    def testNextCell(self):
+        '''
+        check if next cell works
+        '''
+        fn = getfiles(resfldr, "getTableData")[0]
+        app = self._app
+        wb = app.books.open(fn)
+        sht = wb.sheets[0]
+        rng = xwu.nextcell(sht.cells(1, 1))
+        self.assertEqual(sht.cells(1, 2), rng, 'Normal cell')
+        rng = xwu.nextcell(sht.cells(10, 1))
+        self.assertEqual(sht.cells(11, 2), rng, "Merged cell's right")
+        rng = xwu.nextcell(sht.cells(10, 1), "up")
+        self.assertEqual(sht.cells(9, 1), rng, "Merged cell's up")
+        rng = xwu.nextcell(sht.cells(10, 1), "left")
+        self.assertIsNone(rng, 'exceeds border')
+        # self.assertEqual(sht.cells(9, 1), rng, "Merged cell's right")
+        wb.close()
 
     def testDetectBorder(self):
         """ check the detect border function of xwu """

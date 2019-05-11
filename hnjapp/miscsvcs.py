@@ -23,7 +23,7 @@ from hnjapp.dbsvcs import jesin
 from hnjcore import JOElement
 from hnjcore.models.cn import JO, MM, MMMa, Style
 from hnjcore.models.hk import JO as JOHK, PajShp
-from utilz import NamedList, getvalue, trimu, triml, xwu, na, daterange
+from utilz import NamedList, getvalue, trimu, triml, xwu, na, daterange, splitarray
 from utilz.resourcemgr import ResourceCtx
 from hnjapp.localstore import Codetable
 from hnjapp.dbsvcs import SvcBase
@@ -82,6 +82,7 @@ class StylePhotoSvc(object):
         if isinstance(img, str):
             img, open_byme = Image.open(img), True
             img.load()
+        if img.mode != "RGB":
             img = img.convert("RGBA")
         # flag = img.size >= (1000, 1000)
         flag = img.size >= tuple(config.get("stylephoto.good_img.min_dim"))
@@ -357,13 +358,15 @@ class PhotoQueryAsMail(object):
             else:
                 stynos = (stynos, )
         with self._cnsvc.sessionctx() as cur:
-            q = Query(JO).join(Style).filter(jesin([JOElement(x) for x in stynos], Style))
-            q = q.with_session(cur).all()
-            if not q:
-                return None
-            q = sorted(q, key=lambda jo: (jo.style.name.value, jo.deadline))
-            q = {x.style.name.value: x for x in q}
-            q = self._jos_2_q(q.values())
+            mp = {}
+            for pt in splitarray(stynos, 20):
+                q = Query(JO).join(Style).filter(jesin([JOElement(x) for x in pt], Style))
+                q = q.with_session(cur).all()
+                if not q:
+                    continue
+                q = sorted(q, key=lambda jo: (jo.style.name.value, jo.deadline))
+                mp.update({x.style.name.value: x for x in q})
+            q = self._jos_2_q(mp.values())
         return self._build_msg(self._pssvc.getJOPhotos(q), **mail_hds)
 
     @staticmethod

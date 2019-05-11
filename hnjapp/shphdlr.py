@@ -23,7 +23,7 @@ from xlwings.constants import (BorderWeight, Constants, FormatConditionOperator,
                                FormatConditionType, LineStyle)
 from xlwings.utils import col_name
 
-from hnjapp.c1rdrs import C1InvRdr
+from hnjapp.c1rdrs import C1InvRdr, C3InvRdr
 from hnjcore import JOElement, samekarat
 from hnjcore.models.cn import MM, MMgd, MMMa
 from hnjcore.models.hk import JO as JOhk
@@ -255,7 +255,7 @@ class ShpMkr(object):
         _appmgr.ret(kxl)
         return tarfn
 
-    def _read_c1(self, sht, args):
+    def _read_c1_3(self, sht, args, vdr):
         """
         read shipment data from c1 sheet, return result dict and
         an error list, inside the result map, the "shpdate" holds
@@ -274,10 +274,11 @@ class ShpMkr(object):
         if flag and ridx >= 0:
             sht.range("1:%d" % ridx).api.entirerow.delete()
         mp = sht.name
-        its = C1InvRdr.read_c1(sht)
+        its = (C1InvRdr() if vdr == 1 else C3InvRdr()).read(sht)
         if not its:
             logger.debug("no valid data in sheet(%s)" % mp)
             return (None,) * 2
+        its = its[0]
         mp, errs, args["shpdate"] = {}, [], its[1]
         for shp in its[0]:
             jn = shp.jono
@@ -289,9 +290,30 @@ class ShpMkr(object):
             })
             it["mtlwgt"] = shp.mtlwgt
             it["qty"] += shp.qty
+            if shp.stones:
+                it["_stone_data"] = self._stdto_c1_paj(shp.stones)
         if mp:
             mp["shpdate"] = args.get("shpdate")
         return mp, errs
+
+    def _read_c1(self, sht, args):
+        return self._read_c1_3(sht, args, 1)
+
+    def _read_c3(self, sht, args):
+        return self._read_c1_3(sht, args, 3)
+
+    def _stdto_c1_paj(self, c1sts):
+        '''
+        dto the c1 stone to paj stone format
+        '''
+        #using the namedlist like pajrdrs._StMaker._nl_rc
+        # NamedList('qty shape stone size wgt'.split())
+        nl = NamedList('qty shape stone size wgt'.split())
+        lsts = [nl, ]
+        for c1 in c1sts:
+            lsts.append(nl.newdata())
+            nl.qty, nl.shape, nl.stone, nl.size, nl.wgt = c1.qty, c1.shape, c1.stone, c1.remark, c1.wgt
+        return lsts
 
     def _read_c2(self, sht, args):
         pass
@@ -318,6 +340,15 @@ class ShpMkr(object):
             })
             it["mtlwgt"] = shp.mtlwgt
             it["qty"] += shp.qty
+            if shp.stwgt:
+                sts = shp.stwgt
+                # there might be a sn# there, if yes, put it into map for reference
+                if isinstance(sts[0], str):
+                    it["_snno"] = sts[0]
+                    if len(sts) == 1:
+                        continue
+                    sts = sts[1:]
+                it["_stone_data"] = sts
         mp["shpdate"] = shp_date
         return (mp, errs)
 
@@ -658,7 +689,7 @@ class ShpMkr(object):
             getrf = lambda x: triml(path.basename(path.dirname(x)))
             if getrf(fldr) not in [
                     getrf(sts[x].value)
-                    for x in "shp.template,shpc1.template".split(",")
+                    for x in "shp.template shpc1.template".split()
             ]:
                 fldr = path.dirname(fldr)
         return self._pajfldr2file(fldr) if path.isdir(fldr) else fldr
@@ -670,7 +701,7 @@ class ShpMkr(object):
         rdrmap = {
             "长兴珠宝": ("c2", self._read_c2),
             "诚艺,胤雅": ("c1", self._read_c1),
-            "帝宝": ("c3", self._read_c1),
+            "帝宝": ("c3", self._read_c3),
             "十七,物料编号,paj,diamondlite": ("paj", self._read_paj)
         }
         for sht in wb.sheets:
@@ -762,12 +793,12 @@ class ShpMkr(object):
                                 "落货日期%s可能错误" % shp_date.strftime("%Y-%m-%d"),
                                 (var, shp_date))
                 #rename c1's source file based on the shp_date
-                if self._vdrname == "c1" and trimu(
-                        path.basename(fn)[:2]) != "C1":
+                if self._vdrname != "paj" and trimu(
+                        path.basename(fn)).find(trimu(self._vdrname)) != 0:
                     wb.save()
                     wb.close()
                     var = path.splitext(fn)[1]
-                    var = "C1 %s 落货明细%s" % (shp_date.strftime("%y%m%d"), var)
+                    var = "%s %s 落货明细%s" % (trimu(self._vdrname), shp_date.strftime("%y%m%d"), var)
                     var = path.join(path.dirname(fn), var)
                     rename(fn, var)
                     fn, wb = var, app.books.open(var)
@@ -788,6 +819,7 @@ class ShpMkr(object):
                     if hls:
                         PajShpHdlr.build_bom_sheet(wb, min_rowcnt=10, main_offset=3, bom_check_level=1)
                 else:
+                    PajShpHdlr.build_bom_sheet(wb, min_rowcnt=10, main_offset=3, bom_check_level=1)
                     wb = None
         finally:
             _appmgr.ret(kxl)
@@ -936,7 +968,7 @@ class _SMLogWtr(object):
             if mp["type"] != jn:
                 jn = mp["type"]
                 if hdr:
-                    hdrs.append(hdr.expand("right").expand("down"))
+                    hdrs.append(hdr.expand("table"))
                 ridx += 1
                 sht.range(ridx, 1).value = ttl + jomp(None)
                 hdr = sht.range(ridx, 1).expand("right")
@@ -948,10 +980,11 @@ class _SMLogWtr(object):
                     mp.get(x))[1] for x in ttl
             ] + vvs
         sht.autofit("c")
-        if hdr:
-            hdrs.append(hdr.expand("right").expand("down"))
-        for hdr in hdrs:
-            xwu.maketable(hdr)
+        if True:
+            if hdr:
+                hdrs.append(hdr.expand("table"))
+            for hdr in reversed(hdrs):
+                xwu.maketable(hdr)
         return sht
 
     @classmethod
@@ -1482,20 +1515,23 @@ class _SMBCHdlr(object):
             prdwgt = it["mtlwgt"]
             nl.gmas, nl.gwgt = prdwgt.main.karat, "'" + str(prdwgt.main.wgt)
             if not bc:
-                # maybe let the builder fill existing nl
                 it["_raw_data"] = nl.data
                 bc = self._bcsvc.build_from_jo(jn, self._hksvc, self._cnsvc, it)
                 if not bc:
                     nl.ston, nl.desc = "--", "TODO"
                 else:
+                    #append a mark in description for REF
+                    bc.descn = 'NEW:' + bc.descn
                     nl.setdata(bc.data)
+                    for idx in range(*rems):
+                        rmk = getattr(bc, "rem%d" % idx)
+                        if not rmk:
+                            continue
+                        bc["rem%d" % idx] = "'" + rmk
             else:
                 nl.ston, nl.desc = bc.ston, bc.desc
-                rmks = [
-                    x for x in
-                    [getattr(bc, "rem%d" % y).strip() for y in range(*rems)]
-                    if x
-                ]
+                rmks = (getattr(bc, "rem%d" % y) for y in range(*rems))
+                rmks = [y.strip() for y in rmks if y]
             nrmks = []
             for x in ((prdwgt.aux, "*%s %4.2f"), (prdwgt.part, "*%sPTS %4.2f")):
                 if x[0] and x[0].karat:
@@ -1521,7 +1557,7 @@ class _SMBCHdlr(object):
             else:
                 nrmks.extend(rmks)
             for idx, rmk in enumerate(nrmks):
-                nl["rem%d" % (idx + 1)] = rmk
+                nl["rem%d" % (idx + 1)] = "'" + rmk
             lsts.append(nl.data)
         sht = self._sns.get(wb, "sn_bc")
         sht.range(1, 1).value = lsts

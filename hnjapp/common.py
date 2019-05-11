@@ -92,37 +92,68 @@ class _JO_Extractor(object):
 
     def extract_vcs(self, jo, sts=None, wgts=None):
         '''
-        extract vcs by rmk/stone/main karat and so on, return a set of vermail color as  string
+        extract vcs by rmk/stone/main karat and so on, return a set of vermail color as  string. But when the color is a VK item, it might be a tuple of string instead of a stirng. an example return set is:
+        {'WHITE', 'YELLOW', ('VK', '1 MIC')}
         '''
         # first, from remark
-        rmk, vcs = jo.remark, set()
-        idx = rmk.find(config.get("vermail.verb"))
-        if idx >= 0:
-            for var in rmk.split(config.get("vermail.verb"))[1:]:
+        def _add_clr(st, clr):
+            st.add((clr, ))
+        rmk, vcs, var = jo.remark, set(), config.get("vermail.verb")
+        if wgts:
+            mtclrs = {karatsvc.getkarat(x.karat).color for x in wgts.wgts if x and x.karat}
+        else:
+            mtclrs = {}
+        if rmk.find(var) >= 0:
+            for var in rmk.split(var)[1:]:
                 var = var[:6]
                 cands = []
                 for x in self._vc_mp.values():
-                    if [1 for y in x["big5"] if var.find(y) >= 0]:
+                    if [1 for y in x["big5"] if 0 <= var.find(y) < 2]: #only first 2 characters count
                         cands.append(x)
                 if cands:
                     if len(cands) > 1:
                         cands = sorted(cands, key=lambda x: x.get('priority', 0))
-                    vcs.add(cands[-1]["color"])
-        #TODO: if there is CHAIN, maybe the chain need plating, this need invoking the extract_jis function, slow or duplicated?
+                    x = cands[-1]["color"]
+                    if x == 'VK': # don't take care of V18K/VPT900 or alike, they are place holder only
+                        var = self._extract_micron_h(var)
+                        if var:
+                            x = (x, var + " MIC")
+                    if isinstance(x, tuple):
+                        vcs.add(x)
+                    else:
+                        _add_clr(vcs, x)
         if wgts:
             kts = [m.karat for m in wgts.wgts if m]
             if 925 in kts and not vcs:
-                vcs.add(karatsvc.COLOR_WHITE)
+                _add_clr(vcs, karatsvc.COLOR_WHITE)
             if 9 in kts and jo.orderma.customer.name.strip() == 'GAM':
-                vcs.add(karatsvc.COLOR_YELLOW)
+                _add_clr(vcs, karatsvc.COLOR_YELLOW)
             if 200 in kts and len(kts) > 1:
-                vcs.add(karatsvc.getkarat(wgts.main.karat).color)
+                _add_clr(vcs, karatsvc.getkarat(wgts.main.karat).color)
         if sts:
             for x in sts:
                 vx = self._st2vx.get(x[:2])
-                if vx:
-                    vcs.add(self._vc_mp[vx]["color"])
+                if vx and self._vc_mp[vx]["color"] not in mtclrs:
+                    _add_clr(vcs, self._vc_mp[vx]["color"])
         return vcs
+
+    def _extract_micron_h(self, mic):
+        cand = []
+        for ch in mic:
+            if '0' <= ch <= '9' or mic == '.':
+                cand.append(ch)
+            else:
+                break
+        if not cand:
+            ch = -1
+            for idx, var in enumerate('一壹', '二貳兩', '三叁', '四肆', '五伍'):
+                ch = var.find(mic[0])
+                if ch >= 0:
+                    ch = idx
+                    break
+            if ch >= 0:
+                cand.append(ch + 1)
+        return ''.join(cand) if cand else None
 
     def extract_st_sns(self, sns):
         """ extract stone and shape out of the sns(Stone&Shape)
@@ -135,6 +166,17 @@ class _JO_Extractor(object):
                 x[0]: x[1:] for x in config.get("jo.stone.abbr")
             }
         return self._st_sns_abbr.get(sns) or (sns[1:], sns[0])
+    
+    @property
+    def nl_ji(self):
+        return NamedList("stone shape stsize stqty stwgt setting szcal ms sto shpo".split())
+    
+    @staticmethod
+    def is_main_stone(cat, stqty, szcalc):
+        '''
+        refer to Utilz.is_main_stone()
+        '''
+        return stqty == (1 if cat != "EARRING" else 2) and szcalc and szcalc >= "0300"
 
     def extract_jis(self, jos, hksvc):
         '''
@@ -146,8 +188,7 @@ class _JO_Extractor(object):
         '''
         # ms is mainstone sign, can be one of M/S/None
         jis = hksvc.getjis(jos) or {}
-        nl = NamedList("stone shape stsize stqty stwgt setting szcal ms sto shpo".split())
-        _ms_chk = lambda cat, nl: nl.stqty == (1 if cat != "EARRING" else 2) and nl.szcal >= "0300"
+        nl = self.nl_ji
         mp = {}
         for jo in jos:
             sts, mns, miscs = [], [], []
@@ -160,7 +201,7 @@ class _JO_Extractor(object):
                     miscs.append(nl.data)
                     continue
                 # main stone detection
-                if _ms_chk(cat, nl):
+                if self.is_main_stone(cat, nl.stqty, nl.szcal):
                     nl.ms = "M"
                     mns.append(nl.data)
                 else:
@@ -260,6 +301,9 @@ class Utilz(object):
         '''
         return cls._jo_extr.extract_jis(jos, hksvc)
 
+    @classmethod
+    def nl_ji(cls):
+        return cls._jo_extr.nl_ji
 
     @classmethod
     def getStyleCategory(cls, styno, jodsc=None):
@@ -325,6 +369,15 @@ class Utilz(object):
     @classmethod
     def extract_vcs(cls, jo, sts=None, wgts=None):
         return cls._jo_extr.extract_vcs(jo, sts, wgts)
+    
+    @classmethod
+    def is_main_stone(cls, cat, stqty, szcalc):
+        '''
+        check if given stone in given cat should be treated as main stone
+        @param cat: can be obtained by Utilz.getStyleCategory(jo.style.name.value, jo.description)
+        @param szcalc: a size formatted by utilz.stsizefmt
+        '''
+        return cls._jo_extr.is_main_stone(cat, stqty, szcalc)
 
 
 class P17Decoder():

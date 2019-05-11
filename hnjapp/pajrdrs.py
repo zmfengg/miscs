@@ -34,8 +34,7 @@ from utilz import (NamedList, NamedLists, ResourceCtx, splitarray,
                    trimu, xwu, updateopts, stsizefmt)
 from utilz.xwu import find, findsheet, NamedRanges, insertphoto, col
 
-from .common import _getdefkarat
-from .common import _logger as logger, P17Decoder
+from .common import _getdefkarat, _logger as logger, P17Decoder, config
 from .localstore import PajCnRev as PajCnRevSt
 from .localstore import PajInv as PajInvSt
 from .localstore import PajItem as PajItemSt
@@ -117,7 +116,7 @@ class PajShpHdlr(object):
             path.getmtime(fn)).replace(microsecond=0).replace(second=0)
 
     @classmethod
-    def _read_stone_data(cls, sht):
+    def read_stone_data(cls, sht):
         """
         extract stone data from quo sheet
         @param sht:  the DL_QUOTATION sheet that need to read data from
@@ -135,19 +134,24 @@ class PajShpHdlr(object):
             "stone": "stone",
             "stshape": 'Stone\nShape',
             'stsize': 'Stone Size',
-            'stwgt': 'Stone Weight'
+            'stwgt': 'Stone Weight',
+            'remark': 'Remark,'
         }, False)
         sm = _StMaker()
         for tr in nls:
             p17 = tr.pcode
-            if not p17:
+            if not p17 or not isvalidp17(p17):
                 continue
-            if not isvalidp17(p17):
-                continue
+            sn = "_" + tr.remark.split("-")[0] if tr.remark else None
             st = tr.stone
             if not st or trimu(st).find('NO STONE') >= 0:
-                continue
-            qmap[p17] = sm.make_stones(tr.stshape, tr.stone, tr.stsize, tr.stwgt)
+                lst = []
+            else:
+                lst = sm.make_stones(tr.stshape, tr.stone, tr.stsize, tr.stwgt)
+            if sn:
+                lst.insert(0, sn)
+            if lst:
+                qmap[p17] = lst
         return qmap
 
     def _hasread(self, fmd, fn, invno=None):
@@ -402,6 +406,8 @@ class PajShpHdlr(object):
         # new sample case, extract weight data from the quo sheet, but deprecated
         # get from bom instead
         items, fmd, td0, bfn, bomwgts, bomwgtsrng = [kwds.get(x) for x in 'items fmd td0 bfn bomwgts bomwgtsrng'.split()]
+        sht = [x for x in kwds['sht'].book.sheets if trimu(x.name).find('QUOTATION') >= 0]
+        sts = PajShpHdlr.read_stone_data(sht[0]) if sht else {}
         for tr in kwds['nls']:
             # no cost item means repairing
             if not tr.get("cost"):
@@ -413,16 +419,11 @@ class PajShpHdlr(object):
             prdwgt = PajShpHdlr._getbomwgt(bomwgts, bomwgtsrng, p17)
             if not prdwgt:
                 prdwgt = PrdWgt(WgtInfo(0, 0))
-            mtl_stone = (0, 0)
             si = PajShpItem(bfn, odno,
                             JOElement(tr.jono).value, tr.qty, p17, tr.invno,
-                            ivd, prdwgt, mtl_stone[1], ivd, fmd, td0)
+                            ivd, prdwgt, sts.get(p17, None), ivd, fmd, td0)
             # new sample won't have duplicated items
             items[random.random()] = si
-        sht = [x for x in kwds['sht'].book.sheets if trimu(x.name).find('QUOTATION') >= 0]
-        if sht:
-            sts = PajShpHdlr._read_stone_data(sht[0])
-            #TODO:send the results to pajshpitem's stones
 
     def _persist(self, shps, invs):
         """save the data to db
@@ -450,22 +451,9 @@ class PajShpHdlr(object):
                 jns = {x.name: x for x in jns}
                 if shps[1]:
                     for dct in [x._asdict() for x in shps[1].values()]:
-                        je = JOElement(dct["jono"])
-                        if je not in jns or not isvalidp17(dct["pcode"]):
-                            logger.info(
-                                "Item(%s) does not contains valid JO# or pcode"
-                                % dct)
+                        shp = self._persist_newshp(dct, jns)
+                        if not shp:
                             continue
-                        dct["fn"] = _removenonascii(dct["fn"])
-                        dct["joid"] = jns[je].id
-                        dct["mtlwgt"] = dct["mtlwgt"].metal_jc
-                        # the stone weight field might be str only, set it to zero
-                        shp = PajShp()
-                        for x in dct.items():
-                            k = x[0]
-                            lk = k.lower()
-                            if hasattr(shp, lk):
-                                setattr(shp, lk, dct[k])
                         sess.add(shp)
                 if invs[1]:
                     for dct in [x._asdict() for x in invs[1].values()]:
@@ -484,6 +472,42 @@ class PajShpHdlr(object):
             sess.commit()
             err = False
         return -1 if err else 1, err
+
+    @staticmethod
+    def _persist_newshp(dct, jns):
+        '''
+        new one PajShp Item for the persis procedure
+        '''
+        je = JOElement(dct["jono"])
+        if je not in jns or not isvalidp17(dct["pcode"]):
+            logger.info(
+                "Item(%s) does not contains valid JO# or pcode"
+                % dct)
+            return None
+        dct["fn"] = _removenonascii(dct["fn"])
+        dct["joid"] = jns[je].id
+        dct["mtlwgt"] = dct["mtlwgt"].metal_jc
+        sts = dct["stwgt"]
+        if sts:
+            # sts may contain: _SN#(string)*, nl(NamedList), array(), so get rid of the string if there is
+            k, nl = 0, None
+            while k < len(sts):
+                if isinstance(sts[k], str):
+                    k += 1
+                else:
+                    nl = sts[k]
+                    break
+            dct["stwgt"] = sum([nl.setdata(x).wgt for x in sts[k+1:]]) if nl else 0
+        else:
+            dct["stwgt"] = 0
+        # the stone weight field might be str only, set it to zero
+        shp = PajShp()
+        for x in dct.items():
+            k = x[0]
+            lk = k.lower()
+            if hasattr(shp, lk):
+                setattr(shp, lk, dct[k])
+        return shp
 
     def process(self, fldr):
         """
@@ -607,6 +631,11 @@ class _BomSheetBldr(object):
         self._min_rowcnt, self._main_offset, self._bom_check_level = kwds.get("min_rowcnt", 7), kwds.get("main_offset", 3), kwds.get("bom_check_level", 1)
 
     def build(self, wb, **kwds):
+        '''
+        create a BOM_Check sheet based on the workbook(which should contains bom and shipment data)
+        @param wb: the workbook
+        @param new_book: create a workbook instead of inserting new sheet
+        '''
         app = kxl = fn = None
         if isinstance(wb, str):
             fn = wb
@@ -614,11 +643,26 @@ class _BomSheetBldr(object):
             wb = app.books.open(wb)
         else:
             fn = wb.fullname
+        pmp, j_2_pc = self._read_shp(wb, fn)
+        fns = PajBomHdlr(part_chk_ver=self._bom_check_level).readbom_manual(
+            wb, j_2_pc, main_offset=self._main_offset, min_rowcnt=self._min_rowcnt,
+            bc_wgts=pmp)
+        if fns:
+            fns, mkrs, nl, mf_rc = fns
+            logger.debug("toally %d bom records returned" % len(fns))
+            if not kxl:
+                app, kxl = _appmgr.acq()
+            if kwds.get("new_book"):
+                wb = app.books.add()
+            self._write_manual(fns, mkrs, wb, nl, mf_rc, ps=None, bcwgts=pmp, new_sheet=not kwds.get("new_book"))
+        return wb
+
+    def _read_shp(self, wb, fn):
+        '''
+        read the shipment related items if there is
+        '''
         jns = self._read_request(wb)
-        if not jns:
-            return None
-        pmp, td = {}, date.today()
-        logger.debug("reading shipment data")
+        td, pmp = date.today(), {}
         for sht in wb.sheets:
             var = PajShpHdlr.read_shp(fn, td, td, sht, None)
             if var:
@@ -626,36 +670,32 @@ class _BomSheetBldr(object):
                 if isinstance(iter(var.keys()).__next__(), numbers.Number):
                     var = {"%s,%s,%s" % (x.jono, x.pcode, x.invno): x for x in var.values()}
                 pmp.update(var)
-        if pmp:
-            logger.debug("totally %d shipment records returned" % len(pmp))
-        else:
-            logger.debug("no shipment data returned")
-            return None
-        td = {}
+        if not pmp:
+            # there can without request, but should not have JO#
+            return (None, ) * 2
+        extended = not jns
+        if extended:
+            jns = {x[0]: NA for x in (x.split(",") for x in pmp)}
+        logger.debug("totally %d shipment records returned" % len(pmp))
+        p_2_jns = {}
         for x in [x.split(",") for x in pmp if isinstance(x, str)]:
             if x[0] in jns:
-                td.setdefault(x[1], []).append((
+                p_2_jns.setdefault(x[1], []).append((
                     x[0],
                     jns[x[0]],
-                ))
-        pmp = self._read_bc_wgts(wb, td)
-        logger.debug("begin to read bom")
-        fns, mkrs, nl, mf_rc = PajBomHdlr(part_chk_ver=self._bom_check_level).readbom_manual(
-            wb, td, main_offset=self._main_offset, min_rowcnt=self._min_rowcnt,
-            bc_wgts=pmp)
-        if fns:
-            logger.debug("toally %d bom records returned" % len(fns))
-        if not kxl:
-            app, kxl = _appmgr.acq()
-        if kwds.get("new_book"):
-            wb = app.books.add()
-        self._write_manual(fns, mkrs, wb, nl, mf_rc, ps=None, bcwgts=pmp, new_sheet=not kwds.get("new_book"))
-        return wb
+                ))            
+        pmp = self._read_bc_wgts(wb, p_2_jns)
+        if extended:
+            # leave a sign to the caller
+            p_2_jns[NA] = (None, ) * 2
+        return pmp, p_2_jns
 
     @staticmethod
     def _read_bc_wgts(wb, pcodes):
         #read the bcdata if there is
         bcwgts = findsheet(wb, 'BCData')
+        if not bcwgts:
+            return None
         bcmp, bcwgts = {x.jobn: x for x in NamedRanges(bcwgts.cells(1, 1))}, {}
         for x in pcodes.values():
             jn = x[0][0]
@@ -670,7 +710,8 @@ class _BomSheetBldr(object):
             bcwgts[jn] = pw
         return bcwgts
 
-    def _read_request(self, wb):
+    @staticmethod
+    def _read_request(wb):
         '''
         read the high-lighted wgt in rpt sheet
         return a {jn:styno} and a {pcode:jo}
@@ -678,29 +719,22 @@ class _BomSheetBldr(object):
         sht = findsheet(wb, "rpt")
         if not sht:
             return None
-        rng, mkrs, idx = find(sht, "Wgt").expand("down"), [], -1
-        for x in rng:
-            if x.api.Interior.ColorIndex == 6:
-                mkrs.append([
-                    idx,
-                ])
-            idx += 1
-        rng = [
-            x for x in NamedRanges(
+        rngs = find(sht, "Wgt").expand("down")
+        # ColorIndex < 0 is transparent, 1 is black, 2 is white
+        mkrs = [[x, ] for x, rng in enumerate(rngs) if rng.api.Interior.ColorIndex > 2]
+        rngs = tuple(NamedRanges(
                 sht.cells(1, 1), alias={
                     "jono": "工单",
                     "styno": "款号"
-                })
-        ]
+                }))
+        jns = {}
         for x in mkrs:
-            fn, fns = x[0], None
-            while fn >= 0:
-                fns = rng[fn].styno
-                if fns:
+            idx = x[0] - 1
+            while idx >= 0:
+                if rngs[idx].styno:
                     break
-                fn -= 1
-            x.extend((rng[fn].jono, fns))
-        jns = {x[1]: x[2] for x in mkrs}
+                idx -= 1
+            jns[rngs[idx].jono] = rngs[idx].styno
         return jns
 
     def _write_manual(self, lsts, mkrs, wb, nl, mf_rc, **kwds):
@@ -738,20 +772,20 @@ class _BomSheetBldr(object):
         idx = col(_col("image"))
         bfs = {
             True:
-            '=IF(ISBLANK(%(ref)s),"",SUMIF(%(mkarat)s,%(ref)s,%(mwgt)s) + SUMIFS(%(pwgt)s,%(pkarat)s,%(ref)s,%(mpflag)s,"Y"))',
+            '=IF(ISBLANK(%(ref)s),0,SUMIF(%(mkarat)s,%(ref)s,%(mwgt)s) + SUM(%(pwgt)s*(%(pkarat)s=%(ref)s)*(%(mpflag)s="Y")))',
             False:
-            '=SUMIFS(%(pwgt)s,%(pkarat)s,%(ref)s,%(mpflag)s,"N")'
+            '=IF(ISBLANK(%(ref)s),0,SUM(%(pwgt)s*(%(pkarat)s=%(ref)s)*(%(mpflag)s="N")))'
         }
         def _formula(idx, bf, mp, is_main=True):
             mp["ref"] = "%s%d" % (col(_col("mkarat")), idx)
-            sht.cells(idx, _col('mwgt')).formula = bf % mp
+            sht.cells(idx, _col('mwgt')).formula_array = bf % mp
             if not is_main:
                 return
             # excel index - 1 == array index
             nl.setdata(lsts[idx])
             if nl.mkarat:
                 mp["ref"] = "%s%d" % (col(_col("mkarat")), idx + 1)
-                sht.cells(idx + 1, _col('mwgt')).formula = bf % mp
+                sht.cells(idx + 1, _col('mwgt')).formula_array = bf % mp
         bcwgts, ps = [kwds.get(x) for x in "bcwgts ps".split()]
         if not ps:
             ps = StylePhotoSvc()
@@ -1366,11 +1400,14 @@ class PajUPTracker(object):
 class _StMaker(object):
     _ptn_stwgt = re.compile(r'\d[\.]?\d*')
     _stn_div = ('*', '#', '(', '-')
-    
+    _nl_rc = NamedList('qty shape stone size wgt'.split())
+    _mp_stname = _mp_stshp = None
+
     @classmethod
     def make_stones(cls, shps, sts, szs, wgts):
         '''
-        make a tuple of stone data
+        make a tuple of stone data, each item contains below columns:
+            qty, shape, name, size, wgt
         '''
         if not sts:
             return None
@@ -1385,12 +1422,23 @@ class _StMaker(object):
             shps = shps.split('\n')
             while len(shps) < len(sts):
                 shps.append(shps[-1])
+        nl = cls._nl_rc
+        lst.append(nl)
         for idx, st in enumerate(sts):
             if not st:
                 break
             qnz = cls._extract_qns(szs[idx])
-            lst.append((qnz[0], cls._extract_shape(shps[idx]), cls._extract_name(st), qnz[1], cls._extract_wgt(wgts[idx])))
+            shp_n = cls._nrm_stone(cls._extract_shape(shps[idx]), cls._extract_name(st))
+            nl.newdata()
+            nl.qty, nl.shape, nl.stone, nl.size, nl.wgt = qnz[0], shp_n[0], shp_n[1], qnz[1], cls._extract_wgt(wgts[idx])
+            lst.append(nl.data)
         return lst
+
+    @classmethod
+    def _nrm_stone(cls, shp, st):
+        if cls._mp_stname is None:
+            cls._mp_stname, cls._mp_stshp = [config.get("pajshp.stone.%s.alias" % x) for x in ('stone', 'shape')]
+        return cls._mp_stshp.get(*(shp, ) * 2), cls._mp_stname.get(*(st, ) * 2)
 
     @staticmethod
     def _split(ss):
@@ -1404,12 +1452,11 @@ class _StMaker(object):
     def _extract_shape(shp):
         if not shp:
             return 'R'
-        # TODO:: some normalization
         return shp
 
     @classmethod
     def _extract_wgt(cls, s0):
-        '''
+        r'''
         one format is numeric only, the other is 'ttl \d[\.]?\d* cts'
         '''
         mt = cls._ptn_stwgt.search(s0)
@@ -1460,7 +1507,7 @@ class _StMaker(object):
         if idx > 0:
             ch = sz[idx]
             if ch in ('m', 'M'):
-                sz, qty = stsizefmt(sz[:idx + 1]), int(sz[idx + 1:])
+                sz, qty = stsizefmt(sz[:idx + 1], True), int(sz[idx + 1:])
             elif ch == '-':
                 idx = idx * 2 + 1
                 sz, qty = sz[:idx], int(sz[idx])
@@ -1470,4 +1517,4 @@ class _StMaker(object):
                 sz, qty = sz[:4], int(sz[4:])
         else:
             return (None, ) * 2
-        return qty, "'" + sz
+        return qty, sz

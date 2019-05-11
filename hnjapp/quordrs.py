@@ -276,7 +276,7 @@ class QuoDatMkr(object):
     _ptnrunn = re.compile(r"\d{6}")
     _duprunn = False
 
-    def __init__(self, hksvc,cnsvc = None, usdtormb = 6.5,usdtohkd = 7.8,pkratio = 0.8, \
+    def __init__(self, hksvc, cnsvc=None, usdtormb=6.5, usdtohkd=7.8, pkratio=0.8,
         fnoks="OKs.dat", fnerrs="Errs.dat",fnrunoks="runOKs.dat", fnrunerrs="runErrs.dat"):
         self._hksvc = hksvc
         self._cnsvc = cnsvc
@@ -743,9 +743,9 @@ class QuoDatMkr(object):
                 logger.debug("everything is up to date")
             return
         oks, dao, stp, cnt, c1s = {}, self._hksvc, 0, len(mp), []
-        c1invs = C1InvRdr().read(None)
+        c1invs = C1InvRdr().read()
         if c1invs:
-            c1invs = dict([(x.jono, x) for x in c1invs])
+            c1invs = {x.jono: x for y in c1invs for x in y[0]}
             #labor of c1 invoice is sometimes lower than actual(C1 calculation error)
             #use our monthly xlsm to fix it
             c1invx = self.readcalcc1()
@@ -855,67 +855,70 @@ class QuoDatMkr(object):
     def readquoprice(self, fldr, rstfn="costs.dat"):
         """read simple quo file which contains Running:xxx, Cost XX: excel
         @param fldr: the folder to read files from
-        @return: the result file name or None if nothing is returned  
+        @return: the result file name or None if nothing is returned
         """
         if not fldr: return
         fldr = appathsep(fldr)
-        kxl, app = xwu.app(False)
-        ptnRunn = re.compile("running\s?:\s?(\d*)", re.IGNORECASE)
-        #ptnCost = re.compile("cost\s?(\w*)\s?:", re.IGNORECASE)
-        ptnCost = re.compile("^(cost\s?(\w*)\s?:)|(N\.cost\s?(\w*)\s?:)",
+        app, kxl = xwu.appmgr.acq()
+        ptnRunn = re.compile(r"running\s?:\s?(\d*)", re.IGNORECASE)
+        ptnCost = re.compile(r"^(cost\s?(\w*)\s?:?)|(N\.cost\s?(\w*)\s?:?)",
                              re.IGNORECASE)
-        lst = []
-        try:
-            for fn in _getexcels(fldr):
-                wb = app.books.open(fn)
-                for sh in wb.sheets:
-                    phase = 0
-                    runns = []
-                    costs = []
-                    rowrunn = 0
-                    vvs = xwu.usedrange(sh).value
-                    for hh in range(len(vvs)):
-                        tr = vvs[hh]
-                        for ii in range(len(tr)):
-                            if not tr[ii]: continue
-                            x = str(tr[ii])
-                            if phase <= 1:
-                                mt = ptnRunn.search(x)
-                                if mt:
-                                    if phase != 1:
-                                        phase = 1
-                                        rowrunn = hh
-                                    runns.append(mt.group(1))
-                                    continue
-                            if phase >= 1:
-                                mt = ptnCost.search(x)
-                                if mt:
-                                    for jj in range(ii + 1, len(tr)):
-                                        if isinstance(tr[jj], numbers.Number):
-                                            costs.append((mt.groups()[-1],
-                                                          tr[jj], fn))
-                                            break
-                                    if phase != 2 and hh != rowrunn: phase = 2
-                        if phase == 2:
-                            if len(costs) == len(runns):
-                                for ii in range(len(runns)):
-                                    cost = costs[ii]
-                                    lst.append((runns[ii], cost[0], cost[1],
-                                                cost[2]))
-                            else:
-                                logger.debug("count of runnings(%s) and costs(%s) not match in file(%s)" \
-                                %(runns,costs,fn))
-                            phase = 0
-                            runns, costs = [], []
-                wb.close()
-        except Exception as e:
-            print(e)
-            print(fn)
-            print(tr)
-        finally:
-            if kxl: app.quit()
-        fn = fldr + rstfn if rstfn else "costs.dat"
+        def _get_nbrs(tr, idx_frm):
+            flag, costs = False, []
+            for x in tr[idx_frm:]:
+                if isinstance(x, numbers.Number):
+                    costs.append(x)
+                    flag = True
+                elif flag:
+                    break
+            return ";".join([str(x) for x in costs]) if costs else None
+
+        lst, wb = [], None
+        for fn in _getexcels(fldr):
+            wb = app.books.open(fn)
+            for sh in wb.sheets:
+                phase = rowrunn = 0
+                runns, costs = [], []
+                vvs = xwu.usedrange(sh).value
+                for hh in range(len(vvs)):
+                    tr = [x for x in vvs[hh] if x]
+                    if not tr:
+                        continue
+                    for ii, x in enumerate(tr):
+                        if not isinstance(x, str):
+                            continue
+                        if phase <= 1:
+                            mt = ptnRunn.search(x)
+                            if mt:
+                                if phase != 1:
+                                    phase, rowrunn = 1, hh
+                                runns.append(mt.group(1))
+                                continue
+                        if phase >= 1:
+                            mt = ptnCost.search(x)
+                            if not mt:
+                                continue
+                            x = _get_nbrs(tr, ii)
+                            if x:
+                                costs.append((mt.group(2) or mt.group(4), x, fn))
+                            if phase != 2 and hh != rowrunn:
+                                phase = 2
+                    if phase == 2:
+                        if len(costs) != len(runns):
+                            logger.debug("full row data contains runnings(%s) contains invalid cost data in file(%s)" % (runns, fn))
+                            costs = [(NA, NA, fn, ), ] * len(runns)
+                        if runns:
+                            for runn, cost in zip(runns, costs):
+                                lst.append((runn, cost[0], cost[1], cost[2]))
+                        phase, runns, costs = 0, [], []
+            wb.close()
+            wb = None
+        if wb:
+            wb.close()
+        if kxl:
+            xwu.appmgr.ret(kxl)
         if lst:
+            fn = path.join(fldr, rstfn or "costs.dat")
             with open(fn, "w") as f:
                 wtr = csv.writer(f, dialect="excel")
                 wtr.writerow("runn,karat,cost,file".split(","))

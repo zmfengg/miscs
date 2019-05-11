@@ -379,7 +379,7 @@ def check_c1_wgts(cand=None, src=None):
     cand = mp
     # the source
     wb = app.books.open(src)
-    mp = {x.jono: x for x in C1InvRdr.read_c1_all(wb.sheets[0])}
+    mp = {x.jono: x for y in C1InvRdr().read(wb) for x in y[0]}
     wb.close()
 
     lsts = [('JO#', 'Expected', "Actual"), ]

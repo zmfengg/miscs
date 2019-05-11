@@ -26,16 +26,15 @@ from hnjcore.models.cn import (JO, MM, Codetable, Customer, MMgd, MMMa,
                                StonePk, Style)
 from hnjcore.utils.consts import NA
 from utilz import (NamedList, NamedLists, daterange, getfiles, isnumeric,
-                   splitarray, trimu, xwu, tofloat)
+                   splitarray, trimu, xwu, tofloat, stsizefmt)
 
-from .common import _date_short
-from .common import _logger as logger
+from .common import _date_short, _logger as logger, config
 
 _ptnbtno = cpl(r"(\d+)([A-Z]{3})(\d+)")
 
 ''' items for c1inv and c1stone '''
 C1InvItem = namedtuple("C1InvItem", "source,jono,qty,labor,setting,remarks,stones,mtlwgt,styno")
-C1InvStone = namedtuple("C1InvStone", "stone,qty,wgt,remark")
+C1InvStone = namedtuple("C1InvStone", "shape,stone,qty,wgt,remark")
 def _nf(part, cnt):
     try:
         i = int(part)
@@ -49,7 +48,8 @@ def _fmtbtno(btno):
     """ in C1's STIO excel file, the batch# is quite malformed
     this method format it to standard ones
     """
-    if not btno: return
+    if not btno:
+        return None
     flag = False
     if isinstance(btno, Number):
         btno = "%08d" % int(btno)
@@ -110,128 +110,140 @@ def _fmtpkno(pkno):
 
 
 class C1InvRdr(object):
-    """
-        read the monthly invoice files from both C1 & CC version
-    """
-    _rdr_km = {
-        "styno": "图片,",
-        "jono": u"工单,",
-        "setting": u"镶工,",
-        "labor": u"胚底,",
-        "remark": u"备注,",
-        "joqty": u"数量,",
-        "stname": u"石名,",
-        "stqty": "粒数,",
-        "stwgt": u"石重,",
-        "karat": "成色,",
-        "swgt": "净银重,",
-        "gwgt": "净金重,",
-        "pwgt": "配件重,",
-        "netwgt": "货重,"
-    }
+    '''
+        read the daily or monthly shipment data out from C1's file
+        @param labor_ttl(boolean): read from labor's total(总工费金额) instead of labor + setting. This apply to C3 because their setting fields contains charges like
+        stone purchasing and palting
+    '''
+    def __init__(self, labor_ttl=False):
+        self._vdr = 'C1'
+        self._st_mp = {x[0]: x[1:] for x in config.get("c1shp.stone.alias")}
+        self._labor_ttl = labor_ttl
+        self._rdr_km = {
+            "styno": "图片,",
+            "jono": u"工单,",
+            "setting": u"镶工,",
+            "labor": u"胚底,",
+            "remark": u"备注,",
+            "joqty": u"数量,",
+            "stname": u"石名,",
+            "stqty": "粒数,",
+            "stwgt": u"石重,",
+            "karat": "成色,",
+            "swgt": "净银重,",
+            "gwgt": "净金重,",
+            "pwgt": "配件重,",
+            "netwgt": "货重,",
+            "labor_ttl": "总工费,"
+        }
 
-    def __init__(self, c1log=None, cclog=None):
-        self._c1log = c1log
-        self._cclog = cclog
+    @staticmethod
+    def getReader(wb):
+        '''
+        return a reader(due to 2019/05/06, it's C1InvRdr/C3InvRdr)
+        '''
+        rdrmap = {
+            "诚艺,胤雅": "c1",
+            "帝宝": "c3"
+        }
+        for sht in wb.sheets:
+            for x in rdrmap:
+                if tuple(y for y in x.split(",") if xwu.find(sht, y)):
+                    rdr = rdrmap[x]
+                    return C1InvRdr() if rdr == "c1" else C3InvRdr()
+        return None
 
-    def read(self, fldr=None, pwgt_check=True):
+    def read(self, wb, read_method="shipment", pwgt_check=True):
         """
         perform the read action
-        @param fldr: the folder contains the invoice files
+        @param wb: a Book or Sheet instance or a string referring an excel file
+        @read_method: can be one of:
+            "shipment": read latest shipment data in the latest sheet
+            "first": the first shipment data in latest sheet
+            "last": the same as "shipment"
+            "c1cc": for the calculator, get all data in latest month
+            other: all shipment data in all sheet
         @param pwgt_check:
             True: pwgt will be treated as parts'wgt if is pendant.
             False: pwgt will always be treated as parts' weight of whatever style,  only used for jocost handling
-        @return: a list of C1InvItem
+        @return: a tuple of tuple where the inner tuple contains:
+            tuple(C1InvItem), invDate
         """
 
-        if not fldr or not path.exists(fldr):
-            fldr = r"\\172.16.8.46\pb\dptfile\quotation\2017外发工单工费明细\CostForPatrick\AIO_F.xlsx"
-        if not path.exists(fldr):
-            return None
-        if path.isfile(fldr):
-            fns = [fldr]
-        else:
-            fns = getfiles(fldr)
-        if not fns:
-            return None
-        killxw, app = xwu.app(False)
-        wb = None
+        byme, sht0 = False, None
+        if not wb or (isinstance(wb, str) and not path.exists(wb)):
+            wb = config.get('default.file.c1aio')
+        elif isinstance(wb, Sheet):
+            sht0, wb = wb, wb.book
+        if isinstance(wb, str):
+            byme = True
+            if not read_method:
+                read_method = "aio"
+            app, killxw = xwu.appmgr.acq()
         try:
-            cnsc1 = u"工单号,镶工,胚底,备注".split(",")
-            for fn in fns:
-                wb = app.books.open(fn)
-                items = list()
-                for sht in wb.sheets:
-                    rngs = [
-                        x for x in (xwu.find(
-                            sht, var, lookat=constants.LookAt.xlPart)
-                                    for var in cnsc1) if x
-                    ]
-                    if len(cnsc1) != len(rngs):
+            if byme:
+                wb = app.books.open(wb)
+            items = list()
+            shts = self._select_sheet(wb)
+            if not shts:
+                return None
+            # given sheet is not the latest one, give up
+            if sht0 and sht0 != shts[0]:
+                return None
+            done = False
+            for sht in shts:
+                if done:
+                    break
+                if read_method == 'aio':
+                    # inside a aio file, there might not be 日期 field(s), so just skip finding it
+                    rng = xwu.find(sht, "图片")
+                    nl = [sht.cell(1, 1), None] if rng else []
+                else:
+                    nl = xwu.find(sht, "日期", find_all=True)
+                    if not nl:
                         continue
-                    var = self.read_c1(sht, skip_checking=True, pwgt_check=pwgt_check)
-                    if var:
-                        items.extend(var[0])
+                    # sometimes the latest one contains nothing except date, an example is 20190221, so read from buttom
+                    nl = [(x, xwu.nextcell(x).value.date()) for x in nl]
+                    nl = sorted([(x[0], x[1]) for x in nl if x[1]], key=lambda x: x[1], reverse=read_method != 'first')
+                for x in nl:
+                    rng = xwu.find(sht, "图片", After=x[0])
+                    sn = self._read_from(rng, pwgt_check)
+                    if not sn:
+                        continue
+                    if read_method in ('first', 'last', 'shipment'):
+                        if read_method == 'shipment':
+                            for y in [x for x in shts if x != sht]:
+                                y.delete()
+                        done = True
+                    items.append((sn[0], x[1], ))
+                    if done:
+                        break
+                if items and read_method == "c1cc":
+                    break
+            if byme:
                 wb.close()
+                wb = None
         finally:
-            if killxw:
-                app.quit()
+            if byme:
+                if wb:
+                    wb.close()
+                xwu.appmgr.ret(killxw)
         return items
 
     @classmethod
-    def read_c1(cls, sht, skip_checking=False, pwgt_check=True):
-        """
-        read c1 invoice file
-        @param   sht: the sheet that is verified to be the C1 format
-        @param hdrow: the row of the header
-        @param pwgt_check:
-            True: pwgt will be treated as parts'wgt if is pendant.
-            False: pwgt will always be treated as parts' weight of whatever style,  only used for jocost handling
-
-        @return: a list of C1InvItem with source = "C1"
-        """
-
-        if not skip_checking:
-            # should not check given sheet only, because at the begining of month, data in prior month, return a reversed sorted-by-month list and check
-            nl = cls._select_sheet(sht)
-            if not nl:
-                return
-            # don't use "is", might be false even if 2 sheets pointing to the same
-            if sht != nl[0]:
-                if sht in nl:
-                    sht.delete()
-                return None
-            #there might be several date, get the biggest one
-            nl = xwu.find(sht, "日期", find_all=True)
-            if not nl:
-                return None
-            nl = [(x, x.offset(0, 1).value) for x in nl if x.offset(0, 1).value]
-            # sometimes the latest one contains nothing except date, an example is 20190221, so read from buttom
-            nl = sorted(nl, key=lambda x: x[1], reverse=True)
-            for x in nl:
-                rng = xwu.find(sht, "图片", After=x[0])
-                sn = cls._read_from(rng, pwgt_check)
-                if sn:
-                    return sn[0], x[1].date()
-            rng = None
-        else:
-            rng, invdate = xwu.find(sht, "图片"), date.today()
-        if not rng:
-            return None
-        sn = cls._read_from(rng, pwgt_check)
-        return sn[0], invdate if sn else None
-
-    @classmethod
-    def _select_sheet(cls, sht):
-        mp = {}
-        for x in sht.book.sheets:
-            sn = x.name
+    def _select_sheet(cls, wb):
+        mp, cnsc1 = {}, u"工单号 镶工 胚底 备注".split()
+        for sht in wb.sheets:
+            sn = sht.name
             nl = sn.find("月")
             if nl <= 0:
                 continue
             nl = sn[:nl]
             if nl.isnumeric():
-                mp[int(nl)] = x
+                rngs = [x for x in (xwu.find(sht, var, lookat=constants.LookAt.xlPart) for var in cnsc1) if x]
+                if len(cnsc1) != len(rngs):
+                    continue
+                mp[int(nl)] = sht
         if mp:
             sn = sorted([x for x in mp], reverse=True)
             # Jan contains Dec case
@@ -240,54 +252,21 @@ class C1InvRdr(object):
             mp = [mp[x] for x in sn]
         return mp
 
-    @classmethod
-    def read_c1_all(cls, sht):
+    def _read_from(self, rng, pwgt_check=True):
         '''
-        read all the occurences inside given sheet
-        @param sht: a sheet instance. If a string is provided, will be treated as file, then only the sheet with "\d{1,2}月" will be processed
+        @param rng: the upper-left of the data region, but in the case of C3, column where rng resident was not merged. how?
         '''
-        tk = wb = data = None
-        if not isinstance(sht, Sheet):
-            if isinstance(sht, str):
-                app, tk = xwu.appmgr.acq()
-                wb = app.books.open(sht)
-            else:
-                wb = sht
-            rng = [x for x in wb.sheets if x.name.find('月') >= 0]
-            sht = rng[0] if rng else None
-        if sht:
-            rng, rngs, data, kw = None, set(), list(), "图片"
-            while True:
-                if rng:
-                    rng = xwu.find(sht, kw, After=rng)
-                else:
-                    rng = xwu.find(sht, kw)
-                if not rng or rng in rngs:
-                    break
-                rngs.add(rng)
-            rngs, lidx = sorted(rngs, key=lambda x: x.row), 0
-            for rng in rngs:
-                if rng.row < lidx:
-                    # in the AIO mode, some title was covered by the top title, just skip it
-                    continue
-                x = cls._read_from(rng)
-                if x:
-                    data.extend(x[0])
-                    lidx = x[1]
-        if tk:
-            wb.close()
-            xwu.appmgr.ret(tk)
-        return data
-
-    @classmethod
-    def _read_from(cls, rng, pwgt_check=True):
-        nls = [x for x in xwu.NamedRanges(rng, name_map=cls._rdr_km)]
+        s0 = rng.sheet
+        nl = xwu.find(s0, '合计', After=rng)
+        if nl:
+            rng = s0.range(rng, s0.cells(nl.row - 1, rng.current_region.last_cell.column))
+        nls = [x for x in xwu.NamedRanges(rng, name_map=self._rdr_km)]
         if not nls:
             return None
-        nl = nls[0]
-        kns = [1 for x in "jono,gwgt,swgt".split(",") if nl.getcol(x)]
+        nl, items = nls[0], "jono gwgt swgt".split()
+        kns = [1 for x in items if nl.getcol(x)]
         if len(kns) != 3:
-            logger.debug("sheet(%s), range(%s) does not contain necessary key columns" % (rng.sheet.name, rng.address))
+            logger.debug("sheet(%s), range(%s) does not contain necessary key columns, exps(%s) but is (%s)" % (rng.sheet.name, rng.address, items, kns))
             return None
         # last_act states:
         # 1 -> JO#
@@ -295,10 +274,11 @@ class C1InvRdr(object):
         # 3 -> blank but prior is 2, void
         items, c1, netwgt_c1, jo_lidx, last_act = [], None, {}, {}, 3
         _cnstqnw = "stqty,stwgt".split(",")
-        _cnsnl = "setting,labor".split(",")
+        _cnsnl = ("labor_ttl" if self._labor_ttl else "setting,labor").split(",")
         for idx, nl in enumerate(nls):
             s0 = nl.jono
             if s0:
+                # print("reading jo(%s)" % s0)
                 je = JOElement(s0)
                 if je.isvalid():
                     if idx - jo_lidx.get(je.value, idx) > 0:
@@ -309,7 +289,9 @@ class C1InvRdr(object):
                     if not any(snl):
                         logger.debug("JO(%s) does not contains any labor cost", je.value)
                         snl = (0, 0)
-                    c1 = C1InvItem("C1", je.value, nl.joqty, snl[1], snl[0], nl.remark, [], None, nl.styno)
+                    elif self._labor_ttl:
+                        snl = [round(snl[0] / nl.joqty, 2), 0]
+                    c1 = C1InvItem(self._vdr, je.value, nl.joqty, snl[1], snl[0], nl.remark, [], None, nl.styno)
                     items.append(c1)
                     last_act = 1
                 else:
@@ -320,7 +302,7 @@ class C1InvRdr(object):
                 if last_act > 2:
                     continue
                 last_act = 2
-            s0 = cls._extract_st_mtl(c1, nl, _cnstqnw, pwgt_check)
+            s0 = self._extract_st_mtl(c1, nl, _cnstqnw, pwgt_check)
             if s0:
                 c1 = items[-1] = s0
                 if c1.jono not in netwgt_c1:
@@ -334,6 +316,8 @@ class C1InvRdr(object):
         s0 = []
         for c1 in items:
             # stone wgt in karat
+            if not c1.qty:
+                continue
             kt = sum((x.wgt for x in c1.stones)) / 5 if c1.stones else 0
             if c1.mtlwgt:
                 wgt = sum((x.wgt for x in c1.mtlwgt.wgts if x)) + kt
@@ -349,7 +333,8 @@ class C1InvRdr(object):
 
     @classmethod
     def verify(cls, c1):
-        ''' verify if c1's weight is valid. a valid c1 weight should fulfill below
+        '''
+        verify if c1's weight is valid. a valid c1 weight should fulfill below
         criteria:
             .netwgt == c1.mtlwgt + c1.stwgt. that is, the netwgt of mtlwgt
         JO#463625, violate this rule, but seems ok
@@ -363,8 +348,14 @@ class C1InvRdr(object):
     def _is_pendant(cls, styno):
         return styno and styno[:2].upper().find("P") >= 0
 
-    @classmethod
-    def _extract_st_mtl(cls, c1, nl, cnstqnw, pwgt_check=True):
+    def _new_stone(self, stname, qty, wgt):
+        '''
+        descent override this for stone parsing
+        '''
+        snn = self._st_mp.get(stname, ('_R', '_' + stname))
+        return C1InvStone(snn[0], snn[1], qty, wgt, None)
+
+    def _extract_st_mtl(self, c1, nl, cnstqnw, pwgt_check=True):
         '''
         extract the stone and metal into c1
         @param pwgt_check:
@@ -372,13 +363,15 @@ class C1InvRdr(object):
             False: pwgt will always be treated as parts' weight of whatever style,  only used for jocost handling
         '''
         #stone data
+        if not c1.qty:
+            return c1
         hc = 0
         qnw = [tofloat(nl[x]) for x in cnstqnw]
         if all(qnw):
             s0 = nl.stname
             if s0 and isinstance(s0, str):
                 joqty = c1.qty
-                c1.stones.append(C1InvStone(nl.stname, qnw[0] / joqty, round(qnw[1] / joqty, 4), "N/A"))
+                c1.stones.append(self._new_stone(nl.stname, qnw[0] / joqty, round(qnw[1] / joqty, 4)))
                 hc += 1
         #wgt data
         kt, gw, sw, pwgt = nl.karat, nl.gwgt, nl.swgt, nl.pwgt
@@ -388,9 +381,9 @@ class C1InvRdr(object):
                 logger.debug("JO(%s) without qty, skipped" % nl.jono)
                 return None
             hc += 1
-            kt, wgt = cls._tokarat(kt), gw or sw
+            kt, wgt = self._tokarat(kt), gw or sw
             #only pendant's pwgt is pwgt, else to mainpart
-            if pwgt and pwgt_check and not cls._is_pendant(c1.styno):
+            if pwgt and pwgt_check and not self._is_pendant(c1.styno):
                 wgt += pwgt
                 pwgt = 0
             c1 = c1._replace(mtlwgt=addwgt(c1.mtlwgt, WgtInfo(kt, wgt / joqty, 4)))
@@ -402,21 +395,47 @@ class C1InvRdr(object):
     def _tokarat(cls, kt):
         if kt < 1:
             kt = int(kt * 1000)
-        if kt >= 924 and kt <= 926:
+        if 924 <= kt <= 935:
             rc = 925
-        elif kt >= 330 and kt <= 340:
+        elif 330 <= kt <= 340:
             rc = 8
-        elif kt >= 370 and kt <= 385:
+        elif 370 <= kt <= 385:
             rc = 9
-        elif kt >= 410 and kt <= 420:
+        elif 410 <= kt <= 420:
             rc = 10
-        elif kt >= 580 and kt <= 590:
+        elif 580 <= kt <= 590:
             rc = 14
-        elif kt >= 745 and kt <= 755:
+        elif 745 <= kt <= 755:
             rc = 18
         else:
             rc = kt
         return rc
+
+class C3InvRdr(C1InvRdr):
+    '''
+    c3 reader, the only different between them is the stone parser
+    '''
+    def __init__(self):
+        super().__init__(True)
+        self._vdr = 'C3'
+
+    def _new_stone(self, stname, qty, wgt):
+        '''
+        descent override this for stone parsing
+        '''
+        snn = self._parse_stname(stname)
+        return C1InvStone(snn[0], snn[1], qty, wgt, snn[2])
+
+    def _parse_stname(self, stname):
+        pfx, sfx = "", None
+        for idx, ch in enumerate(stname):
+            if '0' <= ch <= '9':
+                sfx = stname[idx:]
+                break
+            pfx += ch
+        sfx = stsizefmt(sfx, True) if sfx else ' '
+        snn = self._st_mp.get(pfx, ('_R', '_' + pfx))
+        return snn[0], snn[1], sfx
 
 
 class C1JCMkr(object):
@@ -424,12 +443,11 @@ class C1JCMkr(object):
     C1 JOCost maker, First, Invoke C1STHdlr to create Stone Usage , then generate the jocost report to given folder(default is p:\aa\)
     """
 
-    def __init__(self, cnsvc, bcsvc, invfldr):
+    def __init__(self, cnsvc, bcsvc, invfldr=None):
         r"""
         @param cnsvc: the CNSvc instance
         @param dbsvc: the BCSvc instance
-        @param invfldr: folder contains C1's invoices, one example is
-            \\172.16.8.46\pb\dptfile\quotation\2017外发工单工费明细\CostForPatrick\AIO_F.xlsx
+        @param invfldr: folder contains all C1's invoices(at least of the given month). A default one inside conf.json:default.file.c1aio
         """
         self._cnsvc = cnsvc
         self._bcsvc = bcsvc
@@ -522,8 +540,10 @@ class C1JCMkr(object):
               x.idx, x.filldate, x.checkdate) for x in lst1])
         return lst
 
-    def read(self, year, month, day=1, rmbtohk=1.25, tplfn=None, tarfldr=None):
-        """class to create the C1 JOCost file for HK accountant"""
+    def read(self, year, month, day=1, rmbtohk=1.25):
+        '''
+        class to create the C1 JOCost file for HK accountant
+        '''
         df, dt = daterange(year, month, day)
         refs, mpsmp, runns = [], {}, set()
         actname = "C1JOCost of (%04d%02d)" % (year, month)
@@ -540,6 +560,8 @@ class C1JCMkr(object):
             ).split(",")
             nl = NamedList(xwu.list2dict(ttls))
             invs = C1InvRdr().read(self._invfldr, pwgt_check=False)
+            if invs:
+                invs = [y for x in invs for y in x[0]]
             q = Query([
                 JO.name.label("jono"),
                 Customer.name.label("cstname"),

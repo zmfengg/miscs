@@ -15,6 +15,7 @@ from xlwings.utils import col_name
 
 from ._miscs import NamedLists, getvalue, list2dict, trimu, updateopts
 from .resourcemgr import ResourceMgr
+from .common import _logger as logger
 
 try:
     from PIL import Image
@@ -23,7 +24,7 @@ except:
 
 __all__ = [
     "app", "appmgr", "col", "find", "fromtemplate", "hidden", "insertphoto",
-    "list2dict", "maketable", "NamedRanges", "safeopen", "usedrange"
+    "list2dict", "maketable", "nextcell", "NamedRanges", "safeopen", "usedrange"
 ]
 _validappsws = set(
     "visible,enableevents,displayalerts,asktoupdatelinks,screenupdating".split(
@@ -40,7 +41,7 @@ class _AppStg(object):
         """
         the app creator
         """
-        self._kxl, self._app = app(False)
+        self._using_active, self._app = app(False)
         if self._sws:
             self._swso = appswitch(self._app, self._sws)
         return self._app
@@ -53,7 +54,7 @@ class _AppStg(object):
             return
         if not self._app is app0:
             return
-        if self._kxl:
+        if not self._using_active:
             self._app.quit()
             try:
                 self._app.version
@@ -373,7 +374,8 @@ def _chop_at(orgimg, chop_img, chop_at=3):
 
 
 def NamedRanges(rng, **kwds):
-    """ return the data under or include the range as namedlist list
+    """
+    return the data under or include the range as namedlist list
     @param skip_first_row: boolean, don't process the first row, default is False
     @param name_map: the name->title mapping, see @list2dict FMI, default is None
     @param col_cnt: the count of columns to search, default is 0, that is unlimited
@@ -464,7 +466,10 @@ _col_pow = (
     26**2,
     26**3,
 )
-
+_dir_mp = {"UP": (-1, 0),
+    "DOWN": (1, 0),
+    "LEFT": (0, -1),
+    "RIGHT": (0, 1)}
 
 def col(c_i):
     """ given a colname or an index, return the related idx or name,
@@ -546,6 +551,23 @@ def hidden(sht, row=True):
         lsts.append((idx, midx))
     return lsts if lsts else None
 
+def nextcell(rng, direction="right"):
+    '''
+    return the next cell of given rng, equipvalence of offset(x, y), but when rng is a merged one, will slide to the logical next instead of just increasing the row/column by one
+    '''
+    direction = trimu(direction)
+    offset = _dir_mp.get(direction)
+    if not offset:
+        logger.debug("invalid direction: %s, the valid ones are: %s" % (direction, [x for x in _dir_mp]))
+        return None
+    if rng.api.mergecells and direction in ('DOWN', 'RIGHT'):
+        rng = apirange(rng.api.mergearea).last_cell
+    # overflow check
+    ck = [x[0] + x[1] for x in zip((rng.row, rng.column), offset)]
+    if ck[0] <= 0 or ck[1] <= 0:
+        logger.debug("Given direction(%s) for range(%s) exceeds the border" % (direction, rng.address))
+        return None
+    return rng.offset(*offset)
 
 # an appmgr factory, instead of using app(), use appmgr.acq()/appmgr.ret()
 appmgr = _newappmgr()

@@ -13,7 +13,7 @@ from collections import Iterable
 from collections.abc import Sequence
 from operator import attrgetter
 
-from sqlalchemy import and_, desc, func, or_, true
+from sqlalchemy import and_, desc, func, or_
 from sqlalchemy.orm import Query
 
 from hnjcore import JOElement, KaratSvc, StyElement
@@ -29,7 +29,8 @@ from hnjcore.models.hk import Orderma, PajCnRev, PajInv, PajShp, POItem
 from hnjcore.models.hk import StockObjectMa as SO
 from hnjcore.models.hk import Style
 from hnjcore.utils.consts import NA
-from utilz import ResourceCtx, splitarray, karatsvc, trimu, NamedList
+from utilz import ResourceCtx, splitarray, karatsvc, trimu, NamedList, stsizefmt
+from functools import partial, cmp_to_key
 
 from . import pajcc
 from .common import _logger as logger
@@ -746,14 +747,15 @@ class BCSvc(object):
 
     def build_from_jo(self, jn, hksvc, cnsvc, hints=None):
         '''
-        create a bc item based on provided jn
+        create a bc item based on provided jn or provided hints(dict)
+
         @param jn: A JO#(str)
         @param hksvc: An HKsvc instance(to fetch JO data from)
-        @hints: a dict contains hints from other system, for example
-            wgts: PrdWgt
-            stones:
-            plating:
-            vermail:
+        @param hints: a dict contains necessary element, where
+            '_raw_data' contains a bc item, when this exists, I use it instead of creating a new one.
+            '_stone_data' contains a tuple of list, where stone is defined. First item in the tuple is a namedlist to operate on the stone data. The available columns can be found in PajShpHdlr.read_stone_data(). Up to 2019/04/04, the columns are:
+                pcode,stone,stshape,stsize,stwgt
+
         description split into 4 parts:
         1.karat + plating where plating can be from JO.remark or stones
         2.stones
@@ -771,49 +773,87 @@ class BCSvc(object):
             if not jo:
                 return None
             mp = {"jo": jo}
-            mp["wgts"] = (hints.get("mtlwgt") if hints else None) or hksvc.getjowgts(jo)
-            var = Utilz.extract_jis((jo, ), hksvc)
+            # karat in hints is not reliable, so at least get karat from JO system
+            mp["wgts"] = self._merge_wgts(hksvc.getjowgts(jo), hints.get("mtlwgt") if hints else None)
+            if hints and '_stone_data' in hints:
+                var = self._adopt_stone(hints['_stone_data'], Utilz.nl_ji())
+                if var:
+                    mp["stones"], mp["nl_stone"] = var, Utilz.nl_ji()
+            else:
+                var = Utilz.extract_jis((jo, ), hksvc)
+                if var:
+                    var = var[jo.id]
+                    for idx, x in enumerate("stones nl_stone miscs".split()):
+                        mp[x] = var[idx]
             if var:
-                var = var[jo.id]
-                for idx, x in enumerate("stones nl_stone miscs".split()):
-                    mp[x] = var[idx]
-            if False:
-                # TODO:: change to other than extract_vcs
-                for fn, x in zip((Utilz.extract_vcs, Utilz.extract_micron), ("plating", "micron")):
-                    mp[x] = fn(jo.remark)
+                var = mp["nl_stone"]
+                var = [var.setdata(x).sto for x in mp["stones"]]
+            for fn, x in zip((partial(Utilz.extract_vcs, jo, var, mp["wgts"]), partial(Utilz.extract_micron, jo.remark)), ("plating", "micron")):
+                mp[x] = fn()
             if hints:
-                key = '_raw_data'
-                if key in hints:
-                    mp[key] = hints[key]
-                # TODO put data from hints to mp to build better result because for most case, there is nothing in JO# for new sample case
+                for key in ('_raw_data', '_snno',):
+                    if key in hints:
+                        mp[key] = hints[key]
             return _JO2BC(cnsvc).build(mp)
+
+    @classmethod
+    def _merge_wgts(cls, jowgts, hintwgts):
+        if not (jowgts and hintwgts):
+            return None if not (jowgts or hintwgts) else jowgts or hintwgts
+        rst = []
+        for j, h in zip(jowgts.wgts, hintwgts.wgts):
+            if j or h:
+                rst.append(WgtInfo(j.karat if j else h.karat, h.wgt if h else j.wgt))
+            else:
+                rst.append(None)
+        return PrdWgt(*rst)
+
+    @classmethod
+    def _adopt_stone(cls, sts, nl_ji):
+        nl_src, rsts = sts[0], []
+        for x in sts[1:]:
+            nl_src.setdata(x)
+            rsts.append(nl_ji.newdata())
+            nl_ji.stone = nl_ji.sto = nl_src.stone
+            nl_ji.shape = nl_ji.shpo = nl_src.shape
+            nl_ji.stsize, nl_ji.stqty, nl_ji.stwgt = nl_src.size, nl_src.qty, nl_src.wgt
+            nl_ji.szcal = stsizefmt(nl_src.size)
+        return rsts
+
 
 class _JO2BC(object):
     def __init__(self, cnsvc=None):
+        # pp holds properties except (locket, locket_pic)
         self._pp = self._pp_x = None
-        self._v_c2n = {x["color"]: x["name"] for x in config.get("vermail.defs")}
+        self._v_c2n = {x["color"]: x for x in config.get("vermail.defs")}
         x = config.get("bc.description.stone.categories")
         self._snno_mp = config.get("snno.translation")
         self._stcats = {z: x for x, y in x.items() for z in y}
         self._cnsvc = cnsvc
+        x = config.get("bc.sns")
+        if x:
+            self._sns_mp = {(x[0], x[1]): x[2] for x in x}
+        else:
+            self._sns_mp = None
+        self._st_bywgt = {x for x in config.get("bc.stone.bywgt")}
+
 
     def build(self, pp):
+        '''
+        Build a bc instance based on the dict provided
+        '''
         self._pp = pp
         self._pp_x = {}
         nl_bc = NamedList(config.get("bc.colnames.alias"))
         vx = self._pp.get("_raw_data")
         if vx:
-            # fill the existing data, assume basic data was already there
             nl_bc.setdata(vx)
         else:
             nl_bc.newdata()
             self._fill_basic(nl_bc)
+        self._sort_st_ms(nl_bc)
         self._make_desc(nl_bc)
         self._make_rmks(nl_bc)
-        vx, nl = [self._pp.get(x) for x in ("stones", "nl_stone")]
-        if vx:
-            # TODO:: determine the main stone, or -- if nothing
-            nl.stone = '--'
         return nl_bc
 
     def _fill_basic(self, nl):
@@ -823,6 +863,36 @@ class _JO2BC(object):
         td = datetime.date.today()
         nl.date, nl.mp_year, nl.mp_month = td.strftime("%Y%m%d 00:0000"), td.strftime("%y"), td.strftime("%m")
         nl.cstname, nl.jono, nl.descn = trimu(jo.orderma.customer.name), jo.name.value, jo.description
+
+    def _sort_st_ms(self, nl_bc):
+        '''
+        sort the stone, fill the main stone if there is
+        '''
+        ms = "--"
+        vx, nl = [self._pp.get(x) for x in ("stones", "nl_stone")]
+        if vx:
+            cat = self._pp["jo"]
+            def srt_cmp(st0, st1):
+                rc = [nl.setdata(x).stsize or '' for x in (st0, st1)]
+                rc = 0 if rc[0] == rc[1] else 1 if rc[0] > rc[1] else -1
+                if rc == 0:
+                    sts = [nl.setdata(x).stone for x in (st1, st0)]
+                    rc = 0 if sts[0] == sts[1] else 1 if sts[0] > sts[1] else -1
+                return rc
+            cat = Utilz.getStyleCategory(cat.style.name.value, cat.description)
+            for x in vx:
+                nl.setdata(x)
+                if Utilz.is_main_stone(cat, nl.stqty, nl.szcal):
+                    ms = nl.sto
+                    break
+            # sort the stone by MS + "SZ(A)+ST(D)"
+            sts = sorted(vx, key=cmp_to_key(srt_cmp))
+            st_p = {nl.setdata(st).stone: idx for idx, st in enumerate(sts)}
+            sts = sorted(vx, key=lambda x: (st_p[nl.setdata(x).stone], nl.stsize or ''), reverse=True)
+            self._pp["stones"] = sts
+            if ms == '--':
+                ms = nl.setdata(sts[0]).sto
+        nl_bc.stone = ms
 
     def _make_desc(self, nl_bc):
         rc = self._make_karat_plating()
@@ -850,18 +920,38 @@ class _JO2BC(object):
         nl_bc.description = rc
 
     def _make_karat_plating(self):
-        wgts = self._pp.get('wgts')
-        rc = "&".join((karatsvc.getkarat(x.karat).name for x in (wgts.main, wgts.aux) if x and x.karat))
-        vx = self._pp.get("plating")
-        if vx:
-            vx = "&".join([self._v_c2n.get(x, "V" + x) for x in vx])
-            self._pp_x.setdefault("plating", []).append(karatsvc.getkarat(wgts.main.karat).name + " " + vx)
-            rc += " " + vx
-        vx = self._pp.get("micron")
-        if vx:
-            vx = ("VK %" + ("d" if vx - int(vx) == 0 else "2.1f") + " MIC") % vx
-            self._pp_x.setdefault("plating", []).append(vx)
-            rc += " VK" #according to advice by Kang, Vermail's thickness should not be shown in description
+        '''
+        mixed the gold/color based on rule
+        '''
+        return self.knc_mix(self._pp.get('wgts'), self._pp.get("plating"))
+
+    def knc_mix(self, wgts, vcs):
+        '''
+        9K&VW means partial VW
+        9K VW measn all VW
+        '''
+        kts = [x.karat for x in (wgts.main, wgts.aux) if x and x.karat]
+        if vcs is None:
+            vcs = set() #don't return directly, below has 200 case
+        else:
+            vcs = {x[0] for x in vcs}
+        tt = len(kts) > 1
+        vx = lambda x: self._v_c2n[x]["name"]
+        vxx = lambda y: [vx(x) for x in sorted(tuple(y), key=lambda x: self._v_c2n[x]["priority"])]
+        kn = lambda x: "&".join((karatsvc.getkarat(y).name for y in x))
+        if not tt:
+            rc = kn(kts)
+            if vcs:
+                rc += "%s%s" % (" " if kts[0] in (925, 200) else "&", "&".join(vxx(vcs)))
+        else:
+            # when there is bronze, follow master's color
+            if kts[1] == 200:
+                vcs.add(karatsvc.getkarat(kts[0]).color)
+            if kts[0] == 925:
+                rc = karatsvc.getkarat(kts[0]).name + " " + "&".join(vxx(vcs)) + "&" + karatsvc.getkarat(kts[1]).name
+            else:
+                # gold + X case
+                rc = kn(kts) + " " + "&".join(vxx(vcs))
         return rc
 
     def _make_style_cat(self):
@@ -898,9 +988,14 @@ class _JO2BC(object):
             lst.append("%s %4.2f" % (karatsvc.getkarat(wgts[0].karat).name, wgts[0].wgt))
         if wgts[1]:
             lst.append("*%sPTS %4.2f" % (karatsvc.getkarat(wgts[1].karat).name, wgts[1].wgt))
-        vx = self._pp_x.get("plating")
+        vx = self._pp.get("plating")
         if vx:
-            lst.extend(vx)
+            vx = [x for x in vx if len(x) == 1], [x for x in vx if len(x) > 1]
+            lst.append(self.knc_mix(self._pp.get('wgts'), vx[0]))
+            if vx[1]:
+                # vk with height case
+                for x in vx[1]:
+                    lst.append(x[0] + " " + x[1])
         for vx in (self._pp_x.get(x) for x in ("locket", "locket_pic")):
             if vx:
                 lst.append(vx)
@@ -908,12 +1003,15 @@ class _JO2BC(object):
         if vx:
             for x in vx:
                 lst.append(self._make_rem_stone(nl.setdata(x)))
-        vx = self._extract_snno(self._pp["jo"].snno)
+        vx = self._pp.get("_snno")
+        vx = self._pp["jo"].snno + ("," + vx if vx else "")
+        if vx:
+            vx = self._extract_snno(vx)
         if vx:
             vx[0] = "SN#" + vx[0]
             lst.extend(vx)
         else:
-            lst.append('SN#N/A')
+            lst.append('SN#%s' % NA)
         mc = 8
         # merge them to 8 items if there are more
         for idx, vx in enumerate(lst[:mc]):
@@ -922,23 +1020,30 @@ class _JO2BC(object):
             setattr(nl_bc, "rem%d" % mc, ",".join(lst[mc - 1:]))
         return nl_bc
 
-
     def _make_rem_stone(self, nl):
-        rc = str(nl.stqty) if nl.stqty > 1 else ""
-        rc += nl.shpo + nl.sto
+        rc = str(int(nl.stqty)) if nl.stqty > 1 else ""
+        rc += self._nrm_sns(nl.shpo, nl.sto)
         if nl.stwgt and nl.stwgt != nl.stqty and self._is_st_bywgt(nl.sto):
-            rc += "-%4.2f" % nl.stwgt
-        if nl.stsize and not self._is_st_bywgt(nl.sto):
-            rc += "-" + nl.stsize + "MM"
+            rc += "-%r" % round(nl.stwgt, 3)
+        if not self._is_st_bywgt(nl.sto):
+            rc += "-" + (nl.stsize or "") + "MM"
         return rc
+
+    def _nrm_sns(self, shp, stname):
+        '''
+        return RDD if shp == 'R' and stname == 'DD'
+        '''
+        return self._sns_mp.get((shp, stname), shp + stname)
 
 
     def _is_st_bywgt(self, stname):
-        with self._cnsvc.sessionctx() as cur:
-            pk = cur.query(StonePk).join(StoneMaster).filter(StoneMaster.name == stname).first()
-            if not pk:
-                return False
-            return pk.unit in (1, 3, 5)
+        return stname in self._st_bywgt
+        # following PK's unit is not a good point, use fixed answer from conf.json
+        # with self._cnsvc.sessionctx() as cur:
+        #    pk = cur.query(StonePk).join(StoneMaster).filter(StoneMaster.name == stname).first()
+        #    if not pk:
+        #        return False
+        #    return pk.unit in (1, 3, 5)
 
 
     def _make_desc_stones(self, nl_bc):
@@ -948,28 +1053,34 @@ class _JO2BC(object):
             return ""
         mc = config.get('bc.description.stone.maxcnt', 3)
         # whenever there is DIA, make it out
-        cats, rc, sms = {}, [], {}
+        cats, rc, sms, ms_cat = {}, [], {}, None
         lmb_sn = lambda pk: pk[:2]
         for x in vx:
-            nl.setdata(x)
             st = lmb_sn(nl.setdata(x).stone)
+            cat = self._stcats.get(st, '*MULTI_STONE')
+            if st == nl_bc.stone:
+                ms_cat = cat = (" MS" if cat[0] == "*" else cat)
             if st not in sms:
                 sms[st] = None
-            cats.setdefault(self._stcats.get(st, '*MULTI_STONE'), []).append(x)
+            cat = cats.setdefault(cat, [])
+            if st not in cat:
+                cat.append(st)
         if self._cnsvc:
             with self._cnsvc.sessionctx() as cur:
                 lst = cur.query(StoneMaster).filter(StoneMaster.name.in_(sms.keys())).all()
                 sms = {x.name: x.edesc for x in lst}
         else:
             sms = {}
-        for cn, sts in cats.items():
+        # sort the cats, ms as first, compositive as second, later by stone name
+        #keys = sorted(cats, key=lambda x: ' ' if x == nl_bc.stone else '-' if x in self._stcats else x)
+        keys = sorted(cats, key=lambda x: -10 if ms_cat == x else -1 if len(cats[x]) > mc else 1)
+        for cn in keys:
+            sts = cats.get(cn)
             if len(sts) > mc:
                 rc.append(cn)
             else:
                 for x in sts:
-                    nl.setdata(x)
-                    sn = lmb_sn(nl.stone)
-                    rc.append(sms.get(sn, sn))
+                    rc.append(sms.get(x, x))
         return ' ' + " ".join(rc)
 
     def _extract_snno(self, snno):
@@ -1001,6 +1112,6 @@ class _JO2BC(object):
             if od == 251:
                 #chinese, big5, need translation, if not translated, ignore it
                 part = self._snno_mp.get(part)
-            if part:
+            if part and part not in ods:
                 ods.append(part)
         return ods
