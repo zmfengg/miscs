@@ -14,6 +14,9 @@ from logging import Logger
 from numbers import Number
 from os import path
 from unittest import TestCase, skip
+from cProfile import Profile
+from pstats import Stats
+from io import StringIO
 
 from utilz import getfiles, imagesize
 
@@ -209,6 +212,28 @@ class TechTests(TestCase):
         self.assertTrue(bool(mt), "There should be search")
         self.assertEqual(("1",), mt.groups(), "The so-call zero group")
         self.assertEqual("1", mt.group(1), "The so-call first group")
+    
+    def testProfiling(self):
+        '''
+        use the profile class to get performance report of some codes
+        '''
+        def _runner():
+            v = 0
+            for i in range(100):
+                v += i
+            return v
+        pf = Profile()
+        pf.enable()
+        _runner()
+        
+        pf.disable()
+        opt = StringIO()
+        #opt = FileIO(r'd:\temp\pf.dat')
+        sts = Stats(pf, stream=opt).sort_stats('cumulative').strip_dirs()
+        # get the total-time used tu = sts.total_tt
+        sts.print_stats(10)
+        print(opt.getvalue())
+        opt.close()
 
     def testSeveralForItr(self):
         """

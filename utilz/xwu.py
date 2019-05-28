@@ -2,7 +2,12 @@
 '''
 Created on Apr 19, 2018
 Utils for xlwings's not implemented but useful function
-
+function to replace the slow api:
+    offset()
+    rc2addr(): replace(sht.range(sht.cells(a, b), sht.cells(c, d))) sht.range(rc2addr((a, b), (c, d))) or use direct sht.range((a, b), (c, d))
+some slow function:
+    range.expand()
+    sht.range(cell1, cell2) -> sht.range((a, b), (c, d))
 @author: zmFeng
 '''
 from numbers import Number
@@ -13,7 +18,7 @@ import xlwings.constants as const
 from xlwings import App, Range, apps, xlplatform
 from xlwings.utils import col_name
 
-from ._miscs import NamedLists, getvalue, list2dict, trimu, updateopts
+from ._miscs import NamedLists, getvalue, list2dict, trimu, updateopts, triml
 from .resourcemgr import ResourceMgr
 from .common import _logger as logger
 
@@ -24,7 +29,7 @@ except:
 
 __all__ = [
     "app", "appmgr", "col", "find", "fromtemplate", "hidden", "insertphoto",
-    "list2dict", "maketable", "nextcell", "NamedRanges", "safeopen", "usedrange"
+    "list2dict", "maketable", "nextcell", 'nextrc', 'name_sheet', "NamedRanges", 'offset', 'addr2rc', "safeopen", "usedrange"
 ]
 _validappsws = set(
     "visible,enableevents,displayalerts,asktoupdatelinks,screenupdating".split(
@@ -35,7 +40,7 @@ class _AppStg(object):
 
     def __init__(self, sws=None):
         self._sws = sws
-        self._swso, self._kxl, self._app = (None,) * 3
+        self._swso, self._using_active, self._app = (None,) * 3
 
     def crtr(self):
         """
@@ -67,6 +72,14 @@ class _AppStg(object):
         elif self._swso:
             appswitch(self._app, self._swso)
 
+def _newappmgr(sws=None):
+    if not sws:
+        sws = {"visible": False, "displayalerts": False}
+    aps = _AppStg(sws)
+    return ResourceMgr(aps.crtr, aps.dctr)
+
+# an appmgr factory, instead of using app(), use appmgr.acq()/appmgr.ret()
+appmgr = _newappmgr()
 
 def app(vis=True, dspalerts=False):
     """ launch an excel or connect to existing one
@@ -79,7 +92,6 @@ def app(vis=True, dspalerts=False):
     if app0:
         app0.display_alerts = bool(dspalerts)
     return flag, app0
-
 
 def appswitch(app0, sws=None):
     """ turn switches on/off, return a string of the original value so that you can restore
@@ -95,15 +107,15 @@ def appswitch(app0, sws=None):
     elif isinstance(sws, bool):
         sws = {x: sws for x in _validappsws}
     mp = {}
-    for knv in sws.items():
-        if knv[0] not in _validappsws:
+    for k, v in sws.items():
+        k = triml(k)
+        if k not in _validappsws:
             continue
-        ov = getattr(app0.api, knv[0])  #ov = eval("app0.api.%s" % knv[0])
-        if ov == bool(knv[1]):
+        ov = getattr(app0.api, k)  #ov = eval("app0.api.%s" % k)
+        if ov == bool(v):
             continue
-        mp[knv[0]] = ov
-        setattr(app0.api, knv[0], bool(
-            knv[1]))  #exec("app0.api.%s = %s" % (knv[0], bool(knv[1])))
+        mp[k] = ov
+        setattr(app0.api, k, bool(v))  #exec("app0.api.%s = %s" % (k, bool(v))
     return mp
 
 
@@ -136,6 +148,15 @@ def findsheet(wb, sn):
             return sht
     return None
 
+def name_sheet(sht, sn):
+    '''
+    set the sheet name, when it's duplicated, append serial# at the end
+    '''
+    wb, idx, snx = sht.book, 0, sn
+    while findsheet(wb, snx):
+        idx = idx + 1
+        snx = sn + '_%d' % idx
+    sht.name = snx
 
 def find(sht, val, **kwds):
     """
@@ -373,7 +394,7 @@ def _chop_at(orgimg, chop_img, chop_at=3):
     return orgimg
 
 
-def NamedRanges(rng, **kwds):
+def NamedRanges(rng, trmap=None, newinst=True, **kwds):
     """
     return the data under or include the range as namedlist list
     @param skip_first_row: boolean, don't process the first row, default is False
@@ -386,7 +407,7 @@ def NamedRanges(rng, **kwds):
     if rng.size > 1:
         rng = rng[0]
     if kwds.get("skip_first_row"):
-        rng = rng.offset(1, 0)
+        rng = offset(rng, 1, 0)
     sht, org_pt = rng.sheet, (rng.row, rng.column)
     var = kwds.get("col_cnt", kwds.get("colcnt")) or 0
     e_colidx = org_pt[1] + var if var > 0 else cur_region.last_cell.column
@@ -435,15 +456,7 @@ def NamedRanges(rng, **kwds):
     if rng.rows.count == 1:
         th = [th]
     th.insert(0, var)
-    return NamedLists(th, getvalue(kwds, "name_map,alias"))
-
-
-def _newappmgr(sws=None):
-    if not sws:
-        sws = {"visible": False, "displayalerts": False}
-    aps = _AppStg(sws)
-    return ResourceMgr(aps.crtr, aps.dctr)
-
+    return NamedLists(th, trmap, newinst, **kwds)
 
 def escapetitle(pg):
     """ when excel's page title has format set, you can not get the raw directly. this function
@@ -459,7 +472,7 @@ def escapetitle(pg):
     return s0
 
 
-_col_idx = lambda chr: ord(chr) - 64  #ord('A') is 65
+_col_idx = lambda ch: ord(ch) - (64 if ch < 'a' else 96) #ord('A') is 65
 _col_pow = (
     1,
     26,
@@ -487,6 +500,30 @@ def col(c_i):
     else:
         s = col_name(c_i)
     return s
+
+def addr2rc(addr, name=False):
+    '''
+    return a tuple as (rowidx, colidx) based on the address provided
+    addr2rc('$A$2') == ((2, 1), )
+    addr2rc('$A$2:$B$3') == ((2, 1), (3, 2), )
+    @param addr: can be sth. like '$A$2' or '$A$2:$C$7'
+    '''
+    var = (x.split('$') for x in addr.split(':'))
+    return  tuple((int(x[-1]), x[1], ) for x in var) if name else tuple((int(x[-1]), col(x[1]), ) for x in var)
+
+
+def rc2addr(*rcs):
+    '''
+    translate (row, col) tuple to address. using sht.range(sht.cells(r0, c0), sht.cells(r1, c1)) is terrible slow, convert it to string and use sht.range(addr) is much faster
+    example:
+    sht.range(rc2addr((1, 2), (3, 4)))
+    This function will also translate ((3, 1), (1, 4)) to ((1, 1), (3, 4)) becuase range is always top-left -> right-bottom
+    '''
+    ln = len(rcs)
+    if ln > 1:
+        rcs = tuple(zip(*rcs[:2]))
+        rcs = ((min(rcs[0]), min(rcs[1])), (max(rcs[0]), max(rcs[1])))
+    return ":".join(['$%s$%d' % (col_name(c), r) for r, c in rcs[:2]])
 
 
 def _a2(addr):
@@ -529,7 +566,7 @@ def hidden(sht, row=True):
     rng, ridxs = None, _rc(rng0, row)
     # first several rows not in the used-ranged, append them
     if idx < ridxs:
-        rng0 = sht.range(sht.cells(1, 1), rng0.last_cell)
+        rng0 = sht.range('$A$1:' + rng0.last_cell.address)
     try:
         # specialCells failed when the rng0 at the end or some other criteria
         rng, ridxs = apirange(
@@ -551,23 +588,47 @@ def hidden(sht, row=True):
         lsts.append((idx, midx))
     return lsts if lsts else None
 
-def nextcell(rng, direction="right"):
+def nextcell(rng, direction="right", steps=1, detect_merge=True):
     '''
-    return the next cell of given rng, equipvalence of offset(x, y), but when rng is a merged one, will slide to the logical next instead of just increasing the row/column by one
+    return the next cell of given rng, equipvalence of offset(x, y), but when rng is a merged one, will slide to the logical next instead of just increasing the row/column by steps
+    @param rng: the based range
+    @param direction: one of ('right', 'left', 'up', 'down'), default is 'right'
+    @param steps: the steps to go, default is 1
+    @param detect_merge: when the rng contains merge cells, go to the last-one?
+    '''
+    if detect_merge and trimu(direction) in ('DOWN', 'RIGHT') and rng.api.mergecells:
+        rng = apirange(rng.api.mergearea).last_cell
+    rc = nextrc((rng.row, rng.column), direction, steps)
+    if not rc:
+        return None
+    return rng.sheet.cells(*rc)
+
+def nextrc(rc, direction="right", steps=1):
+    '''
+    next (row, col) of given (row, col) and given steps
+    @param rc: the based (row, col) or an address like '$A$2'
+    @param direction: one of ('right', 'left', 'up', 'down'), default is 'right'
+    @param steps: the steps to go, default is 1
     '''
     direction = trimu(direction)
-    offset = _dir_mp.get(direction)
-    if not offset:
+    ofs = _dir_mp.get(direction)
+    if not ofs:
         logger.debug("invalid direction: %s, the valid ones are: %s" % (direction, [x for x in _dir_mp]))
         return None
-    if rng.api.mergecells and direction in ('DOWN', 'RIGHT'):
-        rng = apirange(rng.api.mergearea).last_cell
+    ofs = tuple(x * steps for x in ofs)
     # overflow check
-    ck = [x[0] + x[1] for x in zip((rng.row, rng.column), offset)]
-    if ck[0] <= 0 or ck[1] <= 0:
-        logger.debug("Given direction(%s) for range(%s) exceeds the border" % (direction, rng.address))
+    if isinstance(rc, str):
+        rc = addr2rc(rc)[0]
+    ofs = tuple(x[0] + x[1] for x in zip(rc, ofs))
+    if ofs[0] <= 0 or ofs[1] <= 0:
+        logger.debug("Given direction(%s) for row_col(%s) exceeds the border" % (direction, rc))
         return None
-    return rng.offset(*offset)
+    return ofs
 
-# an appmgr factory, instead of using app(), use appmgr.acq()/appmgr.ret()
-appmgr = _newappmgr()
+def offset(rng, r, c):
+    '''
+    rng.offset() is terribly slow, use this can have 100 times boost
+    return rng.sheet.cells(rng.row + r, rng.column + c)
+    maybe after some version, it will be faster, then switch back
+    '''
+    return rng.sheet.cells(rng.row + r, rng.column + c)

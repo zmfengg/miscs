@@ -6,11 +6,11 @@ need to be able to read the 2 kinds of files: C1's original and calculator file
 @author: zmFeng
 '''
 
-from datetime import datetime, date
 from numbers import Number
 from tempfile import gettempdir
 from re import compile as cpl
 from time import time
+from datetime import datetime
 from collections import namedtuple
 from os import path
 
@@ -75,13 +75,15 @@ def _fmtpkno(pkno):
     """ in C1's STIO excel file, the package# is quite malformed
     this method format it to standard ones
     """
-    if not pkno: return
+    if not pkno:
+        return None
     #contain invalid character, not a PK#
     pkno = trimu(pkno)
     if sum([1 for x in pkno if ord(x) <= 31 or ord(x) >= 127]) > 0:
-        return
+        return None
     pkno0 = pkno
-    if pkno.find("-") >= 0: pkno = pkno.replace("-", "")
+    if pkno.find("-") >= 0:
+        pkno = pkno.replace("-", "")
     pfx, pkno, sfx = pkno[:3], pkno[3:], ""
     for idx in range(len(pkno) - 1, -1, -1):
         ch = pkno[idx]
@@ -196,8 +198,12 @@ class C1InvRdr(object):
                     break
                 if read_method == 'aio':
                     # inside a aio file, there might not be 日期 field(s), so just skip finding it
+                    nl = xwu.find(sht, "合计", find_all=True)
+                    if nl:
+                        for rng in nl:
+                            rng.value = ""
                     rng = xwu.find(sht, "图片")
-                    nl = [sht.cell(1, 1), None] if rng else []
+                    nl = [(sht.cells(1, 1), None, ), ] if rng else []
                 else:
                     nl = xwu.find(sht, "日期", find_all=True)
                     if not nl:
@@ -265,7 +271,7 @@ class C1InvRdr(object):
             return None
         nl, items = nls[0], "jono gwgt swgt".split()
         kns = [1 for x in items if nl.getcol(x)]
-        if len(kns) != 3:
+        if len(kns) != len(items):
             logger.debug("sheet(%s), range(%s) does not contain necessary key columns, exps(%s) but is (%s)" % (rng.sheet.name, rng.address, items, kns))
             return None
         # last_act states:
@@ -339,7 +345,7 @@ class C1InvRdr(object):
             .netwgt == c1.mtlwgt + c1.stwgt. that is, the netwgt of mtlwgt
         JO#463625, violate this rule, but seems ok
         '''
-        rc = not (bool(c1.netwgt) ^ bool(c1.mtlwgt))
+        rc = not bool(c1.netwgt) ^ bool(c1.mtlwgt)
         if rc and c1.netwgt:
             rc = abs(c1.netwgt - c1.mtlwgt.netwgt) < 0.01
         return rc
@@ -443,22 +449,23 @@ class C1JCMkr(object):
     C1 JOCost maker, First, Invoke C1STHdlr to create Stone Usage , then generate the jocost report to given folder(default is p:\aa\)
     """
 
-    def __init__(self, cnsvc, bcsvc, invfldr=None):
+    def __init__(self, cnsvc, bcsvc, invfldr=None, rmbtohk=1.25):
         r"""
         @param cnsvc: the CNSvc instance
         @param dbsvc: the BCSvc instance
-        @param invfldr: folder contains all C1's invoices(at least of the given month). A default one inside conf.json:default.file.c1aio
+        @param invfldr: folder contains all C1's invoices(at least of the given month). A default one inside conf.json:default.file.cx_aio. Can be several files separated by ;
         """
         self._cnsvc = cnsvc
         self._bcsvc = bcsvc
-        self._invfldr = invfldr
+        self._invfldr = invfldr or config.get("default.file.cx_aio")
+        self._rmbtohk = rmbtohk or 1.25
 
     #return refid by running, from existing list or db#
     def _getrefid(self, runn, mpss):
         refid = None
         if mpss:
             for x in mpss:
-                if x[0][0] <= runn and x[0][1] >= runn:
+                if x[0][0] <= runn <= x[0][1]:
                     refid = x[1]
                     break
         if not refid:
@@ -486,6 +493,10 @@ class C1JCMkr(object):
         return self._cnsvc.getjostcosts(runns)
 
     def get_st_of_jos(self, runns):
+        '''
+        return stone usage of given JO
+        @param runns: a collection of running(integer)
+        '''
         ttl = "jobn,styno,running,package_id,quantity,weight,pricen,unit,is_out,bill_id,fill_date,check_date".split(
             ",")
         lst = []
@@ -513,6 +524,11 @@ class C1JCMkr(object):
         return lst
 
     def get_st_broken(self, df, dt):
+        '''
+        return the broken stone in given date range
+        @param df: the starting date(included)
+        @param dt: the end date(excluded)
+        '''
         lst = None
         with self._cnsvc.sessionctx() as cur:
             q = Query([
@@ -540,147 +556,184 @@ class C1JCMkr(object):
               x.idx, x.filldate, x.checkdate) for x in lst1])
         return lst
 
-    def read(self, year, month, day=1, rmbtohk=1.25):
+    def _read_shp(self, cur, df, dt):
+        ptncx = cpl(r"C(\d)$")
+        mmids, runns, jcs = set(), set(), {}
+        ttls = ("mmid," + config.get("jocost.cost_sheet_fields")).split(",")
+        nl = NamedList(xwu.list2dict(ttls))
+        q = Query([
+            JO.name.label("jono"),
+            Customer.name.label("cstname"),
+            Style.name.label("styno"), JO.running,
+            JO.karat.label("jokarat"), MMgd.karat, MM.id,
+            MM.name.label("docno"), MM.qty,
+            func.sum(MMgd.wgt).label("wgt"),
+            func.max(MMMa.refdate).label("refdate")
+        ]).join(Customer).join(
+            MM).join(MMMa).join(MMgd).join(Style).group_by(
+                JO.name, Customer.name, Style.name, JO.running, JO.karat,
+                MMgd.karat, MM.id, MM.name, MM.qty).filter(
+                    and_(
+                        and_(MMMa.refdate >= df, MMMa.refdate < dt),
+                        MM.name.like("%C[0-9]")))
+        lst = q.with_session(cur).all()
+        for x in lst:
+            if x.id in mmids:
+                continue
+            jn = x.jono.value
+            mmids.add(x.id)
+            if jn not in jcs:
+                nl.setdata([0] * len(ttls))
+                nl.mmid, nl.lastmmdate, nl.jobno = x.id, "'" + x.refdate.strftime(
+                    _date_short), "'" + x.jono.value
+                nl.cstname, nl.styno, nl.running = x.cstname.strip(
+                ), x.styno.value, x.running
+                nl.mstone, nl.description, nl.karat = "_ST", "_EDESC", karatsvc.getfamily(
+                    x.jokarat).karat
+                nl.goldwgt, nl.cflag, nl.rmb2hk = [], "NA", self._rmbtohk
+                mt = ptncx.search(x.docno)
+                if mt:
+                    nl.cflag = "'" + mt.group(1)
+                jcs[jn] = nl.data
+                runns.add(int(x.running))
+            nl.setdata(jcs[jn])["joqty"] += float(x.qty)
+        bcs = self._bcsvc.getbcsforjc(runns)
+        bcs = {x.runn: (x.desc, x.ston) for x in bcs} if bcs else {}
+        return nl, jcs, runns, bcs
+
+    def _validate(self, **kwds):
+        bcs, runns, actname, invs = (kwds.get(x) for x in 'bcs runns actname invs'.split())
+        if not bcs or len(bcs) < len(runns):
+            logger.debug("%s:Not all records found in BCSystem" % actname)
+        stcosts = self.get_st_costs(runns)
+        if not stcosts or len(stcosts) < len(runns) / 2:
+            logger.debug(
+                "%s:No stone or less than 1/2 has stone, make sure you've prepared stone data with C1STIOData"
+                % actname)
+        if not invs or len(invs) < len(runns):
+            logger.debug("%s:No or not enough C1 invoice data from file(%s)"
+                            % (actname, self._invfldr))
+        return stcosts
+
+    def _calc_dtos(self, gccols, stcosts, **kwds):
+        nl = kwds["nl"]
+        var = nl.running
+        nl.stonecost = stcosts.get(var, None)
+        var = kwds["bcs"].get(str(var))
+        if var:
+            nl.description, nl.mstone = var[:2]
+        var = kwds["invs"].get(nl.jobno[1:])
+        if not var:
+            logger.debug("%s:No invoice data for JO(%s)" % (kwds["actname"], var))
+            nl.goldwgt = None # set the [] to None to avoid excel filling deadloop
+            return
+        #unitwgt to total wgt
+        for idx, wi in enumerate(var.mtlwgt.wgts):
+            if not (wi and wi.wgt):
+                continue
+            nl[gccols[idx][0]] = wi._replace(wgt=round(wi.wgt * nl["joqty"], 2))
+        nl.laborcost = round(
+            (var.setting + var.labor) * self._rmbtohk * nl["joqty"], 2)
+
+
+    def _calc(self, **kwds):
+        stcosts = self._validate(**kwds)
+        nl = kwds.get("nl")
+        refs, mpsmp = [], {}
+        cstlst = config.get("jocost.cost_fields").split(",")
+        gccols = [
+            x.split(",") for x in config.get("jocost.mtlwgt_to_cost_fields")
+            .split(";")
+        ]
+        for x in kwds.get("jcs").values():
+            nl.setdata(x)
+            self._calc_dtos(gccols, stcosts, **kwds)
+            var = self._getrefid(nl.running, refs)
+            if not var:
+                logger.critical((
+                    "No refid found for running(%d),"
+                    " Pls. create one in codetable with (jocostma/costrefid) "
+                ) % nl.running)
+                return None
+            var = self._getmps(var, mpsmp)
+            for wn, wc in gccols: # wgt name and wgt cost
+                wi = nl[wn]
+                if not wi:
+                    continue
+                if wi.karat not in var:
+                    logger.critical(
+                        "No MPS found for running(%d)'s karat(%d)" %
+                        (nl.running, wi.karat))
+                    cost = -1000
+                else:
+                    cost = round(float(var[wi.karat]) * float(wi.wgt), 2)
+                nl[wn], nl[wc] = wi.wgt, cost
+                # cost of the parts
+                if wn == "extgoldwgt2" and wi.wgt:
+                    nl.extlaborcost = round(
+                        wi.wgt * (2.5 if wi.karat in (925, 200) else 30), 2)
+            for var in cstlst:
+                nl["totalcost"] += nl[var]
+            nl.unitcost = round(nl["totalcost"] / nl["joqty"], 2)
+        return True
+
+
+    def read(self, year, month, day=1):
         '''
         class to create the C1 JOCost file for HK accountant
+        return a tuple with 3 tuple as element, first item of each element is the title row:
+            .tuple for jocost
+            .tuple for jo stone
+            .tuple for broken stone
         '''
-        df, dt = daterange(year, month, day)
-        refs, mpsmp, runns = [], {}, set()
-        actname = "C1JOCost of (%04d%02d)" % (year, month)
-        ptncx = cpl(r"C(\d)$")
         with self._cnsvc.sessionctx() as cur:
-            mmids, vvs, refs = set(), {}, []
-            gccols = [
-                x.split(",") for x in
-                "goldwgt,goldcost;extgoldwgt,extgoldcost;extgoldwgt2,extgoldcost2"
-                .split(";")
-            ]
-            ttls = (
-                "mmid,lastmmdate,jobno,cstname,styno,running,mstone,description,joqty,karat,goldwgt,goldcost,extgoldcost,extgoldcost2,stonecost,laborcost,extlaborcost,extcost,totalcost,unitcost,extgoldwgt,extgoldwgt2,cflag,rmb2hk"
-            ).split(",")
-            nl = NamedList(xwu.list2dict(ttls))
-            invs = C1InvRdr().read(self._invfldr, pwgt_check=False)
-            if invs:
-                invs = [y for x in invs for y in x[0]]
-            q = Query([
-                JO.name.label("jono"),
-                Customer.name.label("cstname"),
-                Style.name.label("styno"), JO.running,
-                JO.karat.label("jokarat"), MMgd.karat, MM.id,
-                MM.name.label("docno"), MM.qty,
-                func.sum(MMgd.wgt).label("wgt"),
-                func.max(MMMa.refdate).label("refdate")
-            ]).join(Customer).join(
-                MM).join(MMMa).join(MMgd).join(Style).group_by(
-                    JO.name, Customer.name, Style.name, JO.running, JO.karat,
-                    MMgd.karat, MM.id, MM.name, MM.qty).filter(
-                        and_(
-                            and_(MMMa.refdate >= df, MMMa.refdate < dt),
-                            MM.name.like("%C[0-9]")))
-            lst = q.with_session(cur).all()
-            #vvs["_TITLE_"] = ttls
-            for x in lst:
-                jn = x.jono.value
-                if x.id not in mmids:
-                    mmids.add(x.id)
-                    if jn not in vvs:
-                        nl.setdata([0] * len(ttls))
-                        nl.mmid, nl.lastmmdate, nl.jobno = x.id, "'" + x.refdate.strftime(
-                            _date_short), "'" + x.jono.value
-                        nl.cstname, nl.styno, nl.running = x.cstname.strip(
-                        ), x.styno.value, x.running
-                        nl.mstone, nl.description, nl.karat = "_ST", "_EDESC", karatsvc.getfamily(
-                            x.jokarat).karat
-                        nl.goldwgt, nl.cflag, nl.rmb2hk = [], "NA", rmbtohk
-                        mt = ptncx.search(x.docno)
-                        if mt:
-                            nl.cflag = "'" + mt.group(1)
-                        vvs[jn] = nl.data
-                        runns.add(int(x.running))
-                    nl.setdata(vvs[jn])["joqty"] += float(x.qty)
-                #nl.setdata(vvs[jn]).goldwgt.append((karatsvc.getfamily(x.karat).karat, x.wgt))
-            bcs = self._bcsvc.getbcsforjc(runns)
-            if not bcs or len(bcs) < len(runns):
-                logger.debug("%s:Not all records found in BCSystem" % actname)
-            bcs = {x.runn: (x.desc, x.ston) for x in bcs}
-            stcosts = self.get_st_costs(runns)
-            if not stcosts or len(stcosts) < len(runns) / 2:
-                logger.debug(
-                    "%s:No stone or less than 1/2 has stone, make sure you've prepared stone data with C1STIOData"
-                    % actname)
-            x = {x.jono for x in invs if x.jono in vvs} if invs else set()
-            if not invs or len(x) < len(runns):
-                logger.debug("%s:No or not enough C1 invoice data from file(%s)"
-                             % (actname, self._invfldr))
+            app, tk = xwu.appmgr.acq()
+            invs = []
+            for var in self._invfldr.split(";"):
+                var = app.books.open(var)
+                y = C1InvRdr.getReader(var).read(var, read_method="aio", pwgt_check=False)
+                var.close()
+                if y:
+                    invs.extend(y[0][0])
+            xwu.appmgr.ret(tk)
             invs = {x.jono: x for x in invs} if invs else {}
-            cstlst = "goldcost,extgoldcost,stonecost,laborcost,extlaborcost,extcost,extgoldcost2".split(
-                ",")
-            for x in vvs.values():
-                nl.setdata(x)
-                runn = nl.running
-                if runn in stcosts:
-                    nl.stonecost = stcosts[runn]
-                runn = str(runn)
-                if runn in bcs:
-                    dns = bcs[runn]
-                    nl.description, nl.mstone = dns[0], dns[1]
+            df, dt = daterange(year, month, day)
+            var = self._read_shp(cur, df, dt) # nl, jcs, runns, bcs
+            # locals()
+            kwds = {
+                "actname": "C1JOCost of (%04d%02d)" % (year, month),
+                "nl": var[0],
+                "jcs": var[1],
+                "runns": var[2],
+                "bcs": var[-1],
+                "invs": invs
+            }
+            var = self._calc(**kwds)
+        if var:
+            var = kwds["nl"].getcol("running") - 1
+            jcs = list([x[1:] for x in kwds["jcs"].values()]) # remove the mmid field
+            jcs = sorted(jcs, key=lambda x: x[var])
+            jcs.insert(0, config.get("jocost.cost_sheet_fields").split(","))
+            return jcs, self.get_st_of_jos(kwds["runns"]), self.get_st_broken(df, dt)
 
-                runn = nl.jobno[1:]
-                if runn in invs:
-                    inv = invs[runn]
-                    nl.laborcost = round(
-                        (inv.setting + inv.labor) * rmbtohk * nl["joqty"], 2)
-                else:
-                    logger.debug(
-                        "%s:No invoice data for JO(%s)" % (actname, runn))
-                    nl.goldwgt = None # set the [] to None to avoid excel filling deadloop
-                    continue
-                prdwgt = invs.get(
-                    nl.jobno[1:]).mtlwgt  # A "'" should be skipped
-                prdwgt = (prdwgt.main, prdwgt.aux, prdwgt.part)
-                #unitwgt to total wgt
-                for idx, wi in enumerate(prdwgt):
-                    if not wi:
-                        continue
-                    wi = wi._replace(wgt=round(wi.wgt * nl["joqty"], 2))
-                    nl[gccols[idx][0]] = wi
-                refid = self._getrefid(nl.running, refs)
-                if not refid:
-                    logger.critical((
-                        "No refid found for running(%d),"
-                        " Pls. create one in codetable with (jocostma/costrefid) "
-                    ) % nl.running)
-                    vvs = None
-                    break
-                else:
-                    mp = self._getmps(refid, mpsmp)
-                    for vv in gccols:
-                        wi = nl[vv[0]]
-                        if not wi:
-                            continue
-                        if wi.karat not in mp:
-                            logger.critical(
-                                "No MPS found for running(%d)'s karat(%d)" %
-                                (nl.running, wi.karat))
-                            cost = -1000
-                        else:
-                            cost = round(float(mp[wi.karat]) * float(wi.wgt), 2)
-                        nl[vv[0]], nl[vv[1]] = wi.wgt, cost
-                        if vv[0] == "extgoldwgt2" and wi.wgt:
-                            nl.extlaborcost = round(
-                                wi.wgt * (2.5 if wi.karat == 925 or
-                                          wi.karat == 200 else 30), 2)
-                if vvs is None:
-                    break
-                for cx in cstlst:
-                    nl["totalcost"] += nl[cx]
-                nl.unitcost = round(nl["totalcost"] / nl["joqty"], 2)
-        if vvs:
-            ll = list([x[1:] for x in vvs.values()])
-            refid = nl.getcol("running") - 1
-            ll = sorted(ll, key=lambda x: x[refid])
-            ll.insert(0, ttls[1:])
-            return ll, self.get_st_of_jos(runns), self.get_st_broken(df, dt)
+    @staticmethod
+    def write(jcs, wb, remove_unused=True):
+        '''
+        read and write, for example,  C1JCMkr.write(C1JCMkr().read(), wb)
+        '''
+        sns = "JOCost,JOStone,Broken".split(",")
+        for idx, sn in enumerate(sns):
+            sht = wb.sheets.add() if idx >= len(
+                wb.sheets) else wb.sheets[idx]
+            sht.name = sn
+            if jcs[idx]:
+                sht.range("A1").value = jcs[idx]
+            sht.autofit("c")
+        if remove_unused:
+            idx = len(sns)
+            while idx < len(wb.sheets):
+                wb.sheets(idx).delete()
+        return wb
 
 
 class C1STHdlr(object):
@@ -692,28 +745,29 @@ class C1STHdlr(object):
     def __init__(self, cnsvc):
         self._cnsvc = cnsvc
 
-    def _rviptusg(self, usgs, ionmap):
-        """ remove the imported usage records """
-
-        def _ckript(cur, q0, u, ionmap):
+    def _remove_done(self, usgs, ionmp):
+        '''
+        remove the usage records that has already been done
+        '''
+        def _is_done(cur, q0, u, ionmp):
             """ check if the given usage record(stone_out) has been imported """
-            ipt = False
+            done = False
             try:
-                if u.type in ionmap:
+                if u.type in ionmp:
                     lst = q0.filter(
-                        and_(JO.name == u.jono, StoneOutMaster.isout == ionmap[
+                        and_(JO.name == u.jono, StoneOutMaster.isout == ionmp[
                             u.type][0][0])).with_session(cur).all()
                 else:
                     lst = Query(
                         [StoneBck.qty, StoneBck.wgt]).join(StoneIn).filter(
                             StoneIn.name == u.btchno).with_session(cur).all()
                 for x in lst:
-                    ipt = x.qty == u.qty and abs(x.wgt - u.wgt) < 0.001
-                    if ipt:
+                    done = x.qty == u.qty and abs(x.wgt - u.wgt) < 0.001
+                    if done:
                         break
             except:
                 pass
-            return ipt
+            return done
 
         pflen, pfts, pfcnt = len(usgs), time(), 0
         lb, ub, idx, ipt = 0, pflen - 1, -1, False
@@ -722,15 +776,19 @@ class C1STHdlr(object):
         with self._cnsvc.sessionctx() as cur:
             while idx < 0:
                 if ptr == lb:
-                    if not _ckript(cur, q0, usgs[lb], ionmap):
+                    ipt = _is_done(cur, q0, usgs[ptr], ionmp)
+                    if not ipt:
                         idx = lb
                     else:
-                        if not _ckript(cur, q0, usgs[ub], ionmap):
+                        if ub != ptr:
+                            # save one calculation time if ub == lb
+                            ipt = _is_done(cur, q0, usgs[ub], ionmp)
+                        if not ipt:
                             idx = ub
-                        elif ub < len(usgs):
+                        elif ub < len(usgs) - 1:
                             idx = ub + 1
                     break
-                ipt = _ckript(cur, q0, usgs[ptr], ionmap)
+                ipt = _is_done(cur, q0, usgs[ptr], ionmp)
                 if ipt:
                     lb = ptr + 1
                 else:
@@ -740,115 +798,110 @@ class C1STHdlr(object):
         logger.debug(
             "use %d seconds and %d loops to find the new usage in %d items" %
             (int(time() - pfts), pfcnt, pflen))
-        if idx >= 0:
+        if 0 <= idx < len(usgs):
+            logger.debug("the new item's id is %d" % usgs[idx].id)
             return usgs[idx:]
+        logger.debug("no new item is found")
+        return None
 
-    def _readfrmfile(self, fn):
+    def _read_from_file(self, fn):
         """
         read the batch/usage data out from the excel
         return a tuple with:
         btnos: a set of well-formatted batch#
-        pkmap: a map with well-formatted PK# as key and the last row of batch data as data
+        src_pk_mp: a map with well-formatted PK# as key and the last row of batch data as data
         usgs :  a list of usage's row data
-        btmap: a map with well-formatted Bt# as key and the row of batch data as data
-        pkfmted: a tuple of pks that's formatted as (seqid,newpk#,oldpk#,remark)
+        src_bt_mp: a map with well-formatted Bt# as key and the row of batch data as data
+        pk_fmted: a tuple of pks that's formatted as (seqid,newpk#,oldpk#,remark)
 
-        return btnos,pkmap,usgs,btmap,pkfmted
+        return btnos,src_pk_mp,usgs,src_bt_mp,pk_fmted
         """
         if not path.exists(fn):
-            return
-        fns = [fn]
-        kxl, app = xwu.app(False)
-
-        btmap, pkfmted, usgs = {}, [], []
-        pkmap = {}
+            return None
+        fns = (fn, )
+        app, kxl = xwu.appmgr.acq()
+        kwds = {
+            "src_pk_mp": {},
+            "src_bt_mp": {},
+            "usgs": [],
+            "pk_fmted": []
+        }
         try:
-            for fn in fns:
-                wb = app.books.open(fn)
-                shts = {}
-                for sht in wb.sheets:
-                    shts[sht.name] = sht
-                sht = shts[u"进"]
-                vvs = sht.range("A1").expand("table").value
-                km = {
-                    "id": u"序号",
-                    "btchno": u"水号",
-                    "pkno": u"包头",
-                    "date": u"日期,",
-                    "type": u"类别",
-                    "karat": u"成色",
-                    "qty": u"数量,",
-                    "wgt": u"重量,",
-                    "qtyunit": u"数量单位",
-                    "unit": u"重量单位",
-                    "remark": u"备注"
-                }
-                nls = NamedLists(vvs, km)
-                if len(nls.namemap) < len(km):
-                    logger.debug("not enough key column provided")
-                    break
-                for nl in nls:
-                    if nl.karat:
-                        continue
-                    if not nl.btchno:
-                        break
-                    pkno = _fmtpkno(nl.pkno)
-                    if not pkno:
-                        continue
-                    flag = pkno[1]
-                    pkno = pkno[0]
-                    if pkno != nl.pkno or flag:
-                        pkfmted.append((int(nl.id), nl.pkno, pkno,
-                                        "Special" if flag else "Normal"))
-                        nl.pkno = pkno
-                    nl.btchno = _fmtbtno(nl.btchno)
-                    pkmap[nl.pkno], btmap[nl.btchno] = nl, nl
-                sht = shts[u"用"]
-                vvs = sht.range("A1").expand("table").value
-                km = {
-                    "id": u"序号",
-                    "btchno": u"水号",
-                    "jono": u"工单",
-                    "qty": u"数量",
-                    "wgt": u"重量",
-                    "type": u"记录,",
-                    "btchid": u"备注"
-                }
-                nls = NamedLists(vvs, km)
-                skipcnt = 0
-                for nl in nls:
-                    btchno = nl.btchno
-                    if not (btchno or nl.qty):
-                        skipcnt += 1
-                        if skipcnt > 3:
-                            break
-                        else:
-                            continue
-                    skipcnt = 0
-                    #has batch, but qty is empty, sth. blank, but not so blank as above criteria
-                    if not nl.qty:
-                        continue
-                    btchno = _fmtbtno(btchno)
-                    if btchno not in btmap:
-                        continue
-                    je = JOElement(nl.jono)
-                    if not je.isvalid():
-                        #logger.debug("invalid JO#(%s) found in usage seqid(%d),batch(%s)" % (nl.jono,int(nl.id),nl.btchno))
-                        continue
-                    nl.btchno, nl.jono = btchno, je
-                    usgs.append(nl)
+            for x in fns:
+                wb = app.books.open(x)
+                self._read_in(wb, **kwds)
+                self._read_out(wb, **kwds)
                 wb.close()
         finally:
             if kxl:
-                app.quit()
-        return pkmap, btmap, usgs, pkfmted
+                xwu.appmgr.ret(kxl)
+        # return src_pk_mp, src_bt_mp, usgs, pk_fmted
+        return kwds
 
-    def _getjoshpdate(self, jes):
+    @staticmethod
+    def _read_in(wb, **kwds):
+        sht, hc = xwu.findsheet(wb, "进"), 0
+        vvs = sht.range("A1").expand("table").value
+        km = config.get("stio.in.rdr.colmap")
+        nls = NamedLists(vvs, km)
+        if len(nls.namemap) < len(km):
+            logger.debug("not enough key column provided")
+            return hc
+        for nl in nls:
+            if nl.karat and nl.karat != '无':
+                continue
+            if not nl.btchno:
+                break
+            pkno = _fmtpkno(nl.pkno)
+            if not pkno:
+                continue
+            flag, pkno = pkno[1], pkno[0]
+            if pkno != nl.pkno or flag:
+                kwds["pk_fmted"].append((int(nl.id), nl.pkno, pkno,
+                                "Special" if flag else "Normal"))
+                nl.pkno = pkno
+            nl.btchno = _fmtbtno(nl.btchno)
+            kwds["src_pk_mp"][nl.pkno] = kwds["src_bt_mp"][nl.btchno] = nl
+            hc += 1
+        return hc
+
+    @staticmethod
+    def _read_out(wb, **kwds):
+        sht = xwu.findsheet(wb, u"用")
+        vvs, hc = sht.range("A1").expand("table").value, 0
+        src_bt_mp, usgs = [kwds[x] for x in ('src_bt_mp', 'usgs')]
+        nls, skipcnt = NamedLists(vvs, config.get("stio.out.rdr.colmap")), 0
+        for nl in nls:
+            btchno = nl.btchno
+            if not (btchno or nl.qty):
+                skipcnt += 1
+                if skipcnt > 3:
+                    break
+                else:
+                    continue
+            skipcnt = 0
+            #has batch, but qty is empty, sth. blank, but not so blank as above criteria
+            if not nl.qty:
+                continue
+            btchno = _fmtbtno(btchno)
+            if btchno not in src_bt_mp:
+                continue
+            je = JOElement(nl.jono)
+            if not je.isvalid():
+                #logger.debug("invalid JO#(%s) found in usage seqid(%d),batch(%s)" % (nl.jono,int(nl.id),nl.btchno))
+                continue
+            nl.btchno, nl.jono = btchno, je
+            usgs.append(nl)
+            hc += 1
+        return hc
+
+    def _get_shp_dates(self, jes):
         """
-        return the max shipment data of given JOElement collection as a dict of
-        (JOElement,maxRefdate)
+        return the max shipment date of given JOElement collection as a dict of
+        tuple(JOElement, maxRefdate)
         """
-        if not jes: return
+        if not jes:
+            return
         q0 = Query([JO.name, func.max(MMMa.refdate)]).join(MM).join(MMMa)
         d0 = []
         with self._cnsvc.sessionctx() as cur:
@@ -859,182 +912,230 @@ class C1STHdlr(object):
                             JO.name).with_session(cur).all())
                 except:
                     pass
-        return dict([(x[0], x[1]) for x in d0])
+        return {x[0]: x[1] for x in d0}
 
-    def _buildrst(self, pkmap, btmap, usgs, pkfmted):
+    @staticmethod
+    def _normalize_log(fh, pknos, btnos, jonos, **dc):
+        crterr = False
+        print("stio log of %s" % datetime.today().strftime("%Y%m%d %H:%M"), file=fh)
+        if pknos[1]:
+            print(
+                "Below PK# does not exist, Pls. acquire them from HK first",
+                file=fh)
+            var = dc["src_pk_mp"]
+            lst = sorted([(var[x].id, x) for x in pknos[1]])
+            for x in lst:
+                print("%d,%s" % x, file=fh)
+            print(
+                "#use below sql to fetch pk info from hk's pms system",
+                file=fh)
+            print("use hnj_hk", file=fh)
+            print(
+                "select package, unit_price, case when unit = 1 then 'PC' when unit = 2 then 'PC' when unit = 3 then 'CT' when unit = 4 then 'GM' when unit = 5 then 'PR' when unit = 6 then 'TL' end from package_ma where package in ('%s')"
+                % "','".join([x[1] for x in lst]),
+                file=fh)
+            crterr = True
+        if btnos[1]:
+            print(
+                "Below BT# does not exists, Pls. get confirm from Kary",
+                file=fh)
+            var = dc["src_bt_mp"]
+            for x in sorted([(var[x].id, x, var[x].pkno) for x in btnos[1]]):
+                print("%d,%s,%s" % x, file=fh)
+        if jonos and jonos[1]:
+            print("Below JO(s) does not exist", file=fh)
+            for x in jonos[1]:
+                print(x.name, file=fh)
+            crterr = True
+        var = dc["pk_fmted"]
+        if var:
+            print("---the converted PK#---", file=fh)
+            for x in var:
+                print("%d,%s,%s,%s" % x, file=fh)
+        var = dc["usgs"]
+        if var:
+            print("---usage data---", file=fh)
+            for y in sorted([(int(x.id), x.type, x.btchno, x.jono.value,
+                                x.qty, x.wgt) for x in var]):
+                print("%d,%s,%s,%s,%d,%f" % y, file=fh)
+        return crterr
+
+    def _normalize(self, **kwds):
+        '''
+        check if pk/bt was created
+        '''
+        usgs = kwds.get('usgs')
         with self._cnsvc.sessionctx() as cur:
-            lst = cur.query(Codetable.codec0, Codetable.coden0).filter(
+            var = cur.query(Codetable.codec0, Codetable.coden0).filter(
                 and_(Codetable.tblname == "stone_out_master",
                      Codetable.colname == "is_out")).all()
-            msomids = dict([(x.codec0.strip(), int(x.coden0)) for x in lst])
+            ionmp = {x.codec0.strip(): int(x.coden0) for x in var}
             msomid = cur.query(func.max(
                 StoneOutMaster.id.label("id"))).first()[0]
-            lst = cur.query(StoneOutMaster.isout,
+            var = cur.query(StoneOutMaster.isout,
                             func.max(StoneOutMaster.name).label("bid")).filter(
                                 StoneOutMaster.isout.in_(
-                                    list(msomids.values()))).group_by(
+                                    list(ionmp.values()))).group_by(
                                         StoneOutMaster.isout).all()
-            lst = dict([(x.isout, x.bid) for x in lst])
+            var = {x.isout: x.bid for x in var}
             #make it a isoutname -> (isout,maxid) tuple
-            msomids = dict([(x[0], [x[1], lst[x[1]]])
-                            for x in msomids.items()
-                            if x[1] in lst])
+            ionmp = {x[0]: [x[1], var[x[1]]]
+                            for x in ionmp.items()
+                            if x[1] in var}
             mbtid = cur.query(func.max(StoneIn.id)).first()[0]
-        ionmap = {}
-        for x in {"补烂": "补石,*退烂石", "补失": "补石,*退失石", "配出": "配出", '加退': '加退'}.items():
-            ionmap[x[0]] = [msomids[y] for y in x[1].split(",")]
-        usgs = self._rviptusg(usgs, ionmap)
-        jonos = set()
-        if usgs:
-            for nl in usgs:
-                if nl.jono.isvalid():
-                    jonos.add(nl.jono)
-        btnos = self._cnsvc.getstins(btmap.keys())
-        pknos = self._cnsvc.getstpks(pkmap.keys())
-        jes = jonos
-        jonos = self._cnsvc.getjos(jonos)
-        tmpf = gettempdir() + path.sep
+        ionmp = {x[0]: [ionmp[y] for y in x[1].split(",")] for x in {"补烂": "补石,*退烂石", "补失": "补石,*退失石", "配出": "配出", '加退': '加退'}.items()}
         #print this out and ask for pkdata, or I can not create any further
-        fn, crterr = tmpf + "c1readst.log", False
-        with open(fn, "w") as fh:
-            if pknos[1]:
-                print(
-                    "Below PK# does not exist, Pls. acquire them from HK first",
-                    file=fh)
-                lst = sorted([(pkmap[x].id, x) for x in pknos[1]])
-                for x in lst:
-                    print("%d,%s" % x, file=fh)
-                print(
-                    "#use below sql to fetch pk info from hk's pms system",
-                    file=fh)
-                print("use hnj_hk", file=fh)
-                print(
-                    "select package, unit_price, case when unit = 1 then 'PC' when unit = 2 then 'PC' when unit = 3 then 'CT' when unit = 4 then 'GM' when unit = 5 then 'PR' when unit = 6 then 'TL' end from package_ma where package in ('%s')"
-                    % "','".join([x[1] for x in lst]),
-                    file=fh)
-                crterr = True
-            if btnos[1]:
-                print(
-                    "Below BT# does not exists, Pls. get confirm from Kary",
-                    file=fh)
-                for x in sorted(
-                    [(btmap[x].id, x, btmap[x].pkno) for x in btnos[1]]):
-                    print("%d,%s,%s" % x, file=fh)
-            if jonos and jonos[1]:
-                print("Below JO(s) does not exist", file=fh)
-                for x in jonos[1]:
-                    print(x.name, file=fh)
-                crterr = True
-            if pkfmted:
-                print("---the converted PK#---", file=fh)
-                for x in pkfmted:
-                    print("%d,%s,%s,%s" % x, file=fh)
-            if usgs:
-                print("---usage data---", file=fh)
-                for y in sorted([(int(x.id), x.type, x.btchno, x.jono.value,
-                                  x.qty, x.wgt) for x in usgs]):
-                    print("%d,%s,%s,%s,%d,%f" % y, file=fh)
-
-        logger.info("log were saved to %s" % fn)
+        var = path.join(gettempdir(), "c1readst.log")
+        with open(var, "a") as fh:
+            usgs = self._remove_done(usgs, ionmp)
+            if not usgs:
+                print("stio log of %s (NO USAGE IS FOUND)" % datetime.today().strftime("%Y%m%d %H:%M"), file=fh)
+                return True
+            jonos = {x.jono for x in usgs if x.jono.isvalid()} if usgs else set()
+            # first stage result map in-stack
+            mp = {
+                "ionmp": ionmp,
+                "msomid": msomid,
+                "mbtid": mbtid,
+                "usgs": usgs,
+                "jes": jonos
+            }
+            btnos = self._cnsvc.getstins(kwds["src_bt_mp"].keys())
+            pknos = self._cnsvc.getstpks(kwds["src_pk_mp"].keys())
+            jonos = self._cnsvc.getjos(jonos)
+            crterr = self._normalize_log(fh, pknos, btnos, jonos, **kwds)
+        logger.info("log were saved to %s" % var)
         if crterr:
             logger.critical(
                 "There are Package or JO does not exist, Pls. correct them first"
             )
-            return
-        lnm = lambda cl: dict([(x.name, x) for x in cl])
+            return None
+        mp.update({
+            "btnos": btnos,
+            "pknos": pknos,
+            "jonos": jonos,
+        })
+        return mp
 
-        btbyns = lnm(btnos[0])
-        pkbyns = lnm(pknos[0])
-        jobyns = lnm(jonos[0]) if jonos and jonos[0] else {}
+    def _build_nbt(self, rtmp, **kwds):
+        src_bt_mp = kwds.get('src_bt_mp')
+        lnm = lambda cl: {x.name: x for x in cl}
+        btmp, pkbyns = (lnm(rtmp[x][0]) if rtmp[x] and rtmp[x][0] else {} for x in ("btnos", "pknos"))
         #new batch,stoneoutmaster and stoneout,newstoneback, newclosebatch
-        nbtmap, sos, nbck, ncbt = {}, {}, [], set()
-        td = datetime.today()
-        for x in btmap.items():
-            if x[0] not in btbyns:
-                si = StoneIn()
-                mbtid, si.filldate = mbtid + 1, x[1].date
-                si.docno = "AG" + x[1].date.strftime("%y%m%d")[1:]
-                si.id, si.cstref, si.lastupdate, si.lastuserid = mbtid, NA, td, 1
-                si.name, si.qty, si.qtytrans, si.qtyused, si.cstid = x[0], x[
-                    1].qty, 0, 0, 1
-                si.size, si.tag, si.wgt, si.wgtadj, si.wgtbck = NA, 0, x[
-                    1].wgt, 0, 0
-                si.wgtprep, si.wgttrans, si.wgtused, si.qtybck, si.wgttmptrans = 0, 0, 0, 0, 0
-                if x[1].pkno in pkbyns:
-                    si.pkid = pkbyns[x[1].pkno].id
-                else:
-                    si.pkid = x[1].pkno
-                nbtmap[si.name] = si
-        if usgs:
-            joshd = self._getjoshpdate(jes)
-            for x in usgs:
-                s0 = x.type
-                if s0 not in ionmap:
-                    nb = StoneBck()
-                    nbck.append(nb)
-                    ncbt.add(x.btchno)
-                    if x.btchno in btbyns:
-                        nb.btchid = btbyns[x.btchno].id
-                    else:
-                        nb.btchid = x.btchno
-                    nb.idx, nb.filldate, nb.lastupdate = 1, td, td
-                    nb.lastuserid, nb.qty, nb.wgt = 1, x.qty, x.wgt
-                    nb.docno = "AG" + td.strftime("%y%m%d")[1:]
-                else:
-                    for iof in ionmap[s0]:
-                        key = x.jono.value + "," + str(iof[0])
-                        somso = sos.setdefault(key, {})
-                        if len(somso) == 0:
-                            som = StoneOutMaster()
-                            som.joid = jobyns[x.jono].id
-                            somso["som"] = som
-                            msomid += 1
-                            iof[1] += 1
-                            som.id, som.isout, som.name = msomid, iof[0], iof[1]
-                            som.packed, som.qty, som.subcnt, som.workerid = 0, 0, 0, 1393
-                            som.filldate, som.lastupdate, som.lastuserid = joshd.get(
-                                x.jono, td), td, 1
-                        else:
-                            som = somso["som"]
-                        lst1 = somso.setdefault("sos", [])
-                        so = StoneOut()
-                        lst1.append(so)
-                        so.id, so.idx, so.joqty, so.lastupdate, so.lastuserid = som.id, len(
-                            lst1), 0, td, 1
-                        so.printid, so.qty, so.wgt, so.workerid = 0, x.qty, x.wgt, 1393
-                        so.checkerid, so.checkdate = 0, som.filldate
-                        if x.btchno in btbyns:
-                            so.btchid = btbyns[x.btchno].id
-                        else:
-                            so.btchid = x.btchno
-        return nbtmap, sos, nbck, ncbt, btbyns
+        nbtmp, td, mbtid = {}, datetime.today(), rtmp["mbtid"]
+        for x in (x for x in src_bt_mp.items() if x[0] not in btmp):
+            si = StoneIn()
+            mbtid, si.filldate = mbtid + 1, x[1].date
+            si.docno = "AG" + x[1].date.strftime("%y%m%d")[1:]
+            si.id, si.cstref, si.lastupdate, si.lastuserid = mbtid, NA, td, 1
+            si.name, si.qty, si.qtytrans, si.qtyused, si.cstid = x[0], x[
+                1].qty, 0, 0, 1
+            si.size, si.tag, si.wgt, si.wgtadj, si.wgtbck = NA, 0, x[
+                1].wgt, 0, 0
+            si.wgtprep = si.wgttrans = si.wgtused = si.qtybck = si.wgttmptrans = 0
+            if x[1].pkno in pkbyns:
+                si.pkid = pkbyns[x[1].pkno].id
+            else:
+                si.pkid = x[1].pkno
+            nbtmp[si.name] = si
+        return nbtmp
 
-    def _persist(self, nbt, sos, nbck, ncbt, btbyns):
+    def _build_bck_sos(self, rtmp, **kwds):
+        joshd = self._get_shp_dates(rtmp["jes"])
+        msomid = rtmp["msomid"]
+        nsos, nbck, ncbt, td = {}, [], set(), datetime.today()
+        var = lambda cl: {x.name: x for x in cl}
+        btmp, jobyns = (var(rtmp[x][0]) if rtmp[x] and rtmp[x][0] else {} for x in ("btnos", "jonos"))
+        for x in kwds["usgs"]:
+            if x.type not in rtmp["ionmp"]:
+                var = StoneBck()
+                nbck.append(var)
+                ncbt.add(x.btchno)
+                var.btchid = btmp[x.btchno].id if x.btchno in btmp else x.btchno
+                var.idx, var.lastuserid, var.qty, var.wgt = 1, 1, x.qty, x.wgt
+                var.filldate = var.lastupdate = td
+                var.docno = "AG" + td.strftime("%y%m%d")[1:]
+            else:
+                for iof in rtmp["ionmp"][x.type]:
+                    var = nsos.setdefault(x.jono.value + "," + str(iof[0]), {})
+                    if not var:
+                        som = StoneOutMaster()
+                        som.joid = jobyns[x.jono].id
+                        var["som"] = som
+                        msomid += 1
+                        iof[1] += 1
+                        som.id, som.isout, som.name = msomid, iof[0], iof[1]
+                        som.packed, som.qty, som.subcnt, som.workerid = 0, 0, 0, 1393
+                        som.filldate, som.lastupdate, som.lastuserid = joshd.get(
+                            x.jono, td), td, 1
+                    else:
+                        som = var["som"]
+                    var, so = var.setdefault("sos", []), StoneOut()
+                    var.append(so)
+                    so.id, so.idx, so.joqty, so.lastupdate, so.lastuserid = som.id, len(var), 0, td, 1
+                    so.printid, so.qty, so.wgt, so.workerid = 0, x.qty, x.wgt, 1393
+                    so.checkerid, so.checkdate = 0, som.filldate
+                    so.btchid = btmp[x.btchno].id if x.btchno in btmp else x.btchno
+        return {
+            "nsos": nsos,
+            "nbck": nbck,
+            "ncbt": ncbt,
+            "btmp": btmp
+        }
+
+    def _build(self, **kwds):
+        '''
+        return None or a map contains:
+            nbtmp: a map as key = btchno and value = StoneIn
+            nsos: a map as key = (JO,isOut) and map("som", "sos")
+            nbck: a tuple of StoneIn that is closed
+            ncbt: the closed BT, a tuple of StoneIn
+            btmp: a map as key = btchno and value = StoneIn from the existing db, for batch# -> StoneIn lookup
+        '''
+        rtmp = self._normalize(**kwds)
+        if not rtmp:
+            # error
+            return None
+        if isinstance(rtmp, bool):
+            return True
+        kwds.update(rtmp)
+        nbtmp = self._build_nbt(rtmp, **kwds)
+        mp = self._build_bck_sos(rtmp, **kwds)
+        mp.update(nbtmp=nbtmp)
+        return mp
+
+    def _persist(self, **kwds):
         err = True
         with self._cnsvc.sessionctx() as cur:
+            # new batches
+            nbt, nsos, btmp = (kwds.get(x) for x in 'nbtmp nsos btmp'.split())
             for x in nbt.items():
                 x[1].qty = int(x[1].qty) if x[1].qty else 0
                 cur.add(x[1])
             cur.flush()
-            self._persist_bck(nbck, cur, nbt)
-            for x in sos.items():
-                cur.add(x[1]["som"])
-                for y in x[1]["sos"]:
-                    if isinstance(y.btchid, str):
-                        y.btchid = nbt[y.btchid].id
-                    cur.add(y)
+            for x in nsos.values():
+                som = x["som"]
+                som.subcnt = len(x["sos"])
+                cur.add(som)
             cur.flush()
+            for x in (y for x in nsos.values() for y in x["sos"]):
+                if isinstance(x.btchid, str):
+                    x.btchid = nbt[x.btchid].id
+                cur.add(x)
+            cur.flush()
+            self._persist_bck(cur, kwds.get("nbck"), nbt)
             ctag = int(datetime.today().strftime("%m%d"))
-            for x in ncbt:
-                btno = btbyns[x] if x in btbyns else nbt[x]
+            for x in kwds["ncbt"]:
+                btno = btmp[x] if x in btmp else nbt[x]
                 btno.tag = ctag
                 cur.add(btno)
             cur.flush()
             cur.commit()
             err = False
         return not err
-    
-    def _persist_bck(self, nbck, cur, nbt):
+
+    @staticmethod
+    def _persist_bck(cur, nbck, nbt):
         ''' persist the stone_bck items '''
         if not nbck:
             return
@@ -1077,7 +1178,7 @@ class C1STHdlr(object):
             cur.add(x)
         cur.flush()
 
-    def readst(self, fn):
+    def readst(self, fn, persist=True):
         """
         read and create the stone usage record from C1, input files only
         """
@@ -1097,8 +1198,11 @@ class C1STHdlr(object):
                 "%d files in folder(%s), most-updated file(%s) is selected" %
                 (len(fns), fn, path.basename(fx)))
             fn = fx
-        rst = self._buildrst(*self._readfrmfile(fn))
+        rst = self._build(**self._read_from_file(fn))
         if not rst:
-            #some invalid items found by _buildrst, throw exception
+            # some invalid items found by _buildrst, throw exception
             return None
-        return self._persist(*rst)
+        if isinstance(rst, bool):
+            # no usage record found, just return OK
+            return True
+        return self._persist(**rst) if persist else rst

@@ -32,7 +32,7 @@ from hnjcore.utils.consts import NA
 from utilz import (NamedList, NamedLists, ResourceCtx, splitarray,
                    daterange, getfiles, isnumeric, appathsep, deepget, karatsvc,
                    trimu, xwu, updateopts, stsizefmt)
-from utilz.xwu import find, findsheet, NamedRanges, insertphoto, col
+from utilz.xwu import find, findsheet, NamedRanges, insertphoto, col, offset
 
 from .common import _getdefkarat, _logger as logger, P17Decoder, config
 from .localstore import PajCnRev as PajCnRevSt
@@ -249,7 +249,7 @@ class PajShpHdlr(object):
     def read_invno(cls, sht):
         """ get the inv# inside the sheet(if there is) """
         rng = xwu.find(sht, "Inv*No:")
-        return rng.offset(0, 1).value if rng else None
+        return offset(rng, 0, 1).value if rng else None
 
     def _readinv(self, fn, sht, fmd):
         """
@@ -723,7 +723,7 @@ class _BomSheetBldr(object):
         # ColorIndex < 0 is transparent, 1 is black, 2 is white
         mkrs = [[x, ] for x, rng in enumerate(rngs) if rng.api.Interior.ColorIndex > 2]
         rngs = tuple(NamedRanges(
-                sht.cells(1, 1), alias={
+                sht.cells(1, 1), name_map={
                     "jono": "工单",
                     "styno": "款号"
                 }))

@@ -224,7 +224,6 @@ def updateopts(defaults, kwds):
             del kwds[its[0]]
     return kwds
 
-
 def list2dict(lst, **kwds):
     """ turn a list into zero-id based, name -> id lookup map
     @param lst: the list or one-dim array containing the strings that need to do the name-> pos map
@@ -234,11 +233,14 @@ def list2dict(lst, **kwds):
     @param bname: default name for the blank item
     @param normalize: can be one of upper/lower/(blank or None), do keyword normalization using lower/upper or no normalization, default is lower
     @return: a dict with name -> id map
+    example:
+        nl = list2dict('a,b,ck', trmap={'jono': 'c,k'})
+        assertTrue(2, nl['jono'])
     """
     if not lst:
         return None
     if isinstance(lst, str):
-        lst = lst.split(",")
+        lst = lst.split("," if lst.find(',') > 0 else ' ')
     else:
         lst = tuple(str(x) if x is not None else "" for x in lst)
     mp = updateopts({
@@ -247,33 +249,40 @@ def list2dict(lst, **kwds):
         "bname": ("bname,blank_name", None),
         "normalize": ("normalize,", "lower")
     }, kwds)
-    dupdiv, bname, trmap, _norm = getvalue(
-        mp, "dupdiv,div,dup_div"), mp.get("bname"), getvalue(
-            mp, "trmap,alias"), getvalue(mp, "normalize,norm")
+    dupdiv, bname, trmap, _norm = (getvalue(mp, x) for x in ("dupdiv,div,dup_div", "bname", "trmap,alias", "normalize,norm"))
     if dupdiv is None:
         dupdiv = ""
-    lst_lower, ctr = [], {}
+    lst_nrm, idxr = [], {}
     _norm = _norm_exp(_norm)
+    # generate serial# for those duplicated colname or the blank colname
     for x in (_norm(x) or bname or "" for x in lst):
-        if x in ctr:
-            ctr[x] += 1
-            x += dupdiv + str(ctr[x])
+        if x in idxr:
+            idxr[x] += 1
+            x += dupdiv + str(idxr[x])
         else:
-            ctr[x] = 0
-        lst_lower.append(x)
-    trmap = {_norm(x[1]): _norm(x[0]) for x in trmap.items()} if trmap else {}
-    ctr = list(range(len(lst_lower)))
-    if trmap:
-        for x in [x for x in trmap if x.find(",") > 0]:
-            for y in [x1 for x1 in x.split(",") if x1]:
-                cnds = [x for x in ctr if lst_lower[x].find(y) >= 0]
-                if not cnds:
+            idxr[x] = 0
+        lst_nrm.append(x)
+    if not trmap:
+        return OrderedDict((x, idx) for idx, x in enumerate(lst_nrm))
+    return _tr_l2d(_norm, trmap, lst_nrm)
+
+
+def _tr_l2d(_norm, trmap, lst_nrm):
+    trmap = {_norm(x[1]): _norm(x[0]) for x in trmap.items()}
+    ht = set()
+    for cands in [x for x in trmap if x.find(",") > 0]:
+        flag = False
+        for elm in (x for x in cands.split(",") if x):
+            for idx, s0 in enumerate(lst_nrm):
+                if idx in ht or s0.find(elm) < 0:
                     continue
-                s0 = str(random())
-                lst_lower[cnds[0]] = s0
-                trmap[s0] = trmap[x]
+                lst_nrm[idx] = str(random())
+                trmap[lst_nrm[idx]], flag = trmap[cands], True
+                ht.add(idx)
                 break
-    return OrderedDict(zip([trmap.get(x, x) for x in lst_lower], ctr))
+            if flag:
+                break
+    return OrderedDict((trmap.get(x, x), idx) for idx, x in enumerate(lst_nrm))
 
 
 def deepget(obj, names):
@@ -413,19 +422,20 @@ def removews(s0):
     """
     remove the white space
     """
-    return sub(r"\s{2,}", " ", s0.strip()) if s0 else ""
+    return sub(r"\s{2,}", " ", s0) if s0 else ""
 
 
-def trimu(s0, removewsps=True):
+def trimu(s0, removewsps=False):
     """ trim/strip and upper case """
-    if s0 and isinstance(s0, str):
-        s0 = s0.strip().upper()
-        if removewsps:
-            s0 = removews(s0)
+    if not s0: #and isinstance(s0, str):
+        return None
+    s0 = s0.strip().upper()
+    if removewsps:
+        s0 = removews(s0)
     return s0
 
 
-def triml(s0, removewsps=True):
+def triml(s0, removewsps=False):
     """ trim and lower case """
     if s0 and isinstance(s0, str):
         s0 = s0.strip().lower()
@@ -451,7 +461,8 @@ class NamedList(object):
         if isinstance(nmap, (tuple, list)):
             nmap = list2dict(nmap, **kwds)
         elif isinstance(nmap, str):
-            nmap = list2dict(nmap.split(","), **kwds)
+            div = ',' if nmap.find(',') > 0 else ' '
+            nmap = list2dict(nmap.split(div), **kwds)
         elif isinstance(nmap, dict):
             nmap = {self._nrl(x[0]): x[1] for x in nmap.items()}
         self._nmap, self._idmap, self._kwds, self._dtype = nmap, None, None, 0
@@ -660,8 +671,7 @@ class NamedLists(Iterator):
             raise StopIteration()
         if self._newinst:
             return NamedList(self._nmap, self._lsts[self._ptr], **self._kwds)
-        self._wrpr.setdata(self._lsts[self._ptr])
-        return self._wrpr
+        return self._wrpr.setdata(self._lsts[self._ptr])
 
     @property
     def namemap(self):

@@ -25,7 +25,7 @@ from hnjcore.models.cn import JO as JOcn, Plating, StoneMaster, Style
 from hnjcore.models.hk import JO, POItem
 from utilz import (NamedList, ResourceCtx, getvalue, karatsvc, na, splitarray,
                    stsizefmt, trimu)
-from utilz.xwu import NamedRanges, appmgr, find, fromtemplate, hidden
+from utilz.xwu import NamedRanges, appmgr, find, fromtemplate, hidden, offset
 
 from .common import Utilz, config
 from .common import _logger as logger
@@ -264,9 +264,9 @@ class Writer(object):
             sht.api.paste
         # rng0 = find(sht, self._utilz.CN_JONO, lookat=LookAt.xlWhole)
         rng0 = find(sht, self._utilz.alias["c1cost"], lookat=LookAt.xlWhole)
-        rng0.offset(1, 0).value = lsts
+        offset(rng0, 1, 0).value = lsts
         sht.book.app.api.CutCopyMode = False
-        rng0.offset(1, 0).select()
+        offset(rng0, 1, 0).select()
 
     def _from_his(self, c1jc):
         """ return a list of list with filled data from history """
@@ -598,7 +598,7 @@ class Writer(object):
             wb, sht = sht, self.find_sheet(sht)
             #find the micron if there is
             extra = {("'" + JOElement.tostr(x[1])): Utilz.extract_micron(x[2]) for x in nls if x[2] and x[2].find("咪") >= 0}
-            find(sht[0], self._utilz.alias["c1cost"]).offset(1, 0).value = [(x[0], x[1]) for x in nls if x[0] > 0]
+            offset(find(sht[0], self._utilz.alias["c1cost"]), 1, 0).value = [(x[0], x[1]) for x in nls if x[0] > 0]
         self._nl = sht[-1]
 
         # read the JO#s

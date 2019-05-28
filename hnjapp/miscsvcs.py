@@ -127,7 +127,7 @@ class StylePhotoSvc(object):
         ln, lst = len(styno), []
         fns = [
             x for x in scandir(root)
-            if x.is_file() and trimu(x.name[:ln] == styno)
+            if x.is_file() and trimu(x.name[:ln]) == styno
         ]
         if not fns:
             return None

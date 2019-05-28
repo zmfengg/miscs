@@ -196,7 +196,8 @@ class SvcBase(object):
         """
         get object by providing a list of vars, return tuple with valid object tuple and not found set
         """
-        if not objs: return
+        if not objs:
+            return
         if not isinstance(objs, Sequence):
             objs = tuple(objs)
         objss = splitarray(objs, self._querysize)
@@ -204,9 +205,11 @@ class SvcBase(object):
         with self.sessionctx() as cur:
             for x in objss:
                 q = q0.filter(qmkr(x, objclz))
-                if extfltr is not None: q = q.filter(extfltr)
+                if extfltr is not None:
+                    q = q.filter(extfltr)
                 lst = q.with_session(cur).all()
-                if lst: al.extend(lst)
+                if lst:
+                    al.extend(lst)
         if al:
             if len(al) < len(objs):
                 a0 = set(objs)
@@ -1006,7 +1009,7 @@ class _JO2BC(object):
         vx = self._pp.get("_snno")
         vx = self._pp["jo"].snno + ("," + vx if vx else "")
         if vx:
-            vx = self._extract_snno(vx)
+            vx = self.extract_snno(vx)
         if vx:
             vx[0] = "SN#" + vx[0]
             lst.extend(vx)
@@ -1083,35 +1086,56 @@ class _JO2BC(object):
                     rc.append(sms.get(x, x))
         return ' ' + " ".join(rc)
 
-    def _extract_snno(self, snno):
+    def extract_snno(self, snno):
+        '''
+        parse the snno parts out from snno, the chinese will be removed
+        and only valid snno will be left
         # HB1729夾片底HB923,中號光金瓜子耳
         # HB2056底HB943夾片HB114夾層HB982,中號光金瓜子耳
         # #
         # HB1762底P27473,中號光金瓜子耳
         # #HB2600底夾片HB1485,PT5012BL
+        '''
         if not snno:
             return None
-        lst, part, ods, push = [], "", 0, False
-        for ch in snno:
-            if ch in ('#', ' '):
-                continue
-            od = min(max(ord(ch), 250), 251)
-            if ods:
-                push = ods != od or ch == ','
-                if push and ch == ',':
-                    ch = ""
-            if push:
-                lst.append((part, ods))
-                part, push = "", False
-            ods = od
-            part += ch
-        if part:
-            lst.append((part, ods))
-        ods = []
+        for ch in ('SN', '#'):
+            snno = snno.replace(ch, '')
+        sns = snno.split(",")
+        # some keywords contains non-ascii character, so do replace first
+        for idx, ch in enumerate(sns):
+            if ch in self._snno_mp:
+                sns[idx] = self._snno_mp[ch]
+        lst, part, od0, push = [], "", 0, False
+        for y in sns:
+            part = ''
+            for ch in y:
+                if ch == ' ':
+                    continue
+                od = min(max(ord(ch), 250), 251)
+                if od0:
+                    push = od0 != od or ch == ','
+                    if push and ch == ',':
+                        ch = ""
+                if push:
+                    lst.append((part, od0))
+                    part, push = "", False
+                od0 = od
+                part += ch
+            if part:
+                lst.append((part, od0))
+        od0, sns = [], False
+
         for part, od in lst:
+            if sns and part[0] == ')':
+                sns = False
+                continue
             if od == 251:
                 #chinese, big5, need translation, if not translated, ignore it
                 part = self._snno_mp.get(part)
-            if part and part not in ods:
-                ods.append(part)
-        return ods
+            if part and part not in od0:
+                sns = part[-1] == '('
+                if sns:
+                    part = part[:-1]
+                if len(part) > 2 and part.find('MM') < 0 and part.find('CM') < 0:
+                    od0.append(part)
+        return od0

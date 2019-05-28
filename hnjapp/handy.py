@@ -24,8 +24,8 @@ from hnjapp.pajcc import (MPS, PajCalc, PrdWgt, WgtInfo, addwgt, cmpwgt,
 from hnjcore import JOElement
 from hnjcore.models.hk import JO, Orderma, PajShp, Style
 from hnjcore.models.cn import StoneMaster
-from utilz import ResourceCtx, getfiles, trimu, NamedList
-from utilz.xwu import NamedLists, NamedRanges, appmgr, find, usedrange
+from utilz import ResourceCtx, getfiles, trimu
+from utilz.xwu import NamedLists, NamedRanges, appmgr, find, usedrange, offset
 
 from .common import _logger as logger
 
@@ -294,7 +294,7 @@ def mtl_cost_forc1(c1calc_fn):
     app, tk = appmgr.acq()
     try:
         wb = app.books.open(c1calc_fn)
-        version = find(wb.sheets["背景资料"], "Version", lookat=LookAt.xlWhole).offset(1,0).value
+        version = offset(find(wb.sheets["背景资料"], "Version", lookat=LookAt.xlWhole), 1, 0).value
         sht = wb.sheets["计价资料"]
         rng = find(sht, "镶石费$")
         lossrates = {"GOLD": 1.08, "SILVER": 1.09} if version else {"GOLD": 1.07, "SILVER": 1.08}

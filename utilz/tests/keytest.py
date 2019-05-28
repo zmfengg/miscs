@@ -14,6 +14,9 @@ from functools import cmp_to_key
 from os import listdir, path, remove
 from tempfile import gettempdir
 from unittest import TestCase, main
+from cProfile import Profile
+from pstats import Stats
+from io import StringIO, FileIO
 
 from sqlalchemy import VARCHAR, Column, ForeignKey, Integer
 from sqlalchemy.engine import create_engine
@@ -545,12 +548,8 @@ class XwuSuite(TestCase):
     def tearDown(self):
         if self._hasxls:
             xwu.appmgr.ret(self._tk)
-        return super().tearDown()
+        super().tearDown()
 
-    @classmethod
-    def tearDownClass(cls):
-        if cls._hasxls:
-            xwu.appmgr.ret(cls._tk)
 
     def fail_noexcel(self):
         """ raise error when no excel is found """
@@ -605,7 +604,7 @@ class XwuSuite(TestCase):
         wb = app.books.open(fn)
         sht = wb.sheets[0]
         rng = xwu.find(sht, "*Table")
-        rng = rng.offset(1, 0)
+        rng = xwu.offset(rng, 1, 0)
         rng = rng.expand("table")
         lst = [x for x in NamedLists(rng.value)]
         self.assertEqual(8, len(lst), "the count of data")
@@ -689,52 +688,83 @@ class XwuSuite(TestCase):
     def testCol(self):
         """ test for the column idx/name translation function
         """
+        self.assertEqual(xwu.col('A'), xwu.col('a'))
+        self.assertEqual(xwu.col('Xfd'), xwu.col('XFD'))
         mp = {'A': 1, 'AA': 27, 'AZA': 1353, 'XFD': 16384}
         for k, v in mp.items():
             self.assertEqual(v, xwu.col(k))
             self.assertEqual(k, xwu.col(v))
+        self.assertEqual(((2, 1), ), xwu.addr2rc('$A$2'))
+        self.assertEqual(((2, 1), (3, 2), ), xwu.addr2rc('$A$2:$B$3'))
+    
+    def testPerf(self):
+        '''
+        xlwings is infact very slow, test how slow it was
+        Some conclusion:
+            .cells(x, y) is fast
+            .offset(x, y) is very slow, use cells(rng.row + x, rng.row + y) is much faster
+        '''
+        app = self._app
+        wb = app.books.add()
+        sht = wb.sheets[0]
+        pf = Profile()
+        def _run(uf, s, e):
+            for i in range(s, e):
+                rng = sht.cells(i + 1, 1)
+                if uf:
+                    xwu.offset(rng, 1, 1)
+                else:
+                    rng.offset(1, 1)
+        tts = []
+        for uf, s, e in ((True, 0, 5), (False, 30, 35)):
+            pf.enable()
+            _run(uf, s, e)
+            pf.disable()
+            tts.append(Stats(pf).total_tt)
+        r = tts[1]/tts[0]
+        print('api/udf = %4.2f' % r)
+        self.assertTrue(r > 1, 'user-defined offset is faster than official API')
+        wb.close()
 
     def testGetHidden(self):
         """ get the hidden row/columns inside a sheet """
-        app, tk = xwu.appmgr.acq()
-        try:
-            app.visible = True
-            wb = app.books.open(path.join(thispath, "res", "hidden_r_c.xlsx"))
-            nl = NamedList("sn,row,exps")
-            mp = (
-                ("Spread", True, [(3, 10), (14, 18), (24, 9999)]),
-                ("Header", True, [(1, 9), ]),
-                ("NoHidden", True, None),
-                ("AllHidden", True, [(1, 12), ]),
-                ("Spread_Col", True, None),
-                ("Spread_Col", False, [(3, 5), ]),
-                ("Row_Col", True, [(2, 999), (1001, 9997), (9999, 9999), (10001, 10001)]),
-                ("Row_Col", False, [(2, 56), (59, 66)]),
-                ("Row_Col_Huge", True, [(1, 100000), (100002, 500000)])
-            )
-            # mp = (("AllHidden", True, [(1, 12), ]), )
-            tc, loops = clock(), 2
-            for idx in range(loops):
-                print("doing loop %d" % idx)
-                for val in mp:
-                    nl.setdata(val)
-                    print("doing sheet(%s)'s %s" % (nl.sn, "Row" if nl.row else "Col"))
-                    lsts, exps = xwu.hidden(wb.sheets(nl.sn), nl.row), nl.exps
-                    msg = "Sheet(%s), %s" % (nl.sn, "row" if nl.row else "col")
-                    if isinstance(exps, (tuple, list)):
-                        self.assertListEqual(exps, lsts, msg)
-                    else:
-                        self.assertEqual(exps, lsts, msg)
-            tc = clock() - tc
-            print("using %4.2fs for each loop, total loops = %d, total time = %4.2f" % (tc / loops, loops, tc, ))
-        finally:
-            xwu.appmgr.ret(tk)
+        app = self._app
+        app.visible = True
+        wb = app.books.open(path.join(thispath, "res", "hidden_r_c.xlsx"))
+        nl = NamedList("sn,row,exps")
+        mp = (
+            ("Spread", True, [(3, 10), (14, 18), (24, 9999)]),
+            ("Header", True, [(1, 9), ]),
+            ("NoHidden", True, None),
+            ("AllHidden", True, [(1, 12), ]),
+            ("Spread_Col", True, None),
+            ("Spread_Col", False, [(3, 5), ]),
+            ("Row_Col", True, [(2, 999), (1001, 9997), (9999, 9999), (10001, 10001)]),
+            ("Row_Col", False, [(2, 56), (59, 66)]),
+            ("Row_Col_Huge", True, [(1, 100000), (100002, 500000)])
+        )
+        # mp = (("AllHidden", True, [(1, 12), ]), )
+        tc, loops = clock(), 2
+        for idx in range(loops):
+            print("doing loop %d" % idx)
+            for val in mp:
+                nl.setdata(val)
+                print("doing sheet(%s)'s %s" % (nl.sn, "Row" if nl.row else "Col"))
+                lsts, exps = xwu.hidden(wb.sheets(nl.sn), nl.row), nl.exps
+                msg = "Sheet(%s), %s" % (nl.sn, "row" if nl.row else "col")
+                if isinstance(exps, (tuple, list)):
+                    self.assertListEqual(exps, lsts, msg)
+                else:
+                    self.assertEqual(exps, lsts, msg)
+        tc = clock() - tc
+        print("using %4.2fs for each loop, total loops = %d, total time = %4.2f" % (tc / loops, loops, tc, ))
+
 
     def testInsertPhoto(self):
         ''' check the insertphoto function '''
         fn = path.join(thispath, "res", "579616.jpg")
-        app, tk = xwu.appmgr.acq()
-        app.visible = True
+        app = self._app
+        sws = xwu.appswitch(app, {'visible': True})
         wb = app.books.open(path.join(thispath, "res", "getTableData.xlsx"))
         sht = wb.sheets[0]
         shp = xwu.insertphoto(fn, sht.range("A1:F15"), margins=(2, 2))
@@ -749,8 +779,7 @@ class XwuSuite(TestCase):
         shp = xwu.insertphoto(fn, sht.range("A1:F15"), margins=(2, 2), alignment="R,M")
         self.assertAlmostEqual(2, shp.top, 2, 'the top')
         self.assertAlmostEqual(117.97, shp.left, 2, 'the left')
-        xwu.appmgr.ret(tk)
-
+        xwu.appswitch(self._app, sws)
 
 
 BaseClass = declarative_base()

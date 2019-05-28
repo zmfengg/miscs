@@ -634,7 +634,7 @@ class ShpMkr(object):
         if hls:
             rng = sht.range(1, 1)
             for x in hls:
-                _hl(rng.offset(x[0] - 1, x[1]), 6)
+                _hl(xwu.offset(rng, x[0] - 1, x[1]), 6)
         # the qtyleft formula
         s0 = {
             x: col_name(nl.getcol(x) + 1)
@@ -1570,7 +1570,7 @@ class _SMBCHdlr(object):
         if hls:
             rng = sht.range(1, 1)
             for x in hls:
-                _hl(rng.offset(x[0], x[1]), 6)
+                _hl(xwu.offset(rng, x[0], x[1]), 6)
         xwu.maketable(xwu.usedrange(sht), "BCData")
         # hide cols A:H, free to M column
         sht.range("A:H").api.EntireColumn.Hidden = True

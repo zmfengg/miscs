@@ -222,8 +222,6 @@
         "耳勾": "HB013",
         "耳夾": "HB195",
         "耳迫": "HB924",
-        "肥耳仔": "HB539肥耳",
-        "瓜子耳": "HB1586C",
         "夾針A": "HB1353A",
         "夾針B": "HB1353B",
         "夾針C": "HB1353C",
@@ -308,6 +306,7 @@
         ["深蓝CZ", "P", "CZ"],
         ["梯钻", "T", "DD"],
         ["元占", "R", "DD"],
+        ["元钻", "R", "DD"],
         ["钻石", "R", "DD"],
         ["蓝钻", "R", "DF"],
         ["透辉石", "R", "DI"],
@@ -412,6 +411,31 @@
         "BLACK SPINEL": "ZS",
         "TANZ CZ": "ZT"
     },
-    "default.file.c1aio": "\\\\172.16.8.46\\pb\\dptfile\\quotation\\2017外发工单工费明细\\CostForPatrick\\AIO_F.xlsx",
-    "default.file.c1cc.tpl": "\\\\172.16.8.46\\pb\\DptFile\\pajForms\\C1价格计算器.xltx"
+    "default.file.cx_aio": "\\\\172.16.8.46\\pb\\dptfile\\quotation\\2017外发工单工费明细\\CostForPatrick\\AIO_C3.xlsx;\\\\172.16.8.46\\pb\\dptfile\\quotation\\2017外发工单工费明细\\CostForPatrick\\AIO_C1.xlsx",
+    "jocost.cost_sheet_fields": "lastmmdate,jobno,cstname,styno,running,mstone,description,joqty,karat,goldwgt,goldcost,extgoldcost,extgoldcost2,stonecost,laborcost,extlaborcost,extcost,totalcost,unitcost,extgoldwgt,extgoldwgt2,cflag,rmb2hk",
+    "jocost.cost_fields": "goldcost,extgoldcost,stonecost,laborcost,extlaborcost,extcost,extgoldcost2",
+    "jocost.mtlwgt_to_cost_fields": "goldwgt,goldcost;extgoldwgt,extgoldcost;extgoldwgt2,extgoldcost2",
+    "default.file.c1cc.tpl": "\\\\172.16.8.46\\pb\\DptFile\\pajForms\\C1价格计算器.xltx",
+    "stio.in.rdr.colmap": {
+        "id": "序号",
+        "btchno": "水号",
+        "pkno": "包头",
+        "date": "日期,",
+        "type": "类别",
+        "karat": "成色",
+        "qty": "数量,",
+        "wgt": "重量,",
+        "qtyunit": "数量单位",
+        "unit": "重量单位",
+        "remark": "备注"
+    },
+    "stio.out.rdr.colmap": {
+        "id": "序号",
+        "btchno": "水号",
+        "jono": "工单",
+        "qty": "数量",
+        "wgt": "重量",
+        "type": "记录,",
+        "btchid": "备注"
+    }
 }
