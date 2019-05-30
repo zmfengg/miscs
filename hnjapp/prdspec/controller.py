@@ -7,18 +7,17 @@
 services help to handle the product specification sheet
 '''
 
-from abc import ABC, abstractmethod
-
 from xlwings.constants import BordersIndex, LineStyle
 
-from utilz import NamedList, NamedLists, triml, trimu, karatsvc
+from utilz import NamedLists, triml
 from utilz.xwu import addr2rc, apirange, nextcell, nextrc, rc2addr
+from ._nrls import Normalizer
 
 _nrm = triml
 _cn_seqid = _nrm('seqid')
 
 
-class Reader(object):
+class Controller(object):
     '''
     read data out from requested workbook
     '''
@@ -213,11 +212,11 @@ class Reader(object):
                 rmp[name] = self._transform(name, n2imp, vvs, di)
             else:
                 rmp[name] = nd.get().value
-        vdr = FormValidator(self)
-        rmp, chgs = vdr.validate(rmp)
+        vdr = Normalizer(self)
+        rmp, chgs = vdr.normalize(rmp)
         if chgs:
-            vdr.highlight(chgs)
-        return rmp
+            vdr.updateXl(chgs)
+        return rmp, chgs
 
     def _transform(self, tblname, n2imp, vvs, di):
         cns = [x for x in n2imp]
@@ -286,141 +285,3 @@ class Node(object):
         if getmerged and rng and rng.api.mergecells:
             rng = apirange(rng.api.mergearea)
         return rng
-
-class FormValidator(object):
-    '''
-    class help to validate the form's field one by one
-    '''
-    def __init__(self, rdr):
-        self._rdr = rdr
-        # in single case, row/colname is None
-        # a validation result. those fully pass should not create such record
-        self._nrlmp = None
-        self._init_nrls()
-    
-    def _hl(self, rng, level, rmks):
-        if not rng:
-            return
-        rng.api.interior.colorindex = 3 if level < 100 else 5
-
-    def _init_nrls(self):
-        if self._nrlmp:
-            return
-        self._nrlmp = {}
-        # maybe from the config file
-        tu = TUNrl()
-        for x in 'styno qclevel parent docno craft description'.split():
-            self._nrlmp[x] = [tu, ]
-        self._nrlmp['metal'] = [MetalNrl(), ]
-        # TODO:: append validators for other single fields and tables
-        # singles: lastmodified createdate dim type size netwgt hallmark
-        # tables: feature finishing l-type parts stone
-
-    def validate(self, mp):
-        '''
-        validate the result map
-        '''
-        chgs = []
-        for name in mp:
-            vdrs = self._nrlmp.get(name)
-            if not vdrs:
-                continue
-            for vdr in vdrs:
-                lst = vdr.normalize(mp, name)
-                if lst:
-                    chgs.extend(lst)
-        # maybe sort the chges by name + row + name
-        if chgs:
-            chgs.insert(0, tuple(BaseNrl.nl.colnames))
-            chgs = NamedLists(chgs)
-            print('---' * 5)
-            for x in chgs:
-                print(x.data)
-        return mp, chgs
-
-    def highlight(self, chgs):
-        '''
-        high-light the given invalid items(a collection of self._nl_vld)
-        '''
-        rdr = self._rdr
-        for nl in chgs:
-            if nl.row:
-                self._hl(self._rdr.get(nl.name).get(nl.row, nl.colname), nl.level, nl.remarks)
-            else:
-                self._hl(self._rdr.get(nl.name).get(), nl.level, nl.remarks)
-        return
-
-class BaseNrl(ABC):
-    '''
-    base normalizer
-    '''
-    nl = NamedList('name row colname oldvalue newvalue level remarks'.split())
-
-    @abstractmethod
-    def normalize(self, pmap, name):
-        '''
-        return None if value is valid, or a tuple of _nl items
-        @param pmap: the parent map that contains 'name'
-        @param name: the item that need to be validate
-        '''
-
-    def _new_nl(self, name, oldval, newval, **kwds):
-        nl = self.nl
-        nl.newdata()
-        nl.name, nl.oldvalue, nl.newvalue, nl.level = name, oldval, newval, 0
-        for n, v in kwds.items():
-            if n == 'row':
-                nl[n] = v + 1 # the caller is zero based, so + 1
-            else:
-                nl[n] = v
-        return nl.data
-
-
-class TUNrl(BaseNrl):
-    '''
-    perform trimu actions
-    '''
-
-    def normalize(self, pmap, name):
-        value = pmap[name]
-        nv = trimu(value)
-        if nv != value:
-            pmap[name] = nv
-            return (self._new_nl(name, value, nv, remarks='(%s) t&u to (%s)' % (value, nv)), )
-        return super().normalize(pmap, name)
-
-class MetalNrl(BaseNrl):
-    '''
-    Metal table normalizer
-    '''
-    def __init__(self):
-        self._tu = TUNrl()
-
-    def normalize(self, pmap, name):
-        mtls = pmap.get(name)
-        if not mtls:
-            return super().normalize(pmap, name)
-        lst = []
-        for idx, nl0 in enumerate(mtls):
-            cn = 'karat'
-            k0 = nl0[cn]
-            kt = karatsvc.getkarat(k0)
-            if not kt:
-                lst.append(self._new_nl(name, k0, None, row=idx, colname=cn, remarks='Invalid Karat(%s)' % k0))
-            else:
-                if kt.name != k0:
-                    nl0[cn] = kt.name
-                    lst.append(self._new_nl(name, k0, kt.name, row=idx, colname=cn, remarks='Malform Karat(%s) changed to %s' % (k0, kt.name)))
-            wgt = nl0.wgt or 0
-            if wgt < 0:
-                lst.append(self._new_nl(name, 0, 0, row=idx, colname=cn, remarks='Wgt(%f) should not be less than zero' % wgt))
-            if kt.category == 'GOLD' and  wgt > 3:
-                lst.append(self._new_nl(name, wgt, 3, row=idx, colname=cn, remarks='gold weight(%4.2f) greater than %4.2f, maybe error' % (wgt, 3)))
-            cn = 'remarks'
-            var = self._tu.normalize(nl0, cn)
-            if var:
-                var = self.nl.setdata(var[0])
-                nl0[cn], var.row, var.colname, var.name = var.newvalue, idx + 1, cn, name
-                lst.append(var.data)
-        # now lst only contains array, translate it to namedlist
-        return lst or None
