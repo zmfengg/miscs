@@ -8,7 +8,7 @@ Some handy utils for most of my projects
 '''
 
 from . import odbctpl, xwu
-from ._jewelry import Karat, KaratSvc as KaratSvc, RingSizeSvc, stsizefmt
+from ._jewelry import Karat, KaratSvc, RingSizeSvc, stsizefmt
 from ._miscs import *
 from .resourcemgr import ResourceCtx, ResourceMgr, SessionMgr
 

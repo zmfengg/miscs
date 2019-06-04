@@ -266,7 +266,7 @@ class C1InvRdr(object):
         nl = xwu.find(s0, '合计', After=rng)
         if nl:
             rng = s0.range(rng, s0.cells(nl.row - 1, rng.current_region.last_cell.column))
-        nls = [x for x in xwu.NamedRanges(rng, name_map=self._rdr_km)]
+        nls = [x for x in xwu.NamedRanges(rng, self._rdr_km)]
         if not nls:
             return None
         nl, items = nls[0], "jono gwgt swgt".split()

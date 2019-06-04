@@ -99,9 +99,9 @@ class JOElement(object):
             else:
                 break
         if stg and strs[1].isdigit():
-            self.alpha = strs[0].strip()
+            self.alpha = strs[0].strip().upper()
             self.digit = int(strs[1])
-            self.suffix = strs[2].strip()
+            self.suffix = strs[2].strip().upper()
         else:
             self._reset()
 

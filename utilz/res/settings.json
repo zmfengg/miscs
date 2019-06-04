@@ -6,154 +6,176 @@
                 "name": "8K",
                 "fineness": 0.333,
                 "category": "GOLD",
-                "color": "YELLOW"
+                "color": "YELLOW",
+                "density": 1.356
             },
             {
                 "karat": 88,
                 "name": "8KW",
                 "fineness": 0.333,
                 "category": "GOLD",
-                "color": "WHITE"
+                "color": "WHITE",
+                "density": 1.356
             },
             {
                 "karat": 81,
                 "name": "8KR",
                 "fineness": 0.333,
                 "category": "GOLD",
-                "color": "ROSE"
+                "color": "ROSE",
+                "density": 1.356
             },
             {
                 "karat": 9,
                 "name": "9K",
                 "fineness": 0.375,
                 "category": "GOLD",
-                "color": "YELLOW"
+                "color": "YELLOW",
+                "density": 1.378
             },
             {
                 "karat": 98,
                 "name": "9KW",
                 "fineness": 0.375,
                 "category": "GOLD",
-                "color": "WHITE"
+                "color": "WHITE",
+                "density": 1.378
             },
             {
                 "karat": 91,
                 "name": "9KR",
                 "fineness": 0.375,
                 "category": "GOLD",
-                "color": "ROSE"
+                "color": "ROSE",
+                "density": 1.378
             },
             {
                 "karat": 10,
                 "name": "10K",
                 "fineness": 0.417,
                 "category": "GOLD",
-                "color": "YELLOW"
+                "color": "YELLOW",
+                "density": 1.411
             },
             {
                 "karat": 108,
                 "name": "10KW",
                 "fineness": 0.417,
                 "category": "GOLD",
-                "color": "WHITE"
+                "color": "WHITE",
+                "density": 1.411
             },
             {
                 "karat": 101,
                 "name": "10KR",
                 "fineness": 0.417,
                 "category": "GOLD",
-                "color": "ROSE"
+                "color": "ROSE",
+                "density": 1.413
             },
             {
                 "karat": 14,
                 "name": "14K",
                 "fineness": 0.585,
                 "category": "GOLD",
-                "color": "YELLOW"
+                "color": "YELLOW",
+                "density": 1.693
             },
             {
                 "karat": 148,
                 "name": "14KW",
                 "fineness": 0.585,
                 "category": "GOLD",
-                "color": "WHITE"
+                "color": "WHITE",
+                "density": 1.693
             },
             {
                 "karat": 141,
                 "name": "14KR",
                 "fineness": 0.585,
                 "category": "GOLD",
-                "color": "ROSE"
+                "color": "ROSE",
+                "density": 1.617
             },
             {
                 "karat": 18,
                 "name": "18K",
                 "fineness": 0.75,
                 "category": "GOLD",
-                "color": "YELLOW"
+                "color": "YELLOW",
+                "density": 1.912
             },
             {
                 "karat": 188,
                 "name": "18KW",
                 "fineness": 0.75,
                 "category": "GOLD",
-                "color": "WHITE"
+                "color": "WHITE",
+                "density": 1.912
             },
             {
                 "karat": 181,
                 "name": "18KR",
                 "fineness": 0.75,
                 "category": "GOLD",
-                "color": "ROSE"
+                "color": "ROSE",
+                "density": 1.851
             },
             {
                 "karat": 24,
                 "name": "24K",
                 "fineness": 1.0,
                 "category": "GOLD",
-                "color": "YELLOW"
+                "color": "YELLOW",
+                "density": 0
             },
             {
                 "karat": 200,
                 "name": "BRONZE",
                 "fineness": 1.0,
                 "category": "BRONZE",
-                "color": "YELLOW"
+                "color": "YELLOW",
+                "density": 1
             },
             {
                 "karat": 304,
                 "name": "STAINLESS",
                 "fineness": 1.0,
                 "category": "STAINLESS",
-                "color": "WHITE"
+                "color": "WHITE",
+                "density": 0
             },
             {
                 "karat": "925PAJ",
                 "name": "S925PAJ",
                 "fineness": 0.95,
                 "category": "SILVER",
-                "color": "WHITE"
+                "color": "WHITE",
+                "density": 1.263
             },
             {
                 "karat": 925,
                 "name": "925",
                 "fineness": 0.925,
                 "category": "SILVER",
-                "color": "WHITE"
+                "color": "WHITE",
+                "density": 1.263
             },
             {
                 "karat": "S925",
                 "name": "S925",
                 "fineness": 0.925,
                 "category": "SILVER",
-                "color": "WHITE"
+                "color": "WHITE",
+                "density": 1.263
             },
             {
                 "karat": 9925,
                 "name": "BG",
                 "fineness": 0.356,
                 "category": "BONDEDGOLD",
-                "color": "YELLOW"
+                "color": "YELLOW",
+                "density": 1.263
             }
         ],
         "category_alias": {

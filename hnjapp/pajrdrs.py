@@ -723,7 +723,7 @@ class _BomSheetBldr(object):
         # ColorIndex < 0 is transparent, 1 is black, 2 is white
         mkrs = [[x, ] for x, rng in enumerate(rngs) if rng.api.Interior.ColorIndex > 2]
         rngs = tuple(NamedRanges(
-                sht.cells(1, 1), name_map={
+                sht.cells(1, 1), {
                     "jono": "工单",
                     "styno": "款号"
                 }))

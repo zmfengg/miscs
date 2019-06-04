@@ -112,7 +112,7 @@ class _C1Utilz(object):
             alias.update(nl)
         nls = [
             x for x in NamedRanges(
-                rng, col_cnt=(var.column - rng.column), alias=alias)
+                rng, alias, col_cnt=(var.column - rng.column))
             if any(x.data)
         ]
         # sometimes the sheet hides the header row, this might throws excepts, show them
@@ -604,7 +604,7 @@ class Writer(object):
         # read the JO#s
         nls = {
             JOElement.tostr(nl.jono): nl["c1cost"]
-            for nl in NamedRanges(sht[1], alias=self._utilz.alias) if nl.jono
+            for nl in NamedRanges(sht[1], self._utilz.alias) if nl.jono
         }
         if nls:
             logger.debug("totally %d JOs need calculation" % len(nls))

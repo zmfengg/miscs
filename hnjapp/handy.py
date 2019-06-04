@@ -300,7 +300,7 @@ def mtl_cost_forc1(c1calc_fn):
         lossrates = {"GOLD": 1.08, "SILVER": 1.09} if version else {"GOLD": 1.07, "SILVER": 1.08}
         oz2gm = 31.1035
         org = [rng.row, 0]
-        nls = NamedRanges(rng, name_map={"jono": "工单,", "styno": "款号,", "karat0": "成色1", "wgt0": "金重1", "karat1": "成色2", "wgt1": "金重2", "karat2": "成色3", "wgt2": "金重3", "mtlcost": "金费", "mps": "金价"})
+        nls = NamedRanges(rng, {"jono": "工单,", "styno": "款号,", "karat0": "成色1", "wgt0": "金重1", "karat1": "成色2", "wgt1": "金重2", "karat2": "成色3", "wgt2": "金重3", "mtlcost": "金费", "mps": "金价"})
         cc, idx = PajCalc(), 0
         for nl in nls:
             idx += 1
@@ -352,7 +352,7 @@ def check_c1_wgts(cand=None, src=None):
     app, tk = appmgr.acq()
 
     wb = app.books.open(cand)
-    cand = NamedRanges(usedrange(wb.sheets[0]), alias={"jono": "工单号", "styno": "款号", "karat": "成色", "main": "金重", "stone": "石重", "metal_stone": "连石重", "chain": "配件重"})
+    cand = NamedRanges(usedrange(wb.sheets[0]), {"jono": "工单号", "styno": "款号", "karat": "成色", "main": "金重", "stone": "石重", "metal_stone": "连石重", "chain": "配件重"})
     mp, idx, chns = {}, 0, {}
     for nl in cand:
         idx += 1

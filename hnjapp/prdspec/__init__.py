@@ -8,6 +8,6 @@ Product Spec handler, including Acessor/Normalizer
 
 '''
 
-from .controller import Controller
+from ._handler import Handler
 
-__all__ = ['Controller']
+__all__ = ['Handler']

@@ -225,6 +225,8 @@ class KeySuite(TestCase):
         self.assertEqual("BONDEDGOLD", karatsvc.CATEGORY_BG)
         with self.assertRaises(KeyError):
             self.assertEqual("BLACK", karatsvc.COLOR_BLACK)
+        self.assertAlmostEqual(1.016, karatsvc.convert('8K', 1, '9K'), 3)
+        self.assertTrue(karatsvc.convert('8K', 1, '24K') is None, '24K does not have density data')
 
     def testRingSizeCvt(self):
         """ a size converter, maybe should be migrated to UOMConverter """

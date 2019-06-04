@@ -111,7 +111,7 @@ def stsizefmt(sz, shortform=False):
     return _st_fmtr.format(sz, shortform)
 
 
-Karat = namedtuple("Karat", "karat,fineness,name,category,color")
+Karat = namedtuple("Karat", "karat,fineness,density,name,category,color")
 
 
 class KaratSvc(object):
@@ -131,7 +131,7 @@ class KaratSvc(object):
             return
         settings, fn = settings["KaratSvc"], []
         for x in settings["karats"]:
-            byid = [x.get(y) for y in "karat fineness".split()]
+            byid = [x.get(y) for y in "karat fineness density".split()]
             if byid[1] > 1.0:
                 byid[1] = byid[1] / 100
             byid.extend((x.get(y).strip() for y in "name category color".split()))
@@ -222,6 +222,22 @@ class KaratSvc(object):
         """
         kx = [x if isinstance(x, Karat) else self[x] for x in (k0, k1)]
         return kx[0].category == kx[1].category if all(kx) else None
+
+    def convert(self, k0, wgt0, k1):
+        """
+        convert the wgt0 in k0 to k1
+        Args:
+            k0: source Karat object or a name of karat
+            wgt0: source weight
+            k1: target Karat object or a name of karat
+        Returns:
+            the target weight if conversion is OK, else 0 or None
+        """
+        k0, k1 = [x if isinstance(x, Karat) else self.getkarat(x) for x in (k0, k1)]
+        if not all((k0, k1)):
+            return None
+        wgt1 = wgt0 * k1.density / k0.density if k0.density else None
+        return round(wgt1, 2) if wgt1 else None
 
     def compare(self, k0, k1):
         """ check if 2 given karat are the same, Only same category items can be compared

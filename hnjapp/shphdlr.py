@@ -1196,7 +1196,7 @@ class ShpImptr():
         nls = [
             x for x in xwu.NamedRanges(
                 sht.range(1, 1),
-                name_map={
+                {
                     "jono": "工单",
                     "qty": "件数",
                     "qtyleft": "此次,",

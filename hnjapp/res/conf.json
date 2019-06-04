@@ -213,7 +213,12 @@
     "pattern.locket.pics": "(\\d)頁",
     "snno.translation":{
         "6號瓜子耳": "HB2551B",
+        "六號瓜子耳": "HB2551B",
         "8號瓜子耳": "HB2551",
+        "八號瓜子耳": "HB2551",
+        "中號光金瓜子耳": "HB441D",
+        "中號光銀光子耳": "HB441D",
+        "中號光銀瓜子耳": "HB441D",
         "大2號瓜子耳": "HB441B",
         "大2號光金瓜子耳": "HB441C",
         "大耳迫(銀)": "HB207",
@@ -233,8 +238,7 @@
         "魚勾扣": "HB011,HB037",
         "長夾針": "HB1078",
         "中號實心瓜子耳": "PT8012BL",
-        "中號瓜子耳": "HB339",
-        "中號光金瓜子耳": "HB441D"
+        "中號瓜子耳": "HB339"
     },
     "bc.colnames": "lymd,lcod,styn,mmon,mmo2,runn,detl,quan,gwgt,gmas,jobn,ston,descn,desc,rem1,rem2,rem3,rem4,rem5,rem6,rem7,rem8",
     "bc.colnames.alias": "date,location,styno,mp_year,mp_month,runn,cstname,qty,wgt,karat,jono,stone,descn,description,rem1,rem2,rem3,rem4,rem5,rem6,rem7,rem8",
@@ -437,5 +441,23 @@
         "wgt": "重量",
         "type": "记录,",
         "btchid": "备注"
+    },
+    "prdspec.case": "LOWER",
+    "prodspec.meta_tables": {
+        "MetaData": {
+            "type": "m_pt",
+            "craft": "m_mcr",
+            "qclevel": "m_ql",
+            "finishing.method": "m_fm",
+            "finishing.spec": "m_fs",
+            "karat": "m_kt",
+            "feature.catid": "m_fe",
+            "parts.type": "m_ptt",
+            "stone.setting": "m_ss"
+        },
+        "sts":{
+            "stone.shape": "m_stshp",
+            "stone.name": "m_sta"
+        }
     }
 }

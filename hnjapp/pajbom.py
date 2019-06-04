@@ -455,14 +455,14 @@ class PajBomHdlr(object):
         """ append the single_bonded_gold sheet to bom-mstr sheet """
         bgs = xwu.NamedRanges(
             xwu.usedrange(bg_sht),
-            name_map={
+            {
                 "pcode": "十七,",
                 "mtlwgt": "金银重,",
                 "stwgt": "石头,"
             })
         nls = [
             x for x in xwu.NamedRanges(
-                xwu.usedrange(mstr_sht), name_map=self._nmps["mstr"])
+                xwu.usedrange(mstr_sht), self._nmps["mstr"])
         ]
         nl, ridx = nls[0], len(nls)
         if isvalidp17(nls[-1].pcode):
@@ -609,7 +609,7 @@ class _PajBomDAO(object):
         nms, lsts = tuple(self._mat_nmp.values()), []
         nl_mat, phase = self.nl_mat, 1
         to_kt = lambda kt: karatsvc.getfamily(karatsvc.getkarat(kt)).karat if kt and isinstance(kt, str) else int(kt or 0)
-        for nl in xwu.NamedRanges(xwu.usedrange(sht), alias={"jono": "JO#", "pcode": "Image"}):
+        for nl in xwu.NamedRanges(xwu.usedrange(sht), {"jono": "JO#", "pcode": "Image"}):
             jn = nl.mkarat
             if jn and isinstance(jn, str):
                 nl.mkarat = to_kt(jn)

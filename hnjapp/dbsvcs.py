@@ -54,30 +54,23 @@ def fmtsku(skuno):
 
 
 class SNFmtr(object):
-    _ptn_rmk = re.compile(r"\(.*\)")
+    # _ptn_rmk = re.compile(r"\(.*\)")
+    _ptn_rmk = re.compile(r"[\(（].*[\)）]")
     _voidset = set("SN;HB".split(";"))
     _crmp = {
-        "）": ")",
-        "（": "(",
-        ";": ",",
-        "六號瓜子耳": "6號瓜子耳",
         "小心形": "小心型",
         "細心": "小心型",
-        "中號光銀光子耳": "中號光金瓜子耳",
-        "中號光銀瓜子耳": "中號光金瓜子耳"
+        "SN": "",
+        "#": "",
+        "，": ",",
+        "。": "."
     }
-    _rvlst = sorted(
-        "不用封底;執模加圈;圈仔執模做加啤件;不用封底;加啤件;耳針位;請提供;飛邊;占位;光底;夾片;#; ;底;針夾;捲底;相盒;吊墜;吊咀;面做相同花紋;面同一花紋;較用;請提供模號;樣品號;模號請提供;夾底片;片夾底;小占位;有字;用;啤沒有耳仔的"
-        .split(";"),
-        key=lambda x: len(x),
-        reverse=True)
-    _pfx = sorted("大2號;中號".split(";"), key=lambda x: len(x), reverse=True)
-    _sfx = sorted(
-        "夾層;針;小心型;瓜子耳;花".split(";"), key=lambda x: len(x), reverse=True)
+    _snno_mp = config.get("snno.translation")
 
-    def _splitsn(self, sn):
+    @staticmethod
+    def _splitsn(sn, parsemode):
         if not sn:
-            return
+            return None
         sfx, ots = "", ""
         for x in sn:
             if ord(x) > 128:
@@ -86,57 +79,92 @@ class SNFmtr(object):
                 ots += x
         je = JOElement(ots)
         if je.digit > 0:
-            pfx = "%s%d" % (je.alpha, je.digit)
-            sfxx = [x for x in je.suffix]
-            if sfx: sfxx.append(sfx)
-            sn = tuple(pfx + x for x in sfxx) if sfxx else (sn,)
+            pfx, sfxx = "%s%d" % (je.alpha, je.digit), None
+            if parsemode == 2:
+                sfxx = [x for x in je.suffix]
+                if sfx:
+                    sfxx.append(sfx)
+            sn = tuple(pfx + x for x in sfxx) if sfxx else (pfx,)
         else:
             sn = (sn,)
         return sn
 
-    def formatsn(self, sn, parsemode=2, retuple=False):
+    @staticmethod
+    def _split_sns(sns):
+        lst, part, asc0, push = [], "", None, False
+        for x in sns:
+            # split them by the non-ascii for each part
+            part = ""
+            for ch in x:
+                if ch == ' ':
+                    continue
+                asc = min(max(ord(ch), 250), 251) == 250
+                if asc0 is not None:
+                    push = asc0 ^ asc or ch == ','
+                    if push and ch == ',':
+                        ch = ""
+                if push:
+                    lst.append((part, asc0))
+                    part, push = "", False
+                asc0 = asc
+                if ch:
+                    part += ch
+            if part:
+                lst.append((part, asc0))
+        return lst
+
+    @classmethod
+    def formatsn(cls, sn, parsemode=2, retuple=False):
         """
         parse/formatted/sort a sn string to tuple or a string
-
-        @parsemode: #0 for keep SN like "BT1234ABC" as it was
+        Args:
+            parsemode: #0 for keep SN like "BT1234ABC" as it was
                     #1 for set SN like "BT1234ABC" to BT1234
                     #2 for split SN like "BT1234ABC" to BT1234A,BT1234B,BT1234C
-        @retuple:   return the result as a tuple instead of string
+            retuple:   return the result as a tuple instead of string
+        Returns:
+            None if the sn# is invalid, or String or tuple based on Args(retuple)
         """
-        for x in self._crmp.items():
+        for x in cls._crmp.items():
             sn = sn.replace(x[0], x[1])
-        for x in self._rvlst:
-            sn = sn.replace(x, ",")
-        for x in self._pfx:
-            sn = sn.replace(x, "," + x)
-        for x in self._sfx:
-            sn = sn.replace(x, x + ",")
-        sn = re.sub(self._ptn_rmk, ",", sn)
-        if not sn or sn in self._voidset: return
-        lst = sorted([x for x in sn.split(",") if x])
-        buf, dup = [], set()
-        for x in lst:
-            if x in self._voidset: continue
-            if x in dup: continue
-            if parsemode != 0:
-                je = JOElement(x)
-                if je.alpha >= 'A' and je.alpha <= 'Z' and je.suffix:
-                    if parsemode == 1:
-                        x = (je.alpha + str(je.digit),)
-                    else:
-                        x = self._splitsn(x)
+        sn = re.sub(cls._ptn_rmk, ",", sn)
+        sns = [x for x in sn.split(",") if x]
+        fixed, buff = [], []
+        for idx, ch in enumerate(sns):
+            ch = cls._snno_mp.get(ch)
+            if ch:
+                fixed.append(ch)
+                buff.append(idx)
+        if buff:
+            for idx in reversed(buff):
+                del sns[idx]
+        buff, qflag = [], False
+        for s0, asc in cls._split_sns(sns):
+            if qflag and s0[0] == ')':
+                qflag = False
+                continue
+            if not asc:
+                #chinese, big5, need translation, if not translated, ignore it
+                s0 = cls._snno_mp.get(s0)
+                if s0:
+                    fixed.append(s0)
+                    s0 = None
+            if not s0 or s0 in buff:
+                continue
+            qflag = s0[-1] == '('
+            if qflag:
+                s0 = s0[:-1]
+            if len(s0) > 2 and s0.find('MM') < 0 and s0.find('CM') < 0:
+                if parsemode:
+                    buff.extend(cls._splitsn(s0, parsemode))
                 else:
-                    x = (x,)
-            else:
-                x = (x,)
-            for y in x:
-                if not y or y in dup: continue
-                dup.add(y)
-                buf.append(y)
-        return buf if retuple else ",".join(buf)
+                    buff.append(s0)
+        if fixed:
+            buff.extend(fixed)
+        return buff if retuple else ",".join(buff)
 
 
-formatsn = SNFmtr().formatsn
+formatsn = SNFmtr.formatsn
 
 
 def jesin(jes, objclz):
@@ -830,7 +858,6 @@ class _JO2BC(object):
         self._pp = self._pp_x = None
         self._v_c2n = {x["color"]: x for x in config.get("vermail.defs")}
         x = config.get("bc.description.stone.categories")
-        self._snno_mp = config.get("snno.translation")
         self._stcats = {z: x for x, y in x.items() for z in y}
         self._cnsvc = cnsvc
         x = config.get("bc.sns")
@@ -1096,46 +1123,4 @@ class _JO2BC(object):
         # HB1762底P27473,中號光金瓜子耳
         # #HB2600底夾片HB1485,PT5012BL
         '''
-        if not snno:
-            return None
-        for ch in ('SN', '#'):
-            snno = snno.replace(ch, '')
-        sns = snno.split(",")
-        # some keywords contains non-ascii character, so do replace first
-        for idx, ch in enumerate(sns):
-            if ch in self._snno_mp:
-                sns[idx] = self._snno_mp[ch]
-        lst, part, od0, push = [], "", 0, False
-        for y in sns:
-            part = ''
-            for ch in y:
-                if ch == ' ':
-                    continue
-                od = min(max(ord(ch), 250), 251)
-                if od0:
-                    push = od0 != od or ch == ','
-                    if push and ch == ',':
-                        ch = ""
-                if push:
-                    lst.append((part, od0))
-                    part, push = "", False
-                od0 = od
-                part += ch
-            if part:
-                lst.append((part, od0))
-        od0, sns = [], False
-
-        for part, od in lst:
-            if sns and part[0] == ')':
-                sns = False
-                continue
-            if od == 251:
-                #chinese, big5, need translation, if not translated, ignore it
-                part = self._snno_mp.get(part)
-            if part and part not in od0:
-                sns = part[-1] == '('
-                if sns:
-                    part = part[:-1]
-                if len(part) > 2 and part.find('MM') < 0 and part.find('CM') < 0:
-                    od0.append(part)
-        return od0
+        return formatsn(snno, 0, True)

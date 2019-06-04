@@ -397,9 +397,12 @@ def _chop_at(orgimg, chop_img, chop_at=3):
 def NamedRanges(rng, trmap=None, newinst=True, **kwds):
     """
     return the data under or include the range as namedlist list
-    @param skip_first_row: boolean, don't process the first row, default is False
-    @param name_map: the name->title mapping, see @list2dict FMI, default is None
-    @param col_cnt: the count of columns to search, default is 0, that is unlimited
+    Args:
+        skip_first_row: boolean, don't process the first row, default is False
+        name_map: the name->title mapping, see @list2dict FMI, default is None
+        newinst: create NamedList for each item, menory consuming but safe
+    Optional Args:
+        col_cnt: the count of columns to search, default is 0, that is unlimited
     """
     if not rng:
         return None
@@ -558,7 +561,7 @@ def _rows_or_cols(addr, row=True):
 
 def hidden(sht, row=True):
     """ return the hidden row/column inside a sheet's used ranged """
-    lsts, rng0 = [], sht.used_range
+    lsts, rng0 = [], usedrange(sht)
     if not rng0:
         return None
     _rc = lambda rg, row: rg.row if row else rg.column

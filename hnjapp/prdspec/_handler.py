@@ -7,17 +7,19 @@
 services help to handle the product specification sheet
 '''
 
+from difflib import SequenceMatcher
+
 from xlwings.constants import BordersIndex, LineStyle
 
-from utilz import NamedLists, triml
+from hnjapp import config
+from utilz import NamedLists
 from utilz.xwu import addr2rc, apirange, nextcell, nextrc, rc2addr
-from ._nrls import Normalizer
 
-_nrm = triml
-_cn_seqid = _nrm('seqid')
+from ._nrlib import _Utilz, BaseNrl, MetalNrl, PartsNrl, FinishingNrl, SizeNrl, StoneNrl, FeatureNrl, JENrl
 
+_nrm = _Utilz.nrm
 
-class Controller(object):
+class Handler(object):
     '''
     read data out from requested workbook
     '''
@@ -25,9 +27,9 @@ class Controller(object):
     def __init__(self, wb):
         self._wb = wb
         # hold the often used constans
-        self._nmps = self._cnstmp = self._sht_tar = self._full_inited = None
+        self._nmps = self._cnstmp = self._meta_mp = self._sht_tar = self._full_inited = None
         self._init_consts()
-        self._read_mapping()
+        self._read_field_map()
 
     def _init_consts(self):
         self._cnstmp = {
@@ -47,7 +49,64 @@ class Controller(object):
             }
         }
 
-    def _read_mapping(self):
+
+    def _read_hint_defs(self):
+        '''
+        read meta data except the field mappings from the meta sheet
+        '''
+        if self._meta_mp:
+            return
+        self._meta_mp = {}
+        for sn, mp in config.get('prodspec.meta_tables').items():
+            sht = self._wb.sheets(sn)
+            for meta_type, tblname in mp.items():
+                addr = apirange(sht.api.listObjects(tblname).Range)
+                self._meta_mp[_nrm(meta_type)] = {_nrm(nl['name']): nl for nl in NamedLists(addr.value)}
+        # in the case of stone name, build an abbr -> name hints map
+        mp = {_nrm(nl['hp.abbr']): _nrm(nl['name']) for nl in self._meta_mp[_nrm('stone.name')].values()}
+        self._meta_mp[_nrm('stone.abbr')] = mp
+
+
+    def get_hints(self, meta_type, cand):
+        '''
+        find a best match meta data item based on the cand string.
+        Args:
+            meta_type(string): sth. like 'producttype'/'finishingmethod', which was defined in conf.json under key 'prodspec.meta_tables'
+            cand(string): the candidate string that need matching
+        Returns:
+            A tuple as:
+                [0]: 1 if meta_type is defined and match is perfect
+                     2 if meta_type is defined and match is not perfect
+                     0 if meta_type is not defined
+                [1]: the best-match item or None when [0] is True or None
+        '''
+        if not self._meta_mp:
+            self._read_hint_defs()
+        meta_type = _nrm(meta_type)
+        mp = self._meta_mp[meta_type]
+        if not mp:
+            return 0, None
+        ncand = _nrm(cand)
+        if meta_type == _nrm('stone.name'):
+            ncand = self._meta_mp[_nrm('stone.abbr')].get(ncand, ncand)
+        nl = mp.get(ncand)
+        if nl:
+            return 1, _nrm(nl['name']) # TODO::return based on meta_type
+        sm = SequenceMatcher(None, ncand, None)
+        ln = len(cand)
+        rts, min_mt = [], 2 * max(2, ln * 0.6) # at least 2 or 1/2 match
+        for s in mp:
+            sm.set_seq2(s)
+            rt = sm.ratio()
+            if rt >= min_mt / (ln + len(s)):
+                rts.append((rt, s,))
+        if not rts:
+            return 2, None
+        rts = sorted(rts, key=lambda x: x[0])
+        return 2, rts[-1][1]
+
+
+    def _read_field_map(self):
         '''
         read the field mapping from the requested workbook
         '''
@@ -77,21 +136,22 @@ class Controller(object):
                 mp.setdefault('_i2n', {})[idx] = name
         self._nmps = {x[0]: x[1] for x in
             zip('n2addr addr2n reg2n'.split(), (n2addr, addr2n, {}))}
-        self._nmps['_table_key_cols'] = {nl.tblname: nl.cols for nl in NamedLists(apirange(sht.api.listObjects('m_fkc').Range).value)}
+        self._nmps['_table_key_cols'] = {_nrm(nl.tblname): nl.cols for nl in NamedLists(apirange(sht.api.listObjects('m_fkc').Range).value)}
 
     def _calc_n2addr(self, name):
         '''
         do some range calculation based on the mappings
         '''
-        mp = self._nmps['n2addr'][name]
+        mp = self._nmps['n2addr'][_nrm(name)]
         if not isinstance(mp, dict) or '_max_cnt' in mp:
             return
         _rg = self._sht_tar.range
         ud = self._cnstmp['_dir_ud']
-        cn = _cn_seqid if _cn_seqid in mp else next(self._get_cns(mp))
+        cn_seqid = _Utilz.cn_seqid()
+        cn = cn_seqid if cn_seqid in mp else next(self._get_cns(mp))
         var, di = mp[cn]
         rng = self._sht_tar.range(var)
-        if cn == _cn_seqid:
+        if cn == cn_seqid:
             # don't use expand, quite slow
             # rng = _rg(rng, rng.end(di))# if di in self._cnstmp('_dir_ul') else rng.expand(di)
             rng = _rg(rng.address + ':' + rng.end(di).address)
@@ -107,7 +167,7 @@ class Controller(object):
         mc = rng.rows.count if di in ud else rng.columns.count
         mp['_max_cnt'], mp['_org'], mp['_dir'] = mc, addr2rc(var)[0], di
         mp['_region'] = var = self._calc_n2addr_table(mp)
-        self._nmps['reg2n'][name] = addr2rc(var)
+        self._nmps['reg2n'][_nrm(name)] = addr2rc(var)
 
     @staticmethod
     def _end(rng, di):
@@ -187,7 +247,7 @@ class Controller(object):
             pt0, pt1 = pts
             # TODO:: find the exit point
             if all([pt0[x] <= pt[x] <= pt1[x] for x in range(2)]):
-                mp = self._nmps['n2addr'][name]
+                mp = self._nmps['n2addr'][_nrm(name)]
                 di, pt0 = 0 if mp['_dir'] in ud else 1, mp['_org']
                 row = abs(pt0[di] - pt[di]) + 1
                 return name, row, mp['_i2n'].get(pt[0 if di else 1])
@@ -197,26 +257,28 @@ class Controller(object):
     def _get_cns(mp):
         return (x for x in mp if x.find('_') < 0)
 
-    def read(self):
+    def read(self, normalize=True, upd_src=True):
         '''
         read the data inside given workbook as a map
         For single values, it's key-value form. For table values, it's key-(namedlist, list) form
+        Args:
+            normalize: normalize the source data, this should always be true
+                because there might be mal-form data
+            upd_src: update the source(excel) for those been normalized
         '''
-        rmp = {}
+        rmp, cn_seqid = {}, _Utilz.cn_seqid()
         for name, var in self._nmps['n2addr'].items():
             nd = self.get(name)
             if isinstance(var, dict):
                 off, di = var['_org'], var['_dir']
-                n2imp = {x[1]: x[0] - off[0 if di not in self._cnstmp['_dir_ud'] else 1] for x in var['_i2n'].items() if x[1] != _cn_seqid}
+                n2imp = {x[1]: x[0] - off[0 if di not in self._cnstmp['_dir_ud'] else 1] for x in var['_i2n'].items() if x[1] != cn_seqid}
                 vvs = nd.get().value # all value in the table without seqid
                 rmp[name] = self._transform(name, n2imp, vvs, di)
             else:
                 rmp[name] = nd.get().value
-        vdr = Normalizer(self)
-        rmp, chgs = vdr.normalize(rmp)
-        if chgs:
-            vdr.updateXl(chgs)
-        return rmp, chgs
+        if upd_src or normalize:
+            rmp = _NRInvoker().normalize(rmp, self, normalize, BaseNrl.LEVEL_ADVICE)
+        return rmp
 
     def _transform(self, tblname, n2imp, vvs, di):
         cns = [x for x in n2imp]
@@ -285,3 +347,104 @@ class Node(object):
         if getmerged and rng and rng.api.mergecells:
             rng = apirange(rng.api.mergearea)
         return rng
+
+class _NRInvoker(object):
+    '''
+    class help to validate the form's field one by one
+    mainly make use of the sub classes of BaseNrl to complete the task
+    '''
+
+    def __init__(self):
+        # in single case, row/colname is None
+        # a validation result. those fully pass should not create such record
+        self._nrl_mp = None
+        self._init_nrls()
+
+    def _hl(self, rng, level, rmks):
+        if not rng:
+            return
+        ci, api = self._get_hl_color(level), None
+        if ci > 0:
+            api = rng.api
+            api.interior.colorindex = ci
+        if rmks:
+            if not api:
+                api = rng.api
+            api.ClearComments()
+            api.AddComment()
+            api = api.Comment
+            api.Text(Text=rmks)
+
+    @staticmethod
+    def _get_hl_color(level):
+        if level < BaseNrl.LEVEL_MINOR:
+            return 19   # light yellow
+        if level < BaseNrl.LEVEL_CRITICAL:
+            return 6    # yellow
+        return 3    # red
+
+    def _init_nrls(self):
+        if self._nrl_mp:
+            return
+        self._nrl_mp = {}
+        # maybe from the config file
+        tu = _Utilz.get_base_nrm('tu')
+        for n in 'styno qclevel parent craft description'.split():
+            self._nrl_mp[_nrm(n)] = tu
+        mp = {
+            'docno': JENrl,
+            'dim': SizeNrl,
+            'metal': MetalNrl,
+            'finishing': FinishingNrl,
+            'parts': PartsNrl,
+            'stone': StoneNrl
+        }
+        for n, cn in mp.items():
+            self._nrl_mp[_nrm(n)] = cn(name=n)
+        tu = FeatureNrl(name='feature')
+        for n in 'feature feature1'.split():
+            self._nrl_mp[_nrm(n)] = tu
+
+
+    def normalize(self, mp, hdlr=None, upd_src=True, hl_level=BaseNrl.LEVEL_MINOR):
+        '''
+        normalize the result map
+        Args:
+            mp({string, BaseNrl}): a map generated by prdspec.Handler.read() method
+            hdlr(prodspec.Handler): write updates via this writer if provided
+            upd_src: update the source excel for those normalized
+            hl_level: hight light those changes has high value than this
+        '''
+        logs = []
+        for pp_name in mp:
+            pp_name = _nrm(pp_name)
+            vdrs = self._nrl_mp.get(pp_name)
+            if not vdrs:
+                continue
+            if isinstance(vdrs, BaseNrl):
+                vdrs = (vdrs, )
+            for vdr in vdrs:
+                vdr.hdlr = hdlr
+                logx = vdr.normalize(mp, pp_name)
+                if logx:
+                    logs.extend(logx)
+        # maybe sort the chges by name + row + name
+        if logs:
+            logs.insert(0, tuple(BaseNrl.nl.colnames))
+            logs = NamedLists(logs)
+            if hdlr and upd_src:
+                self.update_xls(logs, hdlr, hl_level)
+        return mp, logs
+
+    def update_xls(self, logs, rdr, hl_level):
+        '''
+        high-light the given invalid items(a collection of self._nl_vld)
+        '''
+        for nl in logs:
+            if not nl.name:
+                continue
+            rng = rdr.get(nl.name)
+            rng = rng.get(nl.row, nl.colname) if nl.row else rng.get()
+            rng.value = nl.newvalue
+            if nl.level >= hl_level:
+                self._hl(rng, nl.level, nl.remarks)

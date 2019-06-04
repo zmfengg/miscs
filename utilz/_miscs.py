@@ -500,8 +500,11 @@ class NamedList(object):
 
     def setdata(self, val):
         """
-        set the internal data(should be of tuple/list). always return myself
-        so that you can use continous action
+        set the internal data(should be of tuple/list)
+        Args:
+            val: the array that need to be feed to me
+        Returns:
+            myself
         """
         if val:
             if isinstance(val, Sequence) and len(self._nmap) != len(val):
