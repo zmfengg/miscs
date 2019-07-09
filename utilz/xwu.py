@@ -474,6 +474,13 @@ def escapetitle(pg):
     s0 = "".join(ss)
     return s0
 
+def esctext(val):
+    ''' when given is a string and starts with ', remove the '
+    '''
+    if val and isinstance(val, str):
+        if val[0] == "'":
+            val = val[1:]
+    return val
 
 _col_idx = lambda ch: ord(ch) - (64 if ch < 'a' else 96) #ord('A') is 65
 _col_pow = (
@@ -609,9 +616,10 @@ def nextcell(rng, direction="right", steps=1, detect_merge=True):
 def nextrc(rc, direction="right", steps=1):
     '''
     next (row, col) of given (row, col) and given steps
-    @param rc: the based (row, col) or an address like '$A$2'
-    @param direction: one of ('right', 'left', 'up', 'down'), default is 'right'
-    @param steps: the steps to go, default is 1
+    Args:
+        rc: the based (row, col) or an address like '$A$2'
+        direction: one of ('right', 'left', 'up', 'down'), default is 'right'
+        steps: the steps to go, default is 1
     '''
     direction = trimu(direction)
     ofs = _dir_mp.get(direction)

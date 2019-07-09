@@ -20,14 +20,15 @@ from sqlalchemy.orm import Query
 from xlwings.constants import LookAt
 
 from hnjapp.c1rdrs import C1InvRdr
-from hnjapp.dbsvcs import JOElement, jesin
+from hnjapp.svcs.db import jesin
+from hnjcore import JOElement
 from hnjcore.models.cn import JO as JOcn, Plating, StoneMaster, Style
 from hnjcore.models.hk import JO, POItem
 from utilz import (NamedList, ResourceCtx, getvalue, karatsvc, na, splitarray,
                    stsizefmt, trimu)
 from utilz.xwu import NamedRanges, appmgr, find, fromtemplate, hidden, offset
 
-from .common import Utilz, config
+from .common import config, _JO_Extractor, Utilz
 from .common import _logger as logger
 from .localstore import C1JC, C1JCFeature, C1JCStone, FeaSOrN
 
@@ -193,9 +194,11 @@ class _C1Utilz(object):
 class Writer(object):
     """
     read JO data from source excel and then create the c1cc file from it
-    @param hksvc: the services help to handle HK data
-    @param cnsvc: the services help to handle CN data
-    @param his_engine|engine: the creator function help to create the history engine
+    Args:
+        hksvc: the services help to handle HK data
+        cnsvc: the services help to handle CN data
+        his_engine|engine: the creator function help to create the history engine
+        keep_dtl: keep detail as possible
     """
 
     def __init__(self, hksvc, cnsvc, **kwds):
@@ -211,6 +214,7 @@ class Writer(object):
         self._st_fixed = {y: x[1] for x in config.get("c1calc.stone_dialect", {}).items() for y in x[0].split()}
         self._utilz = _C1Utilz()
         self._init_stx()
+        self._extr = _JO_Extractor(kwds.get("keep_dtl"))
 
     @property
     def _loc_sess_ctx(self):
@@ -218,6 +222,8 @@ class Writer(object):
 
     def _init_stx(self):
         """ load stone data from workflow """
+        if not self._hksvc:
+            return
         kw = "_INITED_"
         if kw not in self._st_fixed:
             mp = config.get("c1calc.fixed_stone")
@@ -356,11 +362,22 @@ class Writer(object):
                 1 for x in "相 盒".split() if jo.description.find(x) >= 0
         ]:  #big5
             nl.f_spec = "相盒"
-        for vc in vcs or []:
-            if vc == "VK":
-                nl.f_micron = self._get_micron(jo)
-            elif not nl.f_tt and kt.color != vc:
-                nl.f_pen = "是"
+        if not vcs:
+            vcs = []
+        if self._extr._keep_dtl:
+            nl.f_micron = ";".join('%s=%s' % vc for vc in vcs if vc[1])
+            for vc, thk in vcs:
+                if thk:
+                    continue
+                elif not nl.f_tt and kt.color != vc:
+                    nl.f_pen = "是"
+                    break
+        else:
+            for vc, thk in vcs:
+                if thk:
+                    nl.f_micron = self._get_micron(jo)
+                elif not nl.f_tt and kt.color != vc:
+                    nl.f_pen = "是"
         if sum((1 for x in "打 噴 沙 砂".split() if jo.remark.find(x) >= 0)) > 1:
             nl.f_other = (nl.f_other or 0) + 5
         if jo.description.find("套") >= 0:  # big5
@@ -386,15 +403,15 @@ class Writer(object):
     def _extract_jis(self, jo, wgts):
         """ calc the main/side stone, sort and calc the BL """
         # ms is mainstone sign, can be one of M/S/None
-        mp = Utilz.extract_jis((jo, ), self._hksvc)
+        mp = self._extr.extract_jis((jo, ), self._hksvc)
         jis, nl_ji, miscs = mp[jo.id] if mp else (None, ) * 3
-        vx = Utilz.extract_vcs(jo, [nl_ji.setdata(x).sto for x in jis] if jis else None, wgts)
+        vx = self._extr.extract_vcs(jo, [nl_ji.setdata(x).sto for x in jis] if jis else None, wgts)
         if not mp:
             return None, None, vx
         ms_cand = []
         cat = Utilz.getStyleCategory(jo.style.name.value, jo.description)
         is_ds = jo.remark.find("碟") >= 0 or jo.style.name.alpha.find("M") >= 0
-        _ms_chk = lambda cat, nl_ji: nl_ji.stqty == (1 if cat != "EARRING" else 2) and nl_ji.szcal >= "0300"
+        _ms_chk = lambda cat, nl_ji: nl_ji.stqty == (1 if cat != "EARRING" else 2) and nl_ji.szcal and nl_ji.szcal >= "0300"
         for ji in jis:
             nl_ji.setdata(ji)
             if nl_ji.stsize:
@@ -430,9 +447,9 @@ class Writer(object):
         for ji in miscs:
             nl_ji.setdata(ji)
             if not nl_ji.sto:
-                vx.add(nl_ji.setting)
+                vx.add((nl_ji.setting, None))
             else:
-                if nl_ji.sto == Utilz.MISC_LKSZ:
+                if nl_ji.sto == self._extr.MISC_LKSZ:
                     continue
                 nl_ji.stqty, nl_ji.stwgt = (None, ) * 2
                 jis.append(ji)
@@ -474,6 +491,8 @@ class Writer(object):
             return None
         rc = None
         st, shp, qty, sz = [nl[x] for x in "sto shpo stqty szcal".split()]
+        if not sz:
+            return None
         if st in self._st_fixed:
             rc = self._st_fixed[st]
         elif st in self._st_dd and shp == "R":
@@ -528,10 +547,17 @@ class Writer(object):
     def _fetch_data(self, jns, **kwds):
         """ fetch data from db to an list """
         extra = kwds.get("extra", {})
+        dtls = {} if kwds.get('_dtl') else None
         with ResourceCtx((self._hksvc.sessmgr(), self._cache_sm, )) as curs:
             tc = time()
             logger.debug("begin to fetch data from HK JO system, might take quite a long time")
             jos, jerrs = self._hksvc.getjos(jns.keys())
+            if dtls is not None:
+                dtls = {jo.name.name: {'sn': jo.snno,
+                    'rmk': jo.remark,
+                    'description': jo.description,
+                    'cstname': jo.orderma.customer.name.strip(),
+                    'wgt': self._hksvc.getjowgts(jo)} for jo in jos}
             if jos and logger.isEnabledFor(DEBUG):
                 logger.debug("using %4.2f seconds to get %d jos from HK JO system" % (time() - tc, len(jos)))
             skmp = self._utilz.fetch_jo_skunos(curs[0], [JOElement(x) for x in jns])
@@ -564,7 +590,9 @@ class Writer(object):
             for jo in jerrs:
                 lsts.extend(nl.newdata(True))
                 nl.jono = jo
-        return lsts
+        if dtls is None:
+            return lsts
+        return lsts, dtls
 
     def _adj_micron(self, nl, extra):
         ''' put the micron to result, if there is already one, put together '''
@@ -597,7 +625,7 @@ class Writer(object):
             wb.close()
             wb, sht = sht, self.find_sheet(sht)
             #find the micron if there is
-            extra = {("'" + JOElement.tostr(x[1])): Utilz.extract_micron(x[2]) for x in nls if x[2] and x[2].find("咪") >= 0}
+            extra = {("'" + JOElement.tostr(x[1])): self._extr.extract_micron(x[2]) for x in nls if x[2] and x[2].find("咪") >= 0}
             offset(find(sht[0], self._utilz.alias["c1cost"]), 1, 0).value = [(x[0], x[1]) for x in nls if x[0] > 0]
         self._nl = sht[-1]
 
@@ -611,6 +639,19 @@ class Writer(object):
             nls = self._fetch_data(nls, extra=extra)
             self._write(nls, sht[0])
         return wb
+
+    def for_x(self, jns):
+        wb = fromtemplate(self._tpl_file())
+        sht = self.find_sheet(wb)
+        self._nl = sht[-1]
+        mp = {x: 0.0 for x in jns}
+        lst = self._fetch_data(mp, _dtl=True)
+        wb.close()
+        if not lst:
+            return None
+        lst[0].insert(0, self._nl)
+        # this is a tuple and map item
+        return lst
 
 
 class HisMgr(object):

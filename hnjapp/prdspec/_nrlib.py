@@ -7,58 +7,22 @@
 local normalizers for a product specification form
 '''
 
+import inspect
 from abc import ABC, abstractmethod
+from os import path
 
 from hnjapp.c1rdrs import _fmtpkno
-from hnjapp.common import config
-from hnjapp.dbsvcs import formatsn
+from hnjapp.svcs.db import formatsn, _JO2BC
 from hnjcore import JOElement
-from utilz import NamedList, karatsvc, stsizefmt, triml, trimu, na
+from utilz import NamedList, karatsvc, na, stsizefmt, trimu
+from ._utilz import _Utilz, _nrm, _Tbl_Optr
 
+thispath = path.abspath(path.dirname(inspect.getfile(inspect.currentframe())))
 
-class _Utilz(object):
-    _nrm = _cn_seqid = None
-    _base_nrls = {}
-
-    @classmethod
-    def nrm(cls, s):
-        """ normalize a string
-        Args:
-            s: the string to normalize
-        """
-        if not cls._nrm:
-            c = config.get("prdspec.case") or 'UPPER'
-            cls._nrm = triml if  c == 'LOWER' else trimu
-        return cls._nrm(s)
-
-    @classmethod
-    def cn_seqid(cls):
-        """ colname of the sequence id
-        """
-        if not cls._cn_seqid:
-            cls._cn_seqid = cls.nrm('seqid')
-        return cls._cn_seqid
-
-    @classmethod
-    def get_base_nrm(cls, name):
-        '''
-        return the often used normalizer
-        Args:
-            name: only support tu/tr
-        '''
-        n = cls.nrm(name)
-        nrl = cls._base_nrls.get(n)
-        if nrl:
-            return nrl
-        if n == cls.nrm('tu'):
-            nrl = TUNrl(name="base trim and upper handler")
-        elif n == cls.nrm('tr'):
-            nrl = TrimNrl(name="base trim and upper handler")
-        if nrl:
-            cls._base_nrls[n] = nrl
-        return nrl
-
-_nrm = _Utilz.nrm
+# not sure
+_nsr = lambda s: s and s.find('_') >= 0
+# level for not sure
+_nsl = lambda s, lv: BaseNrl.LEVEL_ADVICE if _nsr(s) else lv
 
 class BaseNrl(ABC):
     '''
@@ -73,6 +37,7 @@ class BaseNrl(ABC):
     LEVEL_MINOR = 50
     LEVEL_ADVICE = 100
     LEVEL_CRITICAL = 200
+    _base_nrls = {}
 
     def __init__(self, **kwds):
         self._default_level = kwds.get('level', self.LEVEL_MINOR)
@@ -104,9 +69,14 @@ class BaseNrl(ABC):
         '''
         nl = self.nl
         nl.newdata()
-        nl.oldvalue, nl.newvalue, nl.level = oldval, newval, self._default_level
+        lvl = kwds.get('level')
+        if lvl is None:
+            lvl = self._default_level
+        nl.oldvalue, nl.newvalue, nl.level = oldval, newval, lvl
         if kwds:
             cm = set(nl.colnames)
+        if 'name' not in kwds:
+            kwds['name'] = self._name
         for n, v in kwds.items():
             if n not in cm:
                 continue
@@ -115,6 +85,25 @@ class BaseNrl(ABC):
             else:
                 nl[n] = v
         return nl.data
+
+    @classmethod
+    def get_base_nrm(cls, name):
+        '''
+        return the often used normalizer
+        Args:
+            name: only support tu/tr
+        '''
+        n = _nrm(name)
+        nrl = cls._base_nrls.get(n)
+        if nrl:
+            return nrl
+        if n == _nrm('tu'):
+            nrl = TUNrl(name="base trim and upper handler")
+        elif n == _nrm('tr'):
+            nrl = TrimNrl(name="base trim and upper handler")
+        if nrl:
+            cls._base_nrls[n] = nrl
+        return nrl
 
 class TrimNrl(BaseNrl):
     '''
@@ -128,11 +117,11 @@ class TrimNrl(BaseNrl):
 
     def normalize(self, pmap, name):
         old = pmap[name]
-        nv = old.strip()
+        nv = old.strip() if old else None
         if nv != old:
             pmap[name] = nv
-            return (self._new_log(old, nv, name=name,
-                remarks='(%s) trimmed to (%s)' % (old, nv)),)
+            lvl = _nsl(nv, self._default_level)
+            return (self._new_log(old, nv, name=name, level=lvl),)
         return super().normalize(pmap, name)
 
 
@@ -147,11 +136,13 @@ class TUNrl(BaseNrl):
         super().__init__(*args, **kwds)
 
     def normalize(self, pmap, name):
-        old = pmap[name]
-        nv = trimu(old)
-        if nv != old:
-            pmap[name] = nv
-            return (self._new_log(old, nv, name=name),)
+        if name in pmap:
+            old = pmap[name]
+            nv = trimu(old)
+            if nv != old:
+                pmap[name] = nv
+                lvl = _nsl(nv, self._default_level)
+                return (self._new_log(old, nv, name=name, level=lvl),)
         return super().normalize(pmap, name)
 
 
@@ -202,16 +193,99 @@ class SizeNrl(BaseNrl):
     formatting stone size or object dimension
     '''
     def normalize(self, pmap, name):
-        ov = trimu(str(pmap[name]))
-        if not ov:
-            return None
-        sfx = ov.find('SZ')
-        if sfx > 0:
-            ov, sfx = ov[:sfx], ov[sfx:]
+        if name in pmap:
+            ov = trimu(str(pmap[name]))
+            if not ov or ov.find(':') > 0: # Locket size case
+                return None
+            sfx = ov.find('SZ')
+            if sfx > 0:
+                ov, sfx = ov[:sfx], ov[sfx:]
+            else:
+                sfx = ''
+            nv = stsizefmt(str(ov), True) + sfx
+            if nv == ov:
+                if nv and _nsr(nv):
+                    return  (self._new_log(ov, nv, level=self.LEVEL_ADVICE),)
+                return super().normalize(pmap, name)
+            return  (self._new_log(ov, nv, name=name, remarks=None, level=_nsl(nv, self.LEVEL_RPLONLY)),)
+        return super().normalize(pmap, name)
+
+class DescNrl(BaseNrl):
+    ''' make the description based on the data map
+    '''
+    def normalize(self, pmap, name):
+        lsts, ov = [], pmap.get(name)
+        if True:
+            nls = pmap.get(_nrm('finishing'))
+            if nls:
+                # merge the duplicated
+                nls = set((nl['method'], ) for nl in nls if nl['method'][0] == 'V')
+            lsts.append(_JO2BC().knc_mix(pmap.get('_wgtinfo'), nls or set()))
         else:
-            sfx = ''
-        nv = stsizefmt(str(ov), True) + sfx
-        return  (self._new_log(ov, nv, name=name, remarks=None, level=self.LEVEL_RPLONLY),)
+            nls = pmap.get(_nrm('metal'))
+            if nls:
+                lsts.append("&".join([nl.karat for nl in nls]))
+            nls = pmap.get(_nrm('finishing'))
+            if nls:
+                # merge the duplicated
+                nls = set(nl['method'] for nl in nls if nl['method'][0] == 'V')
+                if nls:
+                    lsts.append("&".join(nls))
+        nls = self._make_desc_st(pmap)
+        if nls:
+            lsts.append(nls)
+        ptype = pmap[_nrm('type')]
+        if ptype == 'PENDANT':
+            nls = pmap.get(_nrm('feature'))
+            if nls:
+                nls = [nl for nl in nls if nl['catid'] == 'KEYWORDS' and nl['value'].find('LOCKET') >= 0]
+                if nls:
+                    ptype = 'LOCKET PENDANT'
+        lsts.append(ptype)
+        nls = pmap.get(_nrm('parts'))
+        if nls:
+            if [nl for nl in nls if nl['type'] == 'XP']:
+                lsts.append('ROPE CHAIN')
+        return  (self._new_log(ov, " ".join(lsts), name=name, remarks=ov, level=self.LEVEL_ADVICE),)
+
+    @staticmethod
+    def _make_desc_st(pmap):
+        ''' sort by stone size desc, then stone name. Dia will always be at the end
+        '''
+        sts = pmap.get(_nrm('stone'))
+        if not sts:
+            return None
+        sts = sorted([st for st in sts], key=lambda st: str(st['size']), reverse=True)
+        pfx, sfx = set(), None
+        for st in sts:
+            sn = st['name']
+            if sn.find('DIAMOND') >= 0:
+                sfx = sn
+            else:
+                pfx.add(sn)
+        pfx = " ".join(pfx) if len(pfx) < 3 else "RAINBOW"
+        if sfx:
+            pfx = pfx + " " + sfx
+        return pfx
+
+class NWgtNrl(BaseNrl):
+    ''' NetWgt calculator
+    '''
+
+    def normalize(self, pmap, name):
+        nwgt = 0
+        nls = pmap.get(_nrm('metal'))
+        if nls:
+            nwgt += sum([nl.wgt for nl in nls if nl.wgt])
+        nls = pmap.get(_nrm('stone'))
+        if nls:
+            uv = {'CT': 0.2, 'GM': 1, 'TL': 37.429}
+            nwgt += sum([nl.wgt * uv.get(nl['wgtunit'], 0.2) for nl in nls if nl.wgt])
+        nls = pmap.get(_nrm('parts'))
+        if nls:
+            nwgt += sum([nl.wgt for nl in nls if nl['type'] == 'XP' and nl['karat'] and nl.wgt])
+        ov, nwgt = pmap.get(name), round(nwgt, 3)
+        return  (self._new_log(ov, nwgt, name=name, remarks=None, level=self.LEVEL_ADVICE if ov else self.LEVEL_RPLONLY),)
 
 class TBaseNrl(BaseNrl):
     '''
@@ -280,7 +354,7 @@ class MetalNrl(TBaseNrl):
 
     def _reg_nrls(self):
         self._nrl_mp = {
-            'remarks': _Utilz.get_base_nrm('tu')
+            'remarks': self.get_base_nrm('tu')
         }
 
     def _nrl_one(self, name, row, nl, logs):
@@ -317,9 +391,9 @@ class FinishingNrl(TBaseNrl):
     '''
 
     def _reg_nrls(self):
-        tu = _Utilz.get_base_nrm('tu')
+        tu = self.get_base_nrm('tu')
         self._nrl_mp = {
-            'remarks': _Utilz.get_base_nrm('tr'),
+            'remarks': self.get_base_nrm('tr'),
             'method': tu,
             'spec': tu
         }
@@ -332,6 +406,21 @@ class FinishingNrl(TBaseNrl):
             if mt == 2 and cand:
                 cand = trimu(cand)
                 self._append_log(logs, nl[colname], cand, '(%s) => (%s)' % (nl[colname], cand), name=name, row=row, colname=colname, nl=nl, level=self.LEVEL_ADVICE)
+        self._fix_vk(nl)
+
+    @staticmethod
+    def _fix_vk(nl):
+        spec = nl['spec']
+        if not spec:
+            return
+        idx = spec.find('MIC')
+        if idx <= 0:
+            return
+        h = float(spec[:idx].strip())
+        if h >= 1:
+            spec = nl['method']
+            if spec[1] != 'K':
+                nl['method'] = 'VK' if spec[1] == 'Y' else spec[0] + 'K' + spec[1:]
 
 class PartsNrl(TBaseNrl):
     '''
@@ -339,8 +428,8 @@ class PartsNrl(TBaseNrl):
     '''
 
     def _reg_nrls(self):
-        tu = _Utilz.get_base_nrm('tu')
-        self._nrl_mp = {'remarks': _Utilz.get_base_nrm('tr'), 'type': tu, 'matid': tu, 'karat': (tu, KaratNrl(False))}
+        tu = self.get_base_nrm('tu')
+        self._nrl_mp = {'remarks': self.get_base_nrm('tr'), 'type': tu, 'matid': tu, 'karat': (tu, KaratNrl(False))}
 
 class StoneNrl(TBaseNrl):
     '''
@@ -357,7 +446,7 @@ class StoneNrl(TBaseNrl):
 
     def _nrl_one(self, name, row, nl, logs):
         colname = 'matid'
-        ov = nl[colname]
+        ov, nv = nl[colname], None
         def _log(ov, nv, rmk, level=self.LEVEL_ADVICE):
             self._append_log(logs, ov, nv, rmk, name=name, nl=nl, row=row, colname=colname, level=level)
         if ov:
@@ -368,11 +457,12 @@ class StoneNrl(TBaseNrl):
         qty, uw, wgt = [nl.get(x) or 0 for x in ('qty', 'unitwgt', 'wgt')]
         if not qty or qty <= 0:
             colname = 'qty'
-            _log(ov, 1, 'Invalid qty(%r), set to %d' % (ov, nv))
+            nv = qty = 1
+            _log(ov, nv, 'Invalid qty(%r), set to %s' % (ov, nv))
         if uw * wgt == 0:
             if uw + wgt == 0:
                 for colname in ('unitwgt', 'wgt'):
-                    _log(ov, None, self.LEVEL_CRITICAL, '(%s) not nullable' % colname)
+                    _log(ov, None, '(%s) not nullable' % colname, self.LEVEL_CRITICAL)
             else:
                 if wgt:
                     colname, uw = 'unitwgt', round(wgt / qty, 3)
@@ -396,9 +486,11 @@ class StoneNrl(TBaseNrl):
         logs = super().normalize(pmap, name)
         if not logs:
             logs = []
-        stones, ms = pmap[name], []
+        stones, ms = pmap.get(name), []
+        if not stones or len(stones) == 1:
+            return None
         for row, nl in enumerate(stones):
-            valid = nl.qty == (1 if pmap[_nrm('type')] != "EARRING" else 2) and stsizefmt(str(nl.size), False) >= "0300"
+            valid = nl.qty == (1 if pmap.get(_nrm('type')) != "EARRING" else 2) and stsizefmt(str(nl.size), False) >= "0300"
             ov = nv = nl[_nrm('main')]
             if valid ^ (ov == 'Y'):
                 nv = 'Y' if valid else 'N'
@@ -429,11 +521,17 @@ class FeatureNrl(TBaseNrl):
                     _a_log(logs, ov, nv, None)
         elif catid == _nrm('sn'):
             ov = nl[colname]
-            nv = formatsn(nl[colname], 0)
+            nv = formatsn(nl[colname], 0, True) or (na, )
+            if nv:
+                nv = ";".join(nv)
             if nv != ov:
                 _a_log(logs, ov, nv, "SN# formatted")
-        elif catid == _nrm('keyword'):
+        elif catid == _nrm('keywords'):
             ov = nl[colname]
             nv = ";".join(sorted(trimu(ov).split(";")))
-            if nv != ov:
+            if nv != ov or _nsr(nv):
                 _a_log(logs, ov, nv, None, self.LEVEL_ADVICE)
+        elif catid == _nrm('text'):
+            ov = nl[colname]
+            if _nsr(ov):
+                _a_log(logs, None, ov, None, self.LEVEL_ADVICE)

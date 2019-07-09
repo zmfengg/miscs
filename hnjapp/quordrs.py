@@ -24,7 +24,7 @@ from xlwings.constants import (
 )
 
 from hnjapp.c1rdrs import C1InvRdr
-from hnjapp.dbsvcs import jesin
+from hnjapp.svcs.db import jesin
 from hnjapp.pajcc import MPS, PajCalc, PajChina, PrdWgt, WgtInfo
 from hnjcore import JOElement
 from hnjcore import utils as hnju

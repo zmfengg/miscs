@@ -18,7 +18,7 @@ from sqlalchemy import and_, func
 from sqlalchemy.orm import Query
 from xlwings import Sheet, constants
 
-from hnjapp.dbsvcs import jesin
+from hnjapp.svcs.db import jesin
 from hnjapp.pajcc import WgtInfo, addwgt
 from hnjcore import JOElement, karatsvc
 from hnjcore.models.cn import (JO, MM, Codetable, Customer, MMgd, MMMa,
@@ -84,7 +84,7 @@ def _fmtpkno(pkno):
     pkno0 = pkno
     if pkno.find("-") >= 0:
         pkno = pkno.replace("-", "")
-    pfx, pkno, sfx = pkno[:3], pkno[3:], ""
+    pfx, pkno, sfx, idx = pkno[:3], pkno[3:], "", 0
     for idx in range(len(pkno) - 1, -1, -1):
         ch = pkno[idx]
         if "A" <= ch <= "Z":
@@ -394,8 +394,11 @@ class C1InvRdr(object):
                 pwgt = 0
             c1 = c1._replace(mtlwgt=addwgt(c1.mtlwgt, WgtInfo(kt, wgt / joqty, 4)))
             if pwgt:
-                c1 = c1._replace(mtlwgt=addwgt(c1.mtlwgt, WgtInfo(kt, pwgt / joqty, 4), True))
+                c1 = self._adjust_pwgt(c1, kt, pwgt / joqty)
         return c1 if hc else None
+
+    def _adjust_pwgt(self, c1, kt, pwgt):
+        return c1._replace(mtlwgt=addwgt(c1.mtlwgt, WgtInfo(kt, pwgt, 4), True))
 
     @classmethod
     def _tokarat(cls, kt):

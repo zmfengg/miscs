@@ -13,8 +13,6 @@ from re import compile as compile_r
 from csv import DictReader
 
 from hnjcore import JOElement
-from hnjcore.models.hk import JO, JOItem as JI
-from sqlalchemy.orm import Query
 from utilz import Config, karatsvc, trimu, stsizefmt, NamedList
 
 _logger = logging.getLogger("hnjapp")
@@ -60,21 +58,24 @@ class _JO_Extractor(object):
     '''
     MISC_MIT = "_MIT_"
     MISC_LKSZ = "_LKSZ_"
-    def __init__(self):
+    def __init__(self, keep_dtl=False):
+        '''keep the detail as possible, use by invoker other than c1calc
+        '''
         self._st_sns_abbr = None
         # vermail name and color/display mapping
         self._vc_mp = {x["name"]: x for x in config.get("vermail.defs")}
-        self._ptns = {x[0]: compile_r(config.get(x[1])) for x in zip(('pkno', 'mit'), ('pattern.jo.pkno', 'pattern.mit'))}
+        self._ptns = {x[0]: compile_r(config.get(x[1])) for x in (('pkno', 'pattern.jo.pkno'), ('mit', 'pattern.mit'))}
         self._ptns["microns"] = [compile_r(x) for x in config.get("pattern.jo.microns")]
 
         # locket shape name and description detection
         cfg = config.get('locket.shapes')
-        self._lk_d2n = {x[1]: x[0] for x in cfg.items()}
+        self._lk_d2n = {x[1]: x[0].strip() for x in cfg.items()}
         cfg = [x for x in zip(*(x for x in cfg.items()))]
         cfg = ['(^' + '$)|(^'.join(cfg[0]) + "$)", '(^' + ')|(^'.join(cfg[1]) + ")", ]
         self._ptns["locket"] = [compile_r(x) for x in cfg]
         # stone to default vx
         self._st2vx = config.get("vermail.stones")
+        self._keep_dtl = keep_dtl
 
     def extract_micron(self, rmk):
         '''
@@ -92,12 +93,12 @@ class _JO_Extractor(object):
 
     def extract_vcs(self, jo, sts=None, wgts=None):
         '''
-        extract vcs by rmk/stone/main karat and so on, return a set of vermail color as  string. But when the color is a VK item, it might be a tuple of string instead of a stirng. an example return set is:
-        {'WHITE', 'YELLOW', ('VK', '1 MIC')}
+        extract vcs by rmk/stone/main karat and so on, return a set of vermail color as  string. But when the color is a vermeil item, it might be a tuple of string instead of a stirng. an example return set is:
+        {('WHITE', ), ('YELLOW', ), ('VK', '1 MIC')}
         '''
         # first, from remark
         def _add_clr(st, clr):
-            st.add((clr, ))
+            st.add((clr, None))
         rmk, vcs, var = jo.remark, set(), config.get("vermail.verb")
         if wgts:
             mtclrs = {karatsvc.getkarat(x.karat).color for x in wgts.wgts if x and x.karat}
@@ -108,13 +109,14 @@ class _JO_Extractor(object):
                 var = var[:6]
                 cands = []
                 for x in self._vc_mp.values():
-                    if [1 for y in x["big5"] if 0 <= var.find(y) < 2]: #only first 2 characters count
+                    if [1 for y in x["big5"] if 0 <= var.find(y) < 4]: #only first 3 characters count
                         cands.append(x)
                 if cands:
                     if len(cands) > 1:
                         cands = sorted(cands, key=lambda x: x.get('priority', 0))
+                    # TODO:: why prior is cands[-1]["name"]
                     x = cands[-1]["color"]
-                    if x == 'VK': # don't take care of V18K/VPT900 or alike, they are place holder only
+                    if x == 'VK' or var.find('咪') >= 0: # don't take care of V18K/VPT900 or alike, they are place holder only
                         var = self._extract_micron_h(var)
                         if var:
                             x = (x, var + " MIC")
@@ -146,13 +148,13 @@ class _JO_Extractor(object):
                 break
         if not cand:
             ch = -1
-            for idx, var in enumerate('一壹', '二貳兩', '三叁', '四肆', '五伍'):
+            for idx, var in enumerate(('一壹', '二貳兩', '三叁', '四肆', '五伍', )):
                 ch = var.find(mic[0])
                 if ch >= 0:
                     ch = idx
                     break
             if ch >= 0:
-                cand.append(ch + 1)
+                cand.append(str(ch + 1))
         return ''.join(cand) if cand else None
 
     def extract_st_sns(self, sns):
@@ -166,11 +168,11 @@ class _JO_Extractor(object):
                 x[0]: x[1:] for x in config.get("jo.stone.abbr")
             }
         return self._st_sns_abbr.get(sns) or (sns[1:], sns[0])
-    
+
     @property
     def nl_ji(self):
         return NamedList("stone shape stsize stqty stwgt setting szcal ms sto shpo".split())
-    
+
     @staticmethod
     def is_main_stone(cat, stqty, szcalc):
         '''
@@ -235,16 +237,23 @@ class _JO_Extractor(object):
         extract the JOItem to the given NamedList
         """
         st = trimu(ji.stname)
+        if st in ('', '.', '..', '...'):
+            st = None
+        else:
+            st = "".join([x for x in st if "A" <= x <= "Z"])
         sto, shp, shpo = (None,) * 3
-        st = "".join([x for x in st if "A" <= x <= "Z"])
         sz, qty, wgt = (ji.stsize, ji.qty, ji.wgt, )
-        if self._ptns["mit"].search(st):
+        if st and self._ptns["mit"].search(st):
             sto, st = self.MISC_MIT, "MIT"
             sz = qty = None
         else:
-            flag = [self._ptns['locket'][0].search(st), self._ptns['locket'][1].search(ji.remark)]
+            # stupid confusion between HK and py, HK clean stone field
+            flag = [self._ptns['locket'][0].search(st) if st else None, self._ptns['locket'][1].search(ji.remark)]
             if any(flag):
-                sto, st = self.MISC_LKSZ, flag[0].group() if flag[0] else self._lk_d2n.get(flag[1].group())
+                if self._keep_dtl:
+                    sto, st = self.MISC_MIT, "MIT"
+                else:
+                    sto, st = self.MISC_LKSZ, flag[0].group() if flag[0] else self._lk_d2n.get(flag[1].group())
                 qty = wgt = None
             else:
                 pk = self._extract_pk(ji.remark)
@@ -274,8 +283,10 @@ class _JO_Extractor(object):
         pts = [x for x in mt.groups()]
         if pts[2].isnumeric():
             pts[2] = "%04d" % int(pts[2])
-        mt = "".join(pts)
-        return mt
+        pts = "".join(pts)
+        if self._keep_dtl:
+            pts = pts + ";" + rmk[mt.span()[1]:].strip()
+        return pts
 
 
 class Utilz(object):
@@ -365,7 +376,7 @@ class Utilz(object):
                     continue
                 mpx[var] = tuple(lst)
                 break
-    
+
     @classmethod
     def extract_vcs(cls, jo, sts=None, wgts=None):
         return cls._jo_extr.extract_vcs(jo, sts, wgts)

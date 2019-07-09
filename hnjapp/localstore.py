@@ -14,7 +14,7 @@ from sqlalchemy.ext.declarative.api import declarative_base
 from sqlalchemy.orm import composite, relationship
 from sqlalchemy.sql.schema import Column, ForeignKey, Index
 from sqlalchemy.sql.sqltypes import (DECIMAL, VARCHAR, Integer,
-                                     SmallInteger, Float)
+                                     SmallInteger, Float, CHAR)
 
 _base = declarative_base()
 ''' a docno column was appended to PajItem on 2019/01/16,
@@ -204,3 +204,18 @@ class Codetable(_base):
     createdate = Column(DATETIME)
     lastmodified = Column(DATETIME)
     tag = Column(SmallInteger)
+
+class Stysn(_base):
+    ''' class for sty <-> sn lookup
+    '''
+    __tablename__ = "stysn"
+    __table_args__ = (
+        Index('idx_stysn_sty', 'styno'),
+        Index('idx_stysn_sn', 'snno'),
+        Index('idx_stysn_stysn', 'styno', 'snno', unique=True),
+    )
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    styno = Column(VARCHAR(10))
+    snno = Column(VARCHAR(20))
+    # S for SN#, snno is the snno of styno; P for hierachi, snno is the Parent of styno
+    tag = Column(CHAR(1))

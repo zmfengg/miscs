@@ -12,7 +12,7 @@ from collections import OrderedDict
 from collections.abc import Iterator, Sequence
 from datetime import date
 from imghdr import what
-from inspect import getabsfile
+from inspect import getabsfile, getfile, currentframe
 from math import ceil
 from numbers import Integral, Number
 from os import listdir, path, remove
@@ -27,11 +27,12 @@ _sh = _se = None
 __all__ = [
     "NamedList", "NamedLists", 'config', "appathsep", "daterange", "deepget",
     "easydialog", "easymsgbox", "getfiles", "getvalue", "iswritable", "isnumeric",
-    "imagesize", "list2dict", "lvst_dist", "monthadd", "na", "removews",
+    "imagesize", "list2dict", "lvst_dist", "monthadd", "na", "NA", "removews",
     "Config", "Salt", "shellopen", "Number2Word", "splitarray", "tofloat", "triml", "trimu", "updateopts"
 ]
 
-na = "N/A"
+NA = "N/A"
+na = "n/a"
 
 _jpg_offsets = {192, 193, 194, 195, 197, 198, 199, 201, 202, 203, 205, 206, 207}
 # max date of a month
@@ -64,15 +65,24 @@ def splitarray(arr, logsize=100):
         for x in range(int(ceil(1.0 * len(arr) / logsize)))
     ]
 
-def getpath(m):
+def getpath():
     '''
-    return the path of the given object. Due to system problem, it return a lower-case result (at least, under windows)
-    @param m: One of non-built-in class/method/module/package
+    Return the path of the given object. If no m is provided, return the caller's path
+
+    path.dirname(getabsfile(method_name)) not so good, because it need a method and getabsfile lower the path. so I use getfile(frame)
+
+    Args:
+        m=None: One of non-built-in class/method/module/package
     '''
-    try:
-        return path.dirname(getabsfile(m))
-    except:
+    return  path.abspath(path.dirname(getfile(currentframe().f_back)))
+
+def newline(ln):
+    ''' find the newline position(as negative or None)
+    while reading from a text file, the CRLF/LF may need this
+    '''
+    if not ln:
         return None
+    return -2 if ln[-2] == '\r' else -1 if ln[-1] == '\n' else None
 
 def getmodule(pk_name):
     '''
@@ -458,6 +468,11 @@ class NamedList(object):
     def __init__(self, nmap, data=None, **kwds):
         mp = updateopts({"normalize": ("normalize,", "lower")}, kwds)
         self._nrl = _norm_exp(mp.get("normalize"))
+        self._nmap, self._idmap, self._kwds = [None,] * 3
+        self._dtype = 0
+
+        if not nmap:
+            return
         if isinstance(nmap, (tuple, list)):
             nmap = list2dict(nmap, **kwds)
         elif isinstance(nmap, str):
@@ -465,13 +480,17 @@ class NamedList(object):
             nmap = list2dict(nmap.split(div), **kwds)
         elif isinstance(nmap, dict):
             nmap = {self._nrl(x[0]): x[1] for x in nmap.items()}
-        self._nmap, self._idmap, self._kwds, self._dtype = nmap, None, None, 0
+        self._nmap = nmap
         if data:
             self.setdata(data)
 
     def clone(self, data=None):
         """ create a clone with the same definination as me, but not the same data set """
-        return NamedList(self._nmap, data)
+        self._mkidmap()
+        nl = NamedList(None)
+        nl._nmap, nl._idmap, nl._kwds, nl._nrl = self._nmap, self._idmap, self._kwds, self._nrl # save memory, share map
+        nl.setdata(data or self.newdata(False))
+        return nl
 
     def _replace(self, trmap, data=None):
         """ do name replacing, return a new instance
@@ -499,8 +518,7 @@ class NamedList(object):
         return NamedList(dict(zip(*th)), data if data else self._data)
 
     def setdata(self, val):
-        """
-        set the internal data(should be of tuple/list)
+        """set the internal data(should be of tuple/list)
         Args:
             val: the array that need to be feed to me
         Returns:
@@ -509,7 +527,7 @@ class NamedList(object):
         if val:
             if isinstance(val, Sequence) and len(self._nmap) != len(val):
                 val = None
-        if not val:
+        if val is None:
             self._dtype = 0
         else:
             self._dtype = 1 if isinstance(
@@ -548,6 +566,9 @@ class NamedList(object):
         if name.startswith("_"):
             object.__setattr__(self, name, val)
         else:
+            if self._dtype == 0:
+                self.newdata()
+                self._dtype = 1
             name = self._nrl(name)
             self._checkarg(name)
             if self._dtype == 1:
@@ -661,8 +682,7 @@ class NamedLists(Iterator):
         lsts = lsts[1:]
         self._lsts, self._nmap, self._ptr, self._ubnd, self._newinst = lsts, nmap, \
             -1, len(lsts), newinst
-        if not newinst:
-            self._wrpr = NamedList(nmap, **kwds)
+        self._wrpr = NamedList(nmap, **kwds)
         self._kwds = kwds
 
     def __iter__(self):
@@ -673,7 +693,7 @@ class NamedLists(Iterator):
         if not self._lsts or self._ptr >= self._ubnd:
             raise StopIteration()
         if self._newinst:
-            return NamedList(self._nmap, self._lsts[self._ptr], **self._kwds)
+            return self._wrpr.clone(self._lsts[self._ptr])
         return self._wrpr.setdata(self._lsts[self._ptr])
 
     @property

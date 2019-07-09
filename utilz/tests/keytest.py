@@ -30,8 +30,12 @@ from utilz._miscs import (Config, NamedList, NamedLists, Salt, appathsep,
                           daterange, getfiles, list2dict, lvst_dist, monthadd,
                           shellopen, Number2Word)
 from utilz.resourcemgr import ResourceCtx, ResourceMgr, SessionMgr
+from utilz.exp import Exp, AbsResolver
 
 from .main import logger, thispath
+from time import clock
+from itertools import product
+from inspect import currentframe, getfile, getabsfile
 
 resfldr = path.join(thispath, "res")
 
@@ -328,10 +332,8 @@ class KeySuite(TestCase):
         '''
         from utilz._miscs import getpath, getmodule
         from sys import modules
-        for x in (self.testPath, KeySuite, NamedListSuite):
-            self.assertEqual(thispath.lower(), getpath(x).lower())
-        self.assertIsNone(getpath(resfldr))
         self.assertEqual(modules[__package__], getmodule(__package__))
+        self.assertEqual(path.dirname(getfile(currentframe())), getpath(), 'my working path')
 
 class ConfigSuite(TestCase):
     '''
@@ -517,7 +519,8 @@ class NamedListSuite(TestCase):
 
     def testChangeName(self):
         """ after creation, change some colnames """
-        nl = NamedList("id,name,agex,agey", [None] * 4)
+        # nl = NamedList("id,name,agex,agey", [None] * 4)
+        nl = NamedList("id,name,agex,agey")
         nl.id, nl.agex = 1, 30
         self.assertEqual(1, nl.id)
         nl = nl._replace({"idx": "id,", "age": "agex"})
@@ -782,7 +785,64 @@ class XwuSuite(TestCase):
         self.assertAlmostEqual(2, shp.top, 2, 'the top')
         self.assertAlmostEqual(117.97, shp.left, 2, 'the left')
         xwu.appswitch(self._app, sws)
+    
+    def testXwPerf(self):
+        '''
+        test for the performance issue of xlwings.
+        After test, I found out that only when there are more than 5 cells, the one-by-one is slower than one
+        '''
+        app, tk = xwu.appmgr.acq()
+        wb = app.books.add()
+        ck = clock()
+        sht = wb.sheets[0]
+        rc, cc = 20, 6
+        for row, col in product(range(rc), range(cc)):
+            sht.cells[row, col].value = 1
+        t0 = clock() - ck
 
+        ck = clock()
+        lst = [[1] * cc] * rc
+        sht.cells(rc + 2, 1).value = lst
+        t1 = clock() - ck
+        print('cell-count=%d, one-by-one=%f, one = %f, obo/o = %f' % (rc * cc, t0, t1, t0 / t1))
+        self.assertTrue(t0 > t1, 'one write faster than several writes')
+        # app.visible = True
+        xwu.appmgr.ret(tk)
+
+class _DecHex(AbsResolver):
+    '''
+    class help translate Hex to decimal
+    '''
+    def __init__(self):
+        s = '0123456789ABCDEF'
+        self._h2d = {x[1]: x[0] for x in zip(range(16), s)}
+
+    def resolve(self, arg):
+        return self._h2d.get(arg) or arg
+
+class ExpressionTest(TestCase):
+    ''' test for the Exp/Resolver class
+    '''
+
+    def testEval(self):
+        r = _DecHex()
+        self.assertTrue(Exp("F", '>', 3).eval(r), "Hex(F) > 3")
+        self.assertEqual(12, Exp("F", '-', 3).eval(r), "F - 3 == 12")
+    
+    def testChain(self):
+        _add = lambda x, y: Exp(x, '+', y)
+        _gt = lambda x, y: Exp(x, '>', y)
+        exps = []
+        exps.append(_gt(_add(3, 4), 6).chain('and', _gt(5, 3), _gt(4, 2)))
+        self.assertTrue(exps[-1].eval(), '3+4 > 6 and 5 > 3 and 4 > 2')
+        exps.append(_gt(_add(3, 4), 6).chain('and', _gt(5, 3), _gt(2, 4)))
+        self.assertFalse(exps[-1].eval(), '3+4 > 6 and 5 > 3 and 2 > 4')
+        exps.append(_gt(_add(3, 4), 6).chain('and', _gt(5, 3), _gt(4, 3)).or_(_gt(2, 0)))
+        self.assertTrue(exps[-1].eval(), '(3+4 > 6 and 5 > 3 and 4 > 3) or (2 > 0)')
+        exps.append(_add(2, 3).chain('add', 4, 5, _add(6, 7)))
+        self.assertEqual(27, exps[-1].eval(), '2+3+4+5+6+7')
+        for exp in exps:
+            print(str(exp))
 
 BaseClass = declarative_base()
 

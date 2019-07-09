@@ -439,6 +439,40 @@ class TechTests(TestCase):
             print(mi.k)
         self.assertEqual('attribute k not defined in __getattr__()', err.exception.args[0])
 
+    def testFlatten(self):
+        ''' there often be chances lsts = [(1, 2, 3), (2, 5)] and you want them into
+        one list of (1, 2, 3, 2, 5). this is called flattening
+        I often forget this, so make it a test for reference.
+        Maybe can be use together with itertools
+        '''
+        lsts = [(1, 2, 3), (2, 5)]
+        self.assertListEqual([1, 2, 3, 2, 5], [y for x in lsts for y in x])
+        lsts = [[(1, 2, 3), (2, 5)], [(7, 8), (9, 10)], ]
+        self.assertListEqual([1, 2, 3, 2, 5, 7, 8, 9, 10], [z for x in lsts for y in x for z in y])
+    
+    def testDbm(self):
+        ''' Sometimes we need to store huge dict-like object to disk instead of memory, this is called persisting. According to https://docs.python.org/3/library/dbm.html, I can use dbm, which acts like a dict, the only difference is that the data is inside the disk instead of memory.
+        Here using sqlite is too heavy.
+        Below is a demo about how to use it
+        '''
+        import tempfile
+        import dbm
+        from os import remove
+        dbfn = None
+        with dbm.open(path.join(tempfile.gettempdir(), '__tmp__'), flag='c') as db:
+            if not dbfn:
+                dbfn = [db._datfile, db._dirfile, db._bakfile]
+            db['a'] = 'b'
+            db['b'] = 'c'
+            with self.assertRaises(TypeError):
+                db['c'] = 1
+            self.assertTrue('a' in db)
+            self.assertFalse('x' in db)
+            self.assertListEqual([b'a', b'b'], [x for x in db])
+        self.assertTrue(dbfn)
+        for fn in dbfn:
+            remove(fn)
+        del tempfile, dbm, remove
 
 class _LenDescriptor(object):
     '''
@@ -513,3 +547,10 @@ class ManyInterfaces(object):
             return '__getattr__(z)'
         # return super().__getattr__(self, name)
         raise AttributeError('attribute %s not defined in __getattr__()' % name)
+
+class SqlAlchemyURL(TestCase):
+    '''
+    url for create engine
+    https://docs.sqlalchemy.org/en/13/core/engines.html
+    '''
+    pass

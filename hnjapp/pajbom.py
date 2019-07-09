@@ -21,8 +21,8 @@ from hnjcore.models.hk import JO as JOhk
 from hnjcore.models.hk import Orderma, PajShp
 from hnjcore.models.hk import Style as Styhk
 from utilz import (NamedList, NamedLists, ResourceCtx, getfiles, getvalue,
-                   karatsvc, tofloat, triml, xwu, na)
-from utilz.xwu import appmgr as _appmgr
+                   karatsvc, tofloat, triml, xwu, NA)
+from utilz.xwu import appmgr as _appmgr, esctext
 
 from .common import _logger as logger, P17Decoder
 from .localstore import PajBom, PajItem
@@ -166,7 +166,7 @@ class PajBomHdlr(object):
         bcwgts = kwds.get("bc_wgts") or {}
         self._read_book(wb, pmap)
         self._adjust_wgts(pmap)
-        if na in pcodeset:
+        if NA in pcodeset:
             # the caller does not provided any pcode, try to build based on returned bom's semi-chain item(if there is).
             lsts = {x["pcode"] for x in pmap.values() if x["mtlwgt"].part and x["mtlwgt"].part.wgt < 0}
             if not lsts:
@@ -616,8 +616,7 @@ class _PajBomDAO(object):
             jn = JOElement.tostr(nl.jono)
             if jn:
                 if phase > 0:
-                    if jn[0] == "'":
-                        jn = jn[1:]
+                    jn = esctext(jn)
                     phase, mp = 0, {"jono": jn, "pcode": nl.pcode, "mtlwgt": PrdWgt(WgtInfo(nl.mkarat, nl.mwgt))}
                     lsts.append(mp)
                 else:

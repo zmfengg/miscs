@@ -7,8 +7,9 @@
  represents some contants system wide
  """
 
-from utilz import na
+from utilz import NA as _NA, na as _na
 
-__all__ = ["NA"]
+__all__ = ['NA', 'na']
 
-NA = na
+NA = _NA
+na = _na

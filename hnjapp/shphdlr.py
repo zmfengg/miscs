@@ -34,7 +34,7 @@ from utilz import (NamedList, NamedLists, ResourceCtx, easydialog, easymsgbox,
                    getfiles)
 
 from .common import _logger as logger
-from .dbsvcs import jesin
+from .svcs.db import jesin
 from .pajcc import cmpwgt
 from .pajrdrs import PajBomHdlr, PajShpHdlr, PajBomDAO
 

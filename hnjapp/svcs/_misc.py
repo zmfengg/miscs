@@ -19,16 +19,16 @@ from PIL import Image
 from sqlalchemy import and_
 from sqlalchemy.orm import Query
 
-from hnjapp.dbsvcs import jesin
+from ._common import jesin
 from hnjcore import JOElement
 from hnjcore.models.cn import JO, MM, MMMa, Style
 from hnjcore.models.hk import JO as JOHK, PajShp
 from utilz import NamedList, getvalue, trimu, triml, xwu, na, daterange, splitarray
 from utilz.resourcemgr import ResourceCtx
 from hnjapp.localstore import Codetable
-from hnjapp.dbsvcs import SvcBase
+from ._common import SvcBase
 
-from .common import _logger as logger, config, Utilz
+from ..common import _logger as logger, config, Utilz
 
 try:
     from os import scandir
@@ -61,7 +61,15 @@ class StylePhotoSvc(object):
         return cls.getInst(config.get("stylephoto.default") or "h")
 
     @classmethod
-    def getInst(cls, key):
+    def getInst(cls, key=None):
+        ''' return a pre-config instance
+        Args:
+            key(String): according to conf.json's key stylephoto.x, it can be one of:
+            "h", "i".
+            when ignored, it will be "h"
+        '''
+        if not key:
+            key = config.get("stylephoto.default")
         key = triml(key)
         if key not in cls._insts:
             cfg = config.get("stylephoto.%s" % key)
@@ -101,10 +109,14 @@ class StylePhotoSvc(object):
 
     def getPhotos(self, styno, atype="styno", hints=None, **kwds):
         ''' return the valid photos of given style or jo#
-        @param atype: argument type, can be one of StylePhotoSvc.TYPE_JONO/TYPE_STYNO
+        Args:
+            styno: the styno or jono. when it's a jono, atype should be of "jono"
+            atype: argument type, can be one of StylePhotoSvc.TYPE_JONO/TYPE_STYNO
         return a list of files sorted by below criterias:
-            .hints hit(DESC)
-            .modified date(DESC)
+                hints: hit(DESC)
+                modified date(DESC)
+            hints(String): None or a string using "," as separator
+            kwds: engine -> an object help to convert JO# to Sty#
         '''
         if not styno:
             return None

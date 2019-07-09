@@ -9,23 +9,27 @@ handy utils for daily life
 
 from datetime import datetime
 from numbers import Number
-from os import listdir, makedirs, path, rename, sep, utime, walk, remove
+from os import listdir, makedirs, path, remove, rename, sep, utime, walk
 from re import compile as compile_r
 from shutil import copy
 
 from PIL import Image
+from sqlalchemy import desc
 from sqlalchemy.orm import Query
 from xlwings.constants import LookAt
 
 from hnjapp.c1rdrs import C1InvRdr, _fmtbtno
-from hnjapp.miscsvcs import StylePhotoSvc
 from hnjapp.pajcc import (MPS, PajCalc, PrdWgt, WgtInfo, addwgt, cmpwgt,
                           karatsvc)
+from hnjapp.svcs.misc import StylePhotoSvc
 from hnjcore import JOElement
-from hnjcore.models.hk import JO, Orderma, PajShp, Style
+from hnjcore.models.cn import JO as JOcn
 from hnjcore.models.cn import StoneMaster
-from utilz import ResourceCtx, getfiles, trimu
-from utilz.xwu import NamedLists, NamedRanges, appmgr, find, usedrange, offset
+from hnjcore.models.cn import Style as Stycn
+from hnjcore.models.hk import JO, Orderma, PajShp, Style
+from utilz import ResourceCtx, getfiles, triml, trimu
+from utilz.exp import AbsResolver, Exp
+from utilz.xwu import NamedLists, NamedRanges, appmgr, find, offset, usedrange
 
 from .common import _logger as logger
 
@@ -497,3 +501,211 @@ def stocktake_data(sessMgr, fn=None):
     finally:
         app.visible = True
         #appmgr.ret(tk)
+
+class JOResolver(AbsResolver):
+
+    def __init__(self):
+        self._jo = None
+    
+    def setjo(self, jo):
+        self._jo = jo
+    
+    def resolve(self, arg):
+        rc = arg
+        if isinstance(arg, str):
+            sig = '${jo}.'
+            idx = arg.find(sig)
+            if idx >= 0:
+                fld, jo = triml(arg[idx + len(sig):]), self._jo
+                if fld == 'cstname':
+                    rc = jo.customer.name.strip()
+                elif fld in ('qty', 'quantity'):
+                    rc = jo.qty
+                elif fld == 'karat':
+                    rc = jo.karat
+                elif fld == 'description':
+                    rc = jo.description
+        return rc
+
+class ExtExp(Exp):
+    def _eval_ext(self, op, l, r):
+        if op == 'find':
+            return l.find(r) >= 0
+        return super()._eval_ext(op, l, r)
+
+class CoreTraySvc(object):
+    r''' help to find running of specified sty# for core tray,
+    an example is in \\172.16.8.46\pb\dptfile\quotation\date\Date2019\0611\Candy Stamping Creoles_Rst.xlsx, where sheet("Stamping") is the source
+    '''
+
+    def __init__(self):
+        self._qmp = {}
+        self._rsv = JOResolver()
+        self._KEY_RUNN = "Runn"
+
+    def find_running(self, fn, cnsvc, hints):
+        ''' write result progressive instead of block writing because
+        program is not so stable
+        Args:
+            fn:     the source file to read sty# from
+            cnsvc:  china db service
+            hints:  dict(styno(string), running(string or int))
+        '''
+        app = appmgr.acq()[0]
+        app.visible = True
+        wb = app.books.open(fn)
+        sns = self._select_req_sheets(wb)
+        if not hints:
+            hints = {}
+        for sn in sns:
+            # it's strange that usedranged might return A2:xx case, so
+            sht = wb.sheets[sn]
+            vvs = usedrange(sht).last_cell.address.split(":")[-1]
+            vvs = sht.range("A1:" + vvs).value
+            # vvs = usedrange(sht).value
+            sht = wb.sheets.add(before=sht)
+            sht.name = sn + '-R'
+            sht.activate()
+            self._find_one_sheet(sht, vvs, cnsvc, hints)
+            sht.autofit('c')
+
+    def _find_one_sheet(self, sht, vvs, cnsvc, hints):
+        def _write(sht, ridx, cidx, runn, fromHints=False):
+            if fromHints:
+                val = runn
+            else:
+                val = (se.name + "@%s" % runn) if runn else "%s@Error" % se.name
+            sht.cells[ridx, cidx].value = val
+        locs = {}
+        for ridx, row in enumerate(vvs):
+            for cidx, val in enumerate(row):
+                if not val:
+                    continue
+                se = JOElement(val)
+                if not se.isvalid():
+                    continue
+                styno = se.name
+                if styno in locs and styno in hints:
+                    del hints[styno]
+                runn = (None if styno in locs else hints.get(styno)) or self._find(cnsvc, se)
+                _write(sht, ridx, cidx, runn, styno in hints)
+                if styno in locs:
+                    cidx = locs[styno]
+                    if cidx:
+                        locs[styno] = None
+                        # this style is duplicated, override the prior result
+                        _write(sht, cidx[0], cidx[1], self._find(cnsvc, se))
+                else:
+                    locs[styno] = (ridx, cidx)
+
+    @staticmethod
+    def _select_req_sheets(wb):
+        lst, sns = [], {triml(x): x for x in (x.name for x in wb.sheets)}
+        for sn in sns:
+            idx = sn.find('-')
+            if idx <= 0:
+                continue
+            lst.append(sn)
+            lst.append(sn.split('-')[0])
+        if lst:
+            for sn in lst:
+                del sns[sn]
+        return sns.values()
+
+    def _find(self, cnsvc, styn):
+        with cnsvc.sessionctx() as cur:
+            q = self._find_q.filter(Stycn.name == styn)
+            jos = q.with_session(cur).all()
+            worst = None
+            if not jos:
+                return None
+            worst = jos[0]
+            for dsc, exps in self._find_lvl.items():
+                for jo in jos:
+                    self._rsv.setjo(jo)
+                    if exps.eval(self._rsv):
+                        return dsc + ":%d" % jo.running
+            return 'Bad:%d' % worst.running if worst else None
+
+    @property
+    def _find_q(self):
+        key = '_find_q'
+        if key not in self._qmp:
+            self._qmp[key] = Query(JOcn).join(Stycn).filter(JOcn.id > 0).filter(JOcn.tag > -10).filter(JOcn.running > 200000).order_by(desc(JOcn.createdate))
+        return self._qmp[key]
+
+    @property
+    def _find_lvl(self):
+        key = '_find_level'
+        if key not in self._qmp:
+            _pfx = lambda x: "${jo}." + x
+            _k = lambda k: Exp(_pfx("karat"), '==', k)
+
+            dd = ExtExp(_pfx("description"), 'find', '钻').or_(
+                ExtExp(_pfx("description"), 'find', '占'))
+            naa = Exp(_pfx("cstname"), '==', 'NAA')
+            self._qmp[key] = {'naa+9+dd': naa.chain('and', _k(9), dd),            
+                        '9+dd': _k(9).and_(dd),
+                        'naa+9': naa.and_(_k(9)),
+                        '9': _k(9),
+                        '925+dd': _k(925).and_(dd),
+                        '925': _k(925)}
+        return self._qmp[key]
+
+    def read_hints(self, wb):
+        ''' read the sty -> runn hints from a getRunn file
+        '''
+        rst = [('shtname styno running'.split())]
+        dx = dy = fc = None
+        for sht in wb.sheets:
+            if not dy:
+                dy = self._detect_y_dist(sht)
+                if not dy:
+                    continue
+                dy, fc = dy
+            sn = sht.name
+            vvs = usedrange(sht).value
+            for ridx, row in enumerate(vvs):
+                if not dx or dx == -1:
+                    dx = self._detect_x_dist(fc, row)
+                    if not dx:
+                        continue
+                rns = []
+                if dx > 0:
+                    ln = len(row)
+                    for idx in range(fc, fc + 10000, dx):
+                        if idx >= ln:
+                            break
+                        runn = row[idx]
+                        if self._is_runn(runn):
+                            rns.append((idx, runn))
+                else:
+                    rns = [(fc, row[fc])]
+                for ln, runn in rns:
+                    rst.append((sn, vvs[ridx + dy][ln], runn.split(':')[-1].strip()))
+        return rst
+
+    def _is_runn(self, val):
+        return val and isinstance(val, str) and val.find(self._KEY_RUNN) == 0 and val.find(':') > 0
+
+    def _detect_y_dist(self, sht):
+        rng = find(sht, self._KEY_RUNN)
+        if not rng:
+            return None
+        if self._is_runn(rng.value):
+            return rng.offset(-5, 0).end('up').row - rng.row, rng.column - 1
+        return None
+
+    def _detect_x_dist(self, fc, row):
+        ''' detect the x distinct between each block
+        Returns:
+            None if nothing found at all.
+            Positive integer if found.
+            -1 if only one block is there
+        '''
+        if not self._is_runn(row[fc]):
+            return None
+        rns = [(idx, runn) for idx, runn in enumerate(row) if self._is_runn(runn)]
+        if len(rns) > 1:
+            return rns[1][0] - rns[0][0]
+        return -1

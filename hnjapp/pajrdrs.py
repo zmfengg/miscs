@@ -42,8 +42,8 @@ from .localstore import PajWgt as PrdWgtSt
 from .pajbom import PajBomHdlr, _PajBomDAO as PajBomDAO
 from .pajcc import (MPS, PAJCHINAMPS, PajCalc, PrdWgt, WgtInfo,
                     _tofloat, addwgt)
-from .dbsvcs import HKSvc
-from .miscsvcs import StylePhotoSvc
+from .svcs.db import HKSvc
+from .svcs.misc import StylePhotoSvc
 
 _accdfmt = "%Y-%m-%d %H:%M:%S"
 _appmgr = xwu.appmgr
