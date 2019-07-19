@@ -17,8 +17,9 @@ from unittest import TestCase, skip
 from cProfile import Profile
 from pstats import Stats
 from io import StringIO
-
+from bidict import bidict as bd, ValueDuplicationError
 from utilz import getfiles, imagesize
+from itertools import islice
 
 _logger = Logger(__name__)
 try:
@@ -212,7 +213,7 @@ class TechTests(TestCase):
         self.assertTrue(bool(mt), "There should be search")
         self.assertEqual(("1",), mt.groups(), "The so-call zero group")
         self.assertEqual("1", mt.group(1), "The so-call first group")
-    
+
     def testProfiling(self):
         '''
         use the profile class to get performance report of some codes
@@ -225,7 +226,7 @@ class TechTests(TestCase):
         pf = Profile()
         pf.enable()
         _runner()
-        
+
         pf.disable()
         opt = StringIO()
         #opt = FileIO(r'd:\temp\pf.dat')
@@ -407,7 +408,8 @@ class TechTests(TestCase):
 
     def testManyItf(self):
         '''
-        ManyInterfaces class implements many built-in interfaces for study purpose '''
+        ManyInterfaces class implements many built-in interfaces for study purpose
+        '''
         mi = ManyInterfaces(f="k")
         # can make use of an iterator object without iter() function
         # self.assertListEqual([1, 2, 3], [x for x in iter(mi)])
@@ -449,7 +451,7 @@ class TechTests(TestCase):
         self.assertListEqual([1, 2, 3, 2, 5], [y for x in lsts for y in x])
         lsts = [[(1, 2, 3), (2, 5)], [(7, 8), (9, 10)], ]
         self.assertListEqual([1, 2, 3, 2, 5, 7, 8, 9, 10], [z for x in lsts for y in x for z in y])
-    
+
     def testDbm(self):
         ''' Sometimes we need to store huge dict-like object to disk instead of memory, this is called persisting. According to https://docs.python.org/3/library/dbm.html, I can use dbm, which acts like a dict, the only difference is that the data is inside the disk instead of memory.
         Here using sqlite is too heavy.
@@ -473,6 +475,53 @@ class TechTests(TestCase):
         for fn in dbfn:
             remove(fn)
         del tempfile, dbm, remove
+
+    def testbidict(self):
+        ''' usage of the bidict '''
+        d = bd({'a': 1, 'b': 2, 'c': 3})
+        self.assertEqual(1, d['a'])
+        self.assertEqual('a', d.inverse[1])
+        with self.assertRaises(ValueDuplicationError):
+            d = bd({'a': 1, 'b': 2, 'c': 1})
+
+    def testIter(self):
+        ''' 3 methods to get the nth item from a iteration/generator
+        '''
+        mp, nth = {idx: val for idx, val in enumerate('abcdefghijk')}, 3
+
+        # method 1: islice then next()
+        it = islice(mp.keys(), nth, nth + 1)
+        rt = next(it)
+        self.assertEqual(3, rt, 'the most simple, maybe least memory consuming')
+
+        # method 2: next() many times
+        it = iter(mp.keys())
+        i, rt = 0, None
+        while i <= nth:
+            rt = next(it)
+            i += 1
+        self.assertEqual(3, rt, 'not elegant and maybe slow')
+
+        # method 3: to list then get the nth
+        it = [x for x in mp.keys()]
+        rt = it[nth]
+        self.assertEqual(3, rt, 'maybe huge memory consuming')
+
+    def testUnpack(self):
+        ''' some ways to unpack
+        '''
+        f, s, *l = [x for x in range(10)]
+        self.assertEqual(0, f)
+        self.assertEqual(1, s)
+        self.assertListEqual([x for x in range(2, 10)], l, 'what left is assigned to l')
+
+        # the equipvalent in python 2 is
+        it = iter(range(10))
+        f, s, l = next(it), next(it), [x for x in it]
+        self.assertEqual(0, f)
+        self.assertEqual(1, s)
+        self.assertListEqual([x for x in range(2, 10)], l, 'what left is assigned to l')
+
 
 class _LenDescriptor(object):
     '''

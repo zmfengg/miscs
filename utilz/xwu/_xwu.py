@@ -18,9 +18,9 @@ import xlwings.constants as const
 from xlwings import App, Range, apps, xlplatform
 from xlwings.utils import col_name
 
-from ._miscs import NamedLists, getvalue, list2dict, trimu, updateopts, triml
-from .resourcemgr import ResourceMgr
-from .common import _logger as logger
+from ..miscs import NamedLists, getvalue, list2dict, trimu, updateopts, triml
+from ..resourcemgr import ResourceMgr
+from ..common import _logger as logger
 
 try:
     from PIL import Image
@@ -28,8 +28,7 @@ except:
     Image = None
 
 __all__ = [
-    "app", "appmgr", "col", "find", "fromtemplate", "hidden", "insertphoto",
-    "list2dict", "maketable", "nextcell", 'nextrc', 'name_sheet', "NamedRanges", 'offset', 'addr2rc', "safeopen", "usedrange"
+    "NamedRanges", "addr2rc", "apirange", "app", "appmgr", "appswitch", "col", "contains", "detectborder", "escapetitle", "esctext", "find", "findsheet", "freeze", "fromtemplate", "hidden", "insertphoto", "maketable", "name_sheet", "nextcell", "nextrc", "offset", "rc2addr", "safeopen", "usedrange"
 ]
 _validappsws = set(
     "visible,enableevents,displayalerts,asktoupdatelinks,screenupdating".split(

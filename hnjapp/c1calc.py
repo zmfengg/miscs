@@ -348,12 +348,17 @@ class Writer(object):
 
     def _mstr_BL(self, jo, pw, kt, cat, vcs):
         """ the business logic of master record """
+        nl = lambda w: karatsvc.getkarat(w.karat).category if w and w.wgt else None
+        kcs = [nl(x) for x in (pw.main, pw.aux)]
         nl = self._nl
-        if pw.part and pw.part.wgt and karatsvc.getkarat(pw.main.karat).category == karatsvc.CATEGORY_SILVER:
+        if pw.part and pw.part.wgt and kcs[0] == karatsvc.CATEGORY_SILVER:
             nl.f_chain = "是"
-        if pw.main and pw.aux:
+        if all(kcs):
             nl.f_mtl2 = 1  #at least one
-            nl.f_pen = "是"
+            # gold/silver mixing need pen plating, else ignore
+            mp = {'GOLD': 1, 'SILVER': 2}
+            if sum(mp.get(x, 100) for x in kcs) == 3:
+                nl.f_pen = "是"
         if cat == "BRACELET":
             nl.f_spec = "手链单20"  # don't know if it's 20 or 21
         elif cat == "NECKLACE":
@@ -366,18 +371,12 @@ class Writer(object):
             vcs = []
         if self._extr._keep_dtl:
             nl.f_micron = ";".join('%s=%s' % vc for vc in vcs if vc[1])
-            for vc, thk in vcs:
-                if thk:
-                    continue
-                elif not nl.f_tt and kt.color != vc:
-                    nl.f_pen = "是"
-                    break
-        else:
-            for vc, thk in vcs:
-                if thk:
-                    nl.f_micron = self._get_micron(jo)
-                elif not nl.f_tt and kt.color != vc:
-                    nl.f_pen = "是"
+        for vc, thk in vcs:
+            if thk:
+                continue
+            if not nl.f_tt and kt.color != vc:
+                nl.f_pen = "是"
+                break
         if sum((1 for x in "打 噴 沙 砂".split() if jo.remark.find(x) >= 0)) > 1:
             nl.f_other = (nl.f_other or 0) + 5
         if jo.description.find("套") >= 0:  # big5

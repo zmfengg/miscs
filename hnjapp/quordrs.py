@@ -31,6 +31,7 @@ from hnjcore import utils as hnju
 from hnjcore.models.hk import JO, PO, Customer, Orderma, PajAck, POItem, Style
 from hnjcore.utils.consts import NA
 from utilz import NamedList, NamedLists, appathsep, getfiles, splitarray, xwu
+from utilz.miscs import list2dict
 
 from . import pajcc
 from .common import _logger as logger
@@ -1203,7 +1204,7 @@ class AckPriceCheck(object):
                         rng = sht.range(sht.range(rng.row,1), \
                             sht.range(rng0.row + rng0.rows.count -1 ,rng0.column + rng0.columns.count - 1))
                         vvs = rng.value
-                        cmap = xwu.list2dict(
+                        cmap = list2dict(
                             vvs[0],
                             alias={
                                 "jono": "Job,",

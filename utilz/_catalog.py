@@ -7,7 +7,7 @@
  try to build catalog page
 '''
 
-from ._miscs import getvalue
+from .miscs import getvalue
 from xlwings.constants import PaperSize
 
 

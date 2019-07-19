@@ -8,14 +8,19 @@ local normalizers for a product specification form
 '''
 
 import inspect
-from abc import ABC, abstractmethod
+from abc import abstractmethod
+from difflib import SequenceMatcher
 from os import path
 
 from hnjapp.c1rdrs import _fmtpkno
-from hnjapp.svcs.db import formatsn, _JO2BC
+from hnjapp.svcs.db import _JO2BC, formatsn
 from hnjcore import JOElement
-from utilz import NamedList, karatsvc, na, stsizefmt, trimu
-from ._utilz import _Utilz, _nrm, _Tbl_Optr
+from utilz import NA, karatsvc, stsizefmt, trimu
+from utilz.miscs import NamedLists
+from utilz.xwu import BaseNrl, NrlsInvoker, SmpFmtNrl, TBaseNrl, apirange, esctext
+
+from ..common import config
+from ._utilz import _Utilz
 
 thispath = path.abspath(path.dirname(inspect.getfile(inspect.currentframe())))
 
@@ -24,145 +29,19 @@ _nsr = lambda s: s and s.find('_') >= 0
 # level for not sure
 _nsl = lambda s, lv: BaseNrl.LEVEL_ADVICE if _nsr(s) else lv
 
-class BaseNrl(ABC):
-    '''
-    base normalizer
-    '''
-    # level:
-    # 0 - 99: very small case, can be ignored
-    # 100 - 199: advices only, won't affect original value
-    # 200 - 255: critical error, fail the program
-    nl = NamedList('name row colname oldvalue newvalue level remarks'.split())
-    LEVEL_RPLONLY = 0   #only need to do replacement
-    LEVEL_MINOR = 50
-    LEVEL_ADVICE = 100
-    LEVEL_CRITICAL = 200
-    _base_nrls = {}
 
-    def __init__(self, **kwds):
-        self._default_level = kwds.get('level', self.LEVEL_MINOR)
-        self._hdlr = None
-        self._name = kwds.get('name', na)
-
-    @property
-    def hdlr(self):
-        '''
-        handler for getting/setting data with excel
-        '''
-        return self._hdlr
-
-    @hdlr.setter
-    def hdlr(self, hdlr):
-        self._hdlr = hdlr
-
-    @abstractmethod
-    def normalize(self, pmap, name):
-        '''
-        return None if value is valid, or a tuple of _nl items
-        @param pmap: the parent map that contains 'name'
-        @param name: the item that need to be validate
-        '''
-
-    def _new_log(self, oldval, newval, **kwds):
-        '''
-        just return the array, returning the NamedList object will lose the array
-        '''
-        nl = self.nl
-        nl.newdata()
-        lvl = kwds.get('level')
-        if lvl is None:
-            lvl = self._default_level
-        nl.oldvalue, nl.newvalue, nl.level = oldval, newval, lvl
-        if kwds:
-            cm = set(nl.colnames)
-        if 'name' not in kwds:
-            kwds['name'] = self._name
-        for n, v in kwds.items():
-            if n not in cm:
-                continue
-            if n == 'row':
-                nl[n] = v + 1  # the caller is zero based, so + 1
-            else:
-                nl[n] = v
-        return nl.data
-
-    @classmethod
-    def get_base_nrm(cls, name):
-        '''
-        return the often used normalizer
-        Args:
-            name: only support tu/tr
-        '''
-        n = _nrm(name)
-        nrl = cls._base_nrls.get(n)
-        if nrl:
-            return nrl
-        if n == _nrm('tu'):
-            nrl = TUNrl(name="base trim and upper handler")
-        elif n == _nrm('tr'):
-            nrl = TrimNrl(name="base trim and upper handler")
-        if nrl:
-            cls._base_nrls[n] = nrl
-        return nrl
-
-class TrimNrl(BaseNrl):
-    '''
-    perform trim only action
-    '''
-
-    def __init__(self, *args, **kwds):
-        if 'level' not in kwds:
-            kwds['level'] = self.LEVEL_RPLONLY
-        super().__init__(*args, **kwds)
-
-    def normalize(self, pmap, name):
-        old = pmap[name]
-        nv = old.strip() if old else None
-        if nv != old:
-            pmap[name] = nv
-            lvl = _nsl(nv, self._default_level)
-            return (self._new_log(old, nv, name=name, level=lvl),)
-        return super().normalize(pmap, name)
-
-
-class TUNrl(BaseNrl):
-    '''
-    perform trim and upper actions
-    '''
-
-    def __init__(self, *args, **kwds):
-        if 'level' not in kwds:
-            kwds['level'] = self.LEVEL_RPLONLY
-        super().__init__(*args, **kwds)
-
-    def normalize(self, pmap, name):
-        if name in pmap:
-            old = pmap[name]
-            nv = trimu(old)
-            if nv != old:
-                pmap[name] = nv
-                lvl = _nsl(nv, self._default_level)
-                return (self._new_log(old, nv, name=name, level=lvl),)
-        return super().normalize(pmap, name)
-
-
-class JENrl(BaseNrl):
+class JENrl(SmpFmtNrl):
     """ the JOElement like normalizer
     """
-    def __init__(self, *args, **kwds):
-        if 'level' not in kwds:
-            kwds['level'] = self.LEVEL_RPLONLY
-        super().__init__(*args, **kwds)
+    @staticmethod
+    def _fmt_je(jn):
+        je = JOElement(jn)
+        if not je.isvalid():
+            return jn
+        return je.value
 
-    def normalize(self, pmap, name):
-        ov = pmap[name]
-        nv = JOElement(ov)
-        if nv.isvalid():
-            nv = nv.name
-            if nv != ov:
-                pmap[name] = nv
-                return (self._new_log(ov, nv, name=name),)
-        return super().normalize(pmap, name)
+    def __init__(self, *args, **kwds):
+        super().__init__(JENrl._fmt_je, *args, **kwds)
 
 
 class KaratNrl(BaseNrl):
@@ -178,13 +57,18 @@ class KaratNrl(BaseNrl):
         self._strict = strict
 
     def normalize(self, pmap, name):
-        k0 = pmap[name]
+        k0 = esctext(pmap[name])
         nv = rmk = None
         kt = karatsvc.getkarat(k0)
-        if kt and kt.name != k0:
-            nv, lvl = kt.name, self.LEVEL_ADVICE
-            rmk = 'Karat(%s) => (%s)' % (k0, nv)
-        elif self._strict and not kt:
+        if kt:
+            nv, ext = kt.name, False
+            # excel might thread sth. like 925 as numeric
+            if nv.isnumeric():
+                nv, ext = "'" + nv, True
+            if nv != k0:
+                lvl = self.LEVEL_RPLONLY if ext else self.LEVEL_ADVICE
+                rmk = 'Karat(%s) => (%s)' % (k0, nv)
+        elif self._strict:
             rmk, lvl = 'Invalid Karat(%s)' % k0, self.LEVEL_CRITICAL
         return  (self._new_log(k0, nv, name=name, remarks=rmk, level=lvl), ) if rmk else None
 
@@ -213,46 +97,56 @@ class SizeNrl(BaseNrl):
 class DescNrl(BaseNrl):
     ''' make the description based on the data map
     '''
-    def normalize(self, pmap, name):
-        lsts, ov = [], pmap.get(name)
-        if True:
-            nls = pmap.get(_nrm('finishing'))
+
+    def __init__(self, **kwds):
+        self._nrm = kwds.get('nrm') or _Utilz.nrm
+        super().__init__(**kwds)
+
+    def _knc(self, pmap):
+        lsts, wgts = [], pmap.get('_wgtinfo')
+        if wgts:
+            nls = pmap.get(self._nrm('finishing'))
             if nls:
-                # merge the duplicated
-                nls = set((nl['method'], ) for nl in nls if nl['method'][0] == 'V')
-            lsts.append(_JO2BC().knc_mix(pmap.get('_wgtinfo'), nls or set()))
+                vcmp = {x['name']: x['color'] for x in config.get('vermail.defs')}
+                nls = {(vcmp.get(nl['method']), ) for nl in nls if nl['method'][0] == 'V'}
+            lsts.append(_JO2BC().knc_mix(wgts, nls),)
         else:
-            nls = pmap.get(_nrm('metal'))
+            nls = pmap.get(self._nrm('metal'))
             if nls:
                 lsts.append("&".join([nl.karat for nl in nls]))
-            nls = pmap.get(_nrm('finishing'))
+            nls = pmap.get(self._nrm('finishing'))
             if nls:
                 # merge the duplicated
                 nls = set(nl['method'] for nl in nls if nl['method'][0] == 'V')
                 if nls:
                     lsts.append("&".join(nls))
+        return lsts
+
+    def normalize(self, pmap, name):
+        lsts, ov = self._knc(pmap), pmap.get(name)
         nls = self._make_desc_st(pmap)
         if nls:
             lsts.append(nls)
-        ptype = pmap[_nrm('type')]
+        ptype = pmap[self._nrm('type')]
         if ptype == 'PENDANT':
-            nls = pmap.get(_nrm('feature'))
+            nls = pmap.get(self._nrm('feature'))
             if nls:
                 nls = [nl for nl in nls if nl['catid'] == 'KEYWORDS' and nl['value'].find('LOCKET') >= 0]
                 if nls:
                     ptype = 'LOCKET PENDANT'
         lsts.append(ptype)
-        nls = pmap.get(_nrm('parts'))
+        nls = pmap.get(self._nrm('parts'))
         if nls:
             if [nl for nl in nls if nl['type'] == 'XP']:
                 lsts.append('ROPE CHAIN')
-        return  (self._new_log(ov, " ".join(lsts), name=name, remarks=ov, level=self.LEVEL_ADVICE),)
+        nv = " ".join(lsts)
+        pmap[name] = nv
+        return  (self._new_log(ov, nv, name=name, remarks=ov, level=self.LEVEL_ADVICE),)
 
-    @staticmethod
-    def _make_desc_st(pmap):
+    def _make_desc_st(self, pmap):
         ''' sort by stone size desc, then stone name. Dia will always be at the end
         '''
-        sts = pmap.get(_nrm('stone'))
+        sts = pmap.get(self._nrm('stone'))
         if not sts:
             return None
         sts = sorted([st for st in sts], key=lambda st: str(st['size']), reverse=True)
@@ -272,36 +166,39 @@ class NWgtNrl(BaseNrl):
     ''' NetWgt calculator
     '''
 
+    def __init__(self, **kwds):
+        self._nrm = kwds.get('nrm') or _Utilz.nrm
+        super().__init__(**kwds)
+
     def normalize(self, pmap, name):
         nwgt = 0
-        nls = pmap.get(_nrm('metal'))
+        nls = pmap.get(self._nrm('metal'))
         if nls:
             nwgt += sum([nl.wgt for nl in nls if nl.wgt])
-        nls = pmap.get(_nrm('stone'))
+        nls = pmap.get(self._nrm('stone'))
         if nls:
             uv = {'CT': 0.2, 'GM': 1, 'TL': 37.429}
             nwgt += sum([nl.wgt * uv.get(nl['wgtunit'], 0.2) for nl in nls if nl.wgt])
-        nls = pmap.get(_nrm('parts'))
+        nls = pmap.get(self._nrm('parts'))
         if nls:
             nwgt += sum([nl.wgt for nl in nls if nl['type'] == 'XP' and nl['karat'] and nl.wgt])
         ov, nwgt = pmap.get(name), round(nwgt, 3)
+        pmap[name] = nwgt
         return  (self._new_log(ov, nwgt, name=name, remarks=None, level=self.LEVEL_ADVICE if ov else self.LEVEL_RPLONLY),)
 
-class TBaseNrl(BaseNrl):
-    '''
-    base class for table-based normalizer
-    '''
 
-    def __init__(self, *args, **kwds):
-        super().__init__(*args, **kwds)
-        self._nrl_mp = None
-        self._reg_nrls()
+class _TBaseNrl(TBaseNrl):
 
-    def _reg_nrls(self):
-        pass
+    def __init__(self, **kwds):
+        super().__init__(**kwds)
 
-    def _nrl_one(self, name, row, nl, logs):
-        pass
+    @abstractmethod    
+    def _nrl_row(self, name, row, nl, logs):
+        ...
+
+    @abstractmethod
+    def _get_nrls(self):
+        ...
 
     def _append_log(self, logs, ov, nv, rmk, **kwds):
         if nv == ov:
@@ -315,49 +212,25 @@ class TBaseNrl(BaseNrl):
                 nl[cn] = nv
         logs.append(self._new_log(ov, nv, **kwds))
 
-    def _normalize_item(self, nrl, nl, cn, **kwds):
-        '''
-        normal just one item inside a row, used for those table property that can
-        be normalized by other Normalizer
-        Args:
-            kwds: must contain: name,row,logs
-        '''
-        var = nrl.normalize(nl, cn)
-        if not var:
-            return
-        var = self.nl.setdata(var[0])
-        nl[cn] = var.newvalue
-        var.name, var.row, var.colname = kwds.get('name'), kwds.get('row') + 1, cn
-        if 'logs' in kwds:
-            kwds['logs'].append(var.data)
 
-    def normalize(self, pmap, name):
-        its = pmap.get(name)
-        if not its:
-            return super().normalize(pmap, name)
-        logs = []
-        for row, nl in enumerate(its):
-            if self._nrl_mp:
-                for cn, nrls in self._nrl_mp.items():
-                    if isinstance(nrls, BaseNrl):
-                        nrls = (nrls, )
-                    for nrl in nrls:
-                        self._normalize_item(nrl, nl, cn, logs=logs, name=name, row=row)
-            self._nrl_one(name, row, nl, logs)
-        return logs or None
-
-
-class MetalNrl(TBaseNrl):
+class MetalNrl(_TBaseNrl):
     '''
     Metal table normalizer
     '''
 
-    def _reg_nrls(self):
-        self._nrl_mp = {
-            'remarks': self.get_base_nrm('tu')
-        }
+    def __init__(self, **kwds):
+        super().__init__(**kwds)
+        self._nrl_mp = None
 
-    def _nrl_one(self, name, row, nl, logs):
+
+    def _get_nrls(self):
+        if not self._nrl_mp:
+            self._nrl_mp = {
+                'remarks': self.get_base_nrm('tu')
+            }
+        return self._nrl_mp
+
+    def _nrl_row(self, name, row, nl, logs):
         colname = 'wgt'
         def _a_log(ov, nv, lvl, rmks):
             self._append_log(logs, ov, nv, rmks, name=name, row=row,
@@ -385,24 +258,32 @@ class MetalNrl(TBaseNrl):
             _a_log(None, wgt, self.LEVEL_ADVICE, 'gold weight(%4.2f) greater than %4.2f, maybe error' % (wgt, 3))
 
 
-class FinishingNrl(TBaseNrl):
+class FinishingNrl(_TBaseNrl):
     '''
     normalizer for finishing
     '''
 
-    def _reg_nrls(self):
-        tu = self.get_base_nrm('tu')
-        self._nrl_mp = {
-            'remarks': self.get_base_nrm('tr'),
-            'method': tu,
-            'spec': tu
-        }
+    def __init__(self, **kwds):
+        super().__init__(**kwds)
+        self._nrl_mp = None
+        self._nrm = kwds.get('nrm') or _Utilz.nrm
+        self._hints = kwds.get("hints")
 
-    def _nrl_one(self, name, row, nl, logs):
-        if not self.hdlr:
+    def _get_nrls(self):
+        if not self._nrl_mp:
+            tu = self.get_base_nrm('tu')
+            self._nrl_mp = {
+                'remarks': self.get_base_nrm('tr'),
+                'method': tu,
+                'spec': tu
+            }
+        return self._nrl_mp
+
+    def _nrl_row(self, name, row, nl, logs):
+        if not self._hints:
             return
         for colname in 'spec method'.split():
-            mt, cand = self.hdlr.get_hints(_nrm('finishing.%s' % colname), nl[colname])
+            mt, cand = self._hints(self._nrm('finishing.%s' % colname), nl[colname])
             if mt == 2 and cand:
                 cand = trimu(cand)
                 self._append_log(logs, nl[colname], cand, '(%s) => (%s)' % (nl[colname], cand), name=name, row=row, colname=colname, nl=nl, level=self.LEVEL_ADVICE)
@@ -422,16 +303,25 @@ class FinishingNrl(TBaseNrl):
             if spec[1] != 'K':
                 nl['method'] = 'VK' if spec[1] == 'Y' else spec[0] + 'K' + spec[1:]
 
-class PartsNrl(TBaseNrl):
+class PartsNrl(_TBaseNrl):
     '''
     normalizer for Parts
     '''
 
-    def _reg_nrls(self):
-        tu = self.get_base_nrm('tu')
-        self._nrl_mp = {'remarks': self.get_base_nrm('tr'), 'type': tu, 'matid': tu, 'karat': (tu, KaratNrl(False))}
+    def __init__(self, **kwds):
+        super().__init__(**kwds)
+        self._nrl_mp = None
+    
+    def _nrl_row(self, name, row, nl, logs):
+        pass
 
-class StoneNrl(TBaseNrl):
+    def _get_nrls(self):
+        if not self._nrl_mp:
+            tu = self.get_base_nrm('tu')
+            self._nrl_mp = {'remarks': self.get_base_nrm('tr'), 'type': tu, 'matid': tu, 'karat': (tu, KaratNrl(False))}
+        return self._nrl_mp
+
+class StoneNrl(_TBaseNrl):
     '''
     normalizer for stone
     .minor BL as:
@@ -441,10 +331,16 @@ class StoneNrl(TBaseNrl):
         .Size to weight
     '''
 
-    def _reg_nrls(self):
+    def __init__(self, **kwds):
+        super().__init__(**kwds)
         self._nrl_mp = {'size': SizeNrl()}
+        self._hints = kwds.get('hints')
+        self._nrm = kwds.get('nrm') or _Utilz.nrm
 
-    def _nrl_one(self, name, row, nl, logs):
+    def _get_nrls(self):
+        return self._nrl_mp
+
+    def _nrl_row(self, name, row, nl, logs):
         colname = 'matid'
         ov, nv = nl[colname], None
         def _log(ov, nv, rmk, level=self.LEVEL_ADVICE):
@@ -474,10 +370,10 @@ class StoneNrl(TBaseNrl):
             nv = trimu(ov or df)
             _log(ov, nv, None, self.LEVEL_RPLONLY)
 
-        if self.hdlr:
+        if self._hints:
             for colname in 'shape name'.split():
                 ov = nl[colname]
-                mt, nv = self.hdlr.get_hints(_nrm('stone.%s' % colname), ov)
+                mt, nv = self._hints(self._nrm('stone.%s' % colname), ov)
                 if mt > 0 and nv and nv != ov:
                     nv = trimu(nv)
                     self._append_log(logs, ov, nv, '%s -> %s' % (nl[colname], nv), name=name, row=row, colname=colname, nl=nl, level=self.LEVEL_ADVICE)
@@ -490,8 +386,8 @@ class StoneNrl(TBaseNrl):
         if not stones or len(stones) == 1:
             return None
         for row, nl in enumerate(stones):
-            valid = nl.qty == (1 if pmap.get(_nrm('type')) != "EARRING" else 2) and stsizefmt(str(nl.size), False) >= "0300"
-            ov = nv = nl[_nrm('main')]
+            valid = nl.qty == (1 if pmap.get(self._nrm('type')) != "EARRING" else 2) and stsizefmt(str(nl.size), False) >= "0300"
+            ov = nv = nl[self._nrm('main')]
             if valid ^ (ov == 'Y'):
                 nv = 'Y' if valid else 'N'
                 self._append_log(logs, ov, nv, 'should be %s' % ('MAIN STONE' if valid else 'SIDE STONE'), nl=nl, name=name, row=row, colname='main', level=self.LEVEL_ADVICE)
@@ -502,15 +398,24 @@ class StoneNrl(TBaseNrl):
                 self._append_log(logs, None, 'Y', 'MULTI-MAIN is not allowed', name=name, nl=stones[row], row=row, colname='main', level=self.LEVEL_CRITICAL)
         return logs if logs else None
 
-class FeatureNrl(TBaseNrl):
+
+class FeatureNrl(_TBaseNrl):
     """ feature based normalizer
     """
-    def _nrl_one(self, name, row, nl, logs):
+
+    def __init__(self, **kwds):
+        self._nrm = kwds.get('nrm') or _Utilz.nrm
+        super().__init__(**kwds)
+
+    def _get_nrls(self):
+        return None
+
+    def _nrl_row(self, name, row, nl, logs):
         colname = 'value'
         def _a_log(logs, ov, nv, rmk, lvl=self.LEVEL_RPLONLY):
             self._append_log(logs, ov, nv, rmk, nl=nl, name=name, row=row, colname=colname, level=lvl)
-        catid = _nrm(nl['catid'])
-        if catid == _nrm('xstyn'):
+        catid = self._nrm(nl['catid'])
+        if catid == self._nrm('xstyn'):
             ov = nl[colname]
             nv = JOElement(ov)
             if not nv.isvalid():
@@ -519,19 +424,180 @@ class FeatureNrl(TBaseNrl):
                 nv = nv.value
                 if nv != ov:
                     _a_log(logs, ov, nv, None)
-        elif catid == _nrm('sn'):
+        elif catid == self._nrm('sn'):
             ov = nl[colname]
-            nv = formatsn(nl[colname], 0, True) or (na, )
+            nv = formatsn(nl[colname], 0, True) or (NA, )
             if nv:
-                nv = ";".join(nv)
+                nv = ";".join(sorted(nv))
             if nv != ov:
                 _a_log(logs, ov, nv, "SN# formatted")
-        elif catid == _nrm('keywords'):
+        elif catid == self._nrm('keywords'):
             ov = nl[colname]
-            nv = ";".join(sorted(trimu(ov).split(";")))
+            nv = (x for x in trimu(ov).split(";") if x)
+            nv = ";".join(sorted(tuple(set(nv))))
             if nv != ov or _nsr(nv):
                 _a_log(logs, ov, nv, None, self.LEVEL_ADVICE)
-        elif catid == _nrm('text'):
+        elif catid == self._nrm('text'):
             ov = nl[colname]
             if _nsr(ov):
                 _a_log(logs, None, ov, None, self.LEVEL_ADVICE)
+
+class _NRInvoker(NrlsInvoker):
+    '''
+    class help to validate the form's field one by one
+    mainly make use of the sub classes of BaseNrl to complete the task
+    '''
+
+    def __init__(self, hdlr=None, upd_src=True, hl_level=BaseNrl.LEVEL_MINOR):
+        """
+        Args:
+            hdlr: an Handler instance help to access the excel if there is
+        """
+        self._hdlr, self._upd_src, self._hl_level = hdlr, upd_src, hl_level
+        self._hints = _HintsHdlr(hdlr.book)
+        super().__init__(self._init_nrls())
+
+    def _hl(self, rng, level, rmks):
+        if not rng:
+            return
+        ci, api = self._get_hl_color(level), None
+        if ci > 0:
+            api = rng.api
+            api.interior.colorindex = ci
+        if rmks:
+            if not api:
+                api = rng.api
+            api.ClearComments()
+            api.AddComment()
+            api = api.Comment
+            api.Text(Text=rmks)
+
+    @staticmethod
+    def _get_hl_color(level):
+        if level < BaseNrl.LEVEL_MINOR:
+            return 19   # light yellow
+        if level < BaseNrl.LEVEL_CRITICAL:
+            return 6    # yellow
+        return 3    # red
+
+    def _init_nrls(self):
+        nrls = {}
+        # maybe from the config file
+        tu = BaseNrl.get_base_nrm('tu')
+        _nrm = self._hdlr.normalize if self._hdlr else _Utilz.nrm
+        kwds = {'nrm': _nrm, 'hints': self._hints.get_hints}
+        for n in 'styno qclevel parent craft'.split():
+            nrls[_nrm(n)] = tu
+        mp = {
+            'docno': JENrl,
+            'size': SizeNrl,
+            'metal': MetalNrl,
+            'finishing': FinishingNrl,
+            'parts': PartsNrl,
+            'stone': StoneNrl
+        }
+        for n, cn in mp.items():
+            nrls[_nrm(n)] = cn(name=n, **kwds)
+        tu = FeatureNrl(name='feature', **kwds)
+        for n in 'feature feature1'.split():
+            nrls[_nrm(n)] = tu
+        n = _nrm('netwgt')
+        nrls[n] = NWgtNrl(name=n, **kwds)
+        n = _nrm('description')
+        nrls[n] = (BaseNrl.get_base_nrm('tu'), DescNrl(name=n, **kwds), )
+        return nrls
+
+    def normalize(self, mp):
+        '''
+        normalize the result map
+        Args:
+            mp({string, BaseNrl}): a map generated by prdspec.Handler.read() method
+            upd_src: update the source excel for those normalized
+            hl_level: hight light those changes has high value than this
+        '''
+        mp, logs = super().normalize(mp)
+        if self._hdlr and self._upd_src:
+            self._hdlr.write(mp)
+            if logs:
+                self._hl_xls(logs)
+        return mp, logs
+
+    def _hl_xls(self, logs):
+        '''
+        high-light the given invalid items(a collection of self._nl_vld)
+        '''
+        for nl in logs:
+            if not nl.name:
+                continue
+            if nl.level >= self._hl_level:
+                nd = self._hdlr.get(nl.name)
+                rng = nd.get(nl.row, nl.colname) if nl.row else nd.get()
+                self._hl(rng, nl.level, nl.remarks)
+
+class _HintsHdlr(object):
+    ''' read and return hints
+    '''
+
+    def __init__(self, wb):
+        self._wb, self._meta_mp, self._nrm = wb, None, None
+
+    @property
+    def nrm(self):
+        return self._nrm or _Utilz.nrm
+
+    def _read_hint_defs(self):
+        '''
+        read meta data except the field mappings from the meta sheet
+        '''
+        if self._meta_mp:
+            return
+        self._meta_mp = {}
+        nrm = self.nrm
+        for sn, mp in config.get('prodspec.meta_tables').items():
+            sht = self._wb.sheets(sn)
+            for meta_type, tblname in mp.items():
+                addr = apirange(sht.api.listObjects(tblname).Range)
+                self._meta_mp[nrm(meta_type)] = {nrm(nl['name']): nl for nl in NamedLists(addr.value)}
+        # in the case of stone name, build an abbr -> name hints map
+        mp = {nrm(nl['hp.abbr']): nrm(nl['name']) for nl in self._meta_mp[nrm('stone.name')].values()}
+        self._meta_mp[nrm('stone.abbr')] = mp
+
+    def get_hints(self, meta_type, cand):
+        '''
+        find a best match meta data item based on the cand string.
+        Args:
+            meta_type(string): sth. like 'producttype'/'finishingmethod', which was defined in conf.json under key 'prodspec.meta_tables'
+            cand(string): the candidate string that need matching
+        Returns:
+            A tuple as:
+                [0]: 1 if meta_type is defined and match is perfect
+                     2 if meta_type is defined and match is not perfect
+                     0 if meta_type is not defined
+                [1]: the best-match item or None when [0] is True or None
+        '''
+        if not cand:
+            return 0, None
+        if not self._meta_mp:
+            self._read_hint_defs()
+        meta_type = self.nrm(meta_type)
+        mp = self._meta_mp[meta_type]
+        if not mp:
+            return 0, None
+        ncand = self.nrm(cand)
+        if meta_type == self.nrm('stone.name'):
+            ncand = self._meta_mp[self.nrm('stone.abbr')].get(ncand, ncand)
+        nl = mp.get(ncand)
+        if nl:
+            return 1, self.nrm(nl['name']) # TODO::return based on meta_type
+        sm = SequenceMatcher(None, ncand, None)
+        ln = len(cand)
+        rts, min_mt = [], 2 * max(2, ln * 0.6) # at least 2 or 1/2 match
+        for s in mp:
+            sm.set_seq2(s)
+            rt = sm.ratio()
+            if rt >= min_mt / (ln + len(s)):
+                rts.append((rt, s,))
+        if not rts:
+            return 2, None
+        rts = sorted(rts, key=lambda x: x[0])
+        return 2, rts[-1][1]

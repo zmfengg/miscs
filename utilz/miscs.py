@@ -640,6 +640,19 @@ class NamedList(object):
         return the internal list/tuple
         """
         return self._data
+    
+    @property
+    def isblank(self):
+        '''
+        this object contains no data or all data is None
+        '''
+        if self._dtype == 0:
+            return True
+        elif self._dtype in (1, 2):
+            return not [x for x in self._data if x]
+        elif self._dtype == 10:
+            return not [x for x in self._data.value() if x]
+        return True
 
     def __str__(self):
         return self.__repr__()

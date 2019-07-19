@@ -218,4 +218,5 @@ class Stysn(_base):
     styno = Column(VARCHAR(10))
     snno = Column(VARCHAR(20))
     # S for SN#, snno is the snno of styno; P for hierachi, snno is the Parent of styno
+    # K for keyword
     tag = Column(CHAR(1))

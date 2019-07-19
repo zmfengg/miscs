@@ -13,7 +13,7 @@ from sqlalchemy.engine import create_engine
 
 import pyodbc
 
-from ._miscs import triml, getvalue as gv
+from .miscs import triml, getvalue as gv
 from .common import _logger as logger
 
 

@@ -25,7 +25,7 @@ from sqlalchemy.sql.sqltypes import VARCHAR, Integer
 from hnjapp.localstore import Stysn
 from hnjcore import JOElement
 from utilz import NamedList, splitarray, xwu
-from utilz._miscs import getpath, newline
+from utilz.miscs import getpath, newline, triml
 from utilz.resourcemgr import ResourceCtx, SessionMgr
 
 from ..common import _logger as logger
@@ -48,6 +48,25 @@ class StyleFinder(object):
        `max_stycnt`=0: the max count of style of one SN#, when greater than this, the SN# will be treated as public component like BALE. It's SN# result will be discarded.
 
     '''
+
+    _tags = None
+
+    @classmethod
+    def tag(cls, tn):
+        ''' return the tag value of given name
+        Args:
+
+        tn: name of the tag. the support values are:
+            snno: snno tag
+            keyword: keyword tag
+            parent: parent tag
+            text: text tag
+        
+        more tags are available in conf.json/stysn.tag
+        '''
+        if not cls._tags:
+            cls._tags = config.get('stysn.tag')
+        return cls._tags.get(triml(tn))
 
     def __init__(self, store_sm, **kwargs):
         self._sm = store_sm
@@ -191,6 +210,8 @@ class StyleFinder(object):
                 snp += 1
             styp += 1
         sns = styq[1:]
+        if sns:
+            sns = [x[0] for x in sns]
         if len(sns) > 1:
             sns = sorted(sns)
         return sns, hints
@@ -219,7 +240,35 @@ class StyleFinder(object):
         if not isns:
             return None
         return self._get_by_sns(isns, excludes, level, stynos)
-    
+
+    def _simple_get(self, fld, q, tag):
+        with self._sessionctx as cur:
+            q = cur.query(fld).filter(q).filter(Stysn.tag == tag)
+            lst = q.all()
+        return sorted((x[0] for x in lst)) if lst else None
+
+    def getstynos(self, snno):
+        ''' return the styno by given snno
+        '''
+        snno = JOElement(snno).value
+        return self._simple_get(Stysn.styno, Stysn.snno == snno, self.tag('snno'))
+
+    def getstyx(self, styno, tn):
+        ''' return given styno's x property
+
+        Args:
+
+            tn: name of the tag, refer to :func: tag() FMI
+
+        Returns:
+            tuple(String)
+        '''
+        tn = triml(tn)
+        lst = self._simple_get(Stysn.snno, Stysn.styno == JOElement(styno).value, self.tag(tn))
+        if tn == 'snno' and lst and len(lst) > 1:
+            lst = formatsn(",".join(lst), retuple=True) if lst else None
+        return lst
+
     def _get_by_sns(self, isns, excludes, level=1, stynos=None):
         stymp = snmp = {}
         for sn in isns:

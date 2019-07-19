@@ -233,7 +233,14 @@ class SNFmtr(object):
                 fixed = [y for x in fixed for y in cls._splitsn(x, parsemode)]
             buff.extend(fixed)
         if buff:
-            buff = list(set(buff))
+            # don't change the original order but remove the duplicated
+            st, lst = set(), []
+            for s0 in buff:
+                if s0 in st:
+                    continue
+                lst.append(s0)
+                st.add(s0)
+            buff = lst
         return buff if retuple else ",".join(buff)
 
 formatsn = SNFmtr.formatsn

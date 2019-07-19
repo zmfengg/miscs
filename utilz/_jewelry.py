@@ -12,7 +12,7 @@ from operator import attrgetter
 from os import path
 from threading import RLock
 
-from ._miscs import splitarray, trimu
+from .miscs import splitarray, trimu
 from .common import thispath
 
 __all__ = ["Karat", "KaratSvc", "RingSizeSvc", "stsizefmt"]

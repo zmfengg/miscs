@@ -27,9 +27,9 @@ from hnjcore.models.cn import JO as JOcn
 from hnjcore.models.cn import StoneMaster
 from hnjcore.models.cn import Style as Stycn
 from hnjcore.models.hk import JO, Orderma, PajShp, Style
-from utilz import ResourceCtx, getfiles, triml, trimu
+from utilz import ResourceCtx, getfiles, triml, trimu, NamedLists
 from utilz.exp import AbsResolver, Exp
-from utilz.xwu import NamedLists, NamedRanges, appmgr, find, offset, usedrange
+from utilz.xwu import NamedRanges, appmgr, find, offset, usedrange
 
 from .common import _logger as logger
 

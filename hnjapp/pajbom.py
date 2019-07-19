@@ -15,7 +15,7 @@ from numbers import Number
 
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Query
-from xlwings import Book
+from xlwings import Book, apps
 from hnjcore import JOElement, isvalidp17
 from hnjcore.models.hk import JO as JOhk
 from hnjcore.models.hk import Orderma, PajShp
@@ -124,6 +124,34 @@ class PajBomHdlr(object):
 
     def _isring(self, pcode):
         return self._pcdec.decode(pcode, "PRODTYPE").find("戒") >= 0
+
+    @staticmethod
+    def wgtsForPaj():
+        ''' read active book, write weigts. Request by Zhangyuting
+        '''
+        app = apps.active
+        if not app:
+            return
+        try:
+            wb = app.books.active
+            mp = PajBomHdlr().readbom(wb)
+            lsts = []
+            lsts.append('17码 主成色 主重 副成色 副重 配件成色 配件重'.split())
+            for pcode in mp:
+                pwgt = mp[pcode]['mtlwgt']
+                wgts = [(x.karat, x.wgt) if x else (None, None) for x in pwgt.wgts]
+                wgts = [y for x in wgts for y in x]
+                wgts.insert(0, pcode)
+                lsts.append(wgts)
+            sht = wb.sheets.add(after=wb.sheets[-1])
+            sht.cells(1, 1).value = lsts
+            sht.autofit('c')
+            rng = xwu.usedrange(sht)
+            rng.row_height = 18
+            xwu.maketable(rng)
+            xwu.freeze(sht.cells(2, 2))
+        except:
+            pass
 
     def readbom(self, fldr, cvt2tbl=True):
         """

@@ -26,7 +26,7 @@ from xlwings.constants import LookAt
 
 from utilz import getvalue, imagesize, iswritable, karatsvc, stsizefmt, xwu
 from utilz._jewelry import RingSizeSvc
-from utilz._miscs import (Config, NamedList, NamedLists, Salt, appathsep,
+from utilz.miscs import (Config, NamedList, NamedLists, Salt, appathsep,
                           daterange, getfiles, list2dict, lvst_dist, monthadd,
                           shellopen, Number2Word)
 from utilz.resourcemgr import ResourceCtx, ResourceMgr, SessionMgr
@@ -186,7 +186,7 @@ class KeySuite(TestCase):
         self.assertTrue(fldr[-1] == path.sep, "with path.sep appended")
 
     def testGetFiles(self):
-        """ test for _misc.getfiles, a early stage funtion of my python programming """
+        """ test for misc.getfiles, a early stage funtion of my python programming """
         fldr = path.join(thispath, "res")
         fns = getfiles(fldr, "NamedL", True)
         self.assertEqual("NamedList.xlsx", fns[0], "the only excel file there")
@@ -330,7 +330,7 @@ class KeySuite(TestCase):
         '''
         test the getpath function
         '''
-        from utilz._miscs import getpath, getmodule
+        from utilz.miscs import getpath, getmodule
         from sys import modules
         self.assertEqual(modules[__package__], getmodule(__package__))
         self.assertEqual(path.dirname(getfile(currentframe())), getpath(), 'my working path')
@@ -387,7 +387,7 @@ class NamedListSuite(TestCase):
 
     def testList2Dict(self):
         """
-        test for _misc.list2Dict, but using NamedList is more straight forward
+        test for misc.list2Dict, but using NamedList is more straight forward
         """
         lst, alias = ("A", None, "", "bam", "Bam1"), {
             "namE": "A",

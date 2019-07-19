@@ -19,12 +19,15 @@ class JOElement(object):
     """
     representation of Alpha + digit composite key
     the constructor method can be one of:
-
+    
     JOElement("A1234BC")
     JOElement("A",123,"BC")
     JOElement(12345.0)
 
     JOElement(alpha = "A",digit = 123,suffix = "BC")
+
+    Args:
+    length=5: the default mininum length of the alpha + digit result
     """
     __minlen__ = 5
 
@@ -64,7 +67,10 @@ class JOElement(object):
                 lst = [y for x in fn for y in x.split() if vdl(y)]
         return lst
 
-    def __init__(self, *args):
+    def __init__(self, *args, **kwds):
+        cnt = kwds.get('length')
+        if cnt:
+            self._minlen = cnt
         cnt = len(args)
         if cnt == 1:
             self._parse_(args[0])
@@ -115,8 +121,9 @@ class JOElement(object):
 
     def __str__(self, *args, **kwargs):
         if hasattr(self, 'digit'):
+            ml = self._minlen if hasattr(self, '_minlen') else self.__minlen__
             return self.alpha + (
-                ("%0" + str(self.__minlen__ - len(self.alpha)) + "d") %
+                ("%0" + str(ml - len(self.alpha)) + "d") %
                 self.digit)
         return ""
 

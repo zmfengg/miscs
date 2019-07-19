@@ -194,6 +194,12 @@ class _Tbl_Optr(object):
         '''
         self._mp = mp
 
+    def _new_nl(self, tblname):
+        nl = self._nlmp.get(tblname)
+        if not nl:
+            self._nlmp[tblname] = nl = NamedList(self._hdlr.get_colnames(tblname))
+        return nl.clone()
+
     def append(self, tblname, append=True):
         ''' append one record to given tblname, when the table is blank
         a record will be append no matter append=True or not
@@ -204,9 +210,7 @@ class _Tbl_Optr(object):
             A NamedList object pointing to the record
         '''
         tn = _nrm(tblname)
-        nl = self._nlmp.get(tn)
-        if not nl:
-            self._nlmp[tn] = nl = NamedList(self._hdlr._get_raw_colnames(tn))
+        nl = self._new_nl(tn)
         lst = self._mp.get(tn)
         if not lst:
             nl = nl.clone()
@@ -220,17 +224,21 @@ class _Tbl_Optr(object):
     def set_item(self, tblname, kcolname, kid, colname, val, unique=True):
         """ get or new item from feature by given name
         Args:
+
             tblname: the tblname
-            kcolname: the key column name
-            kid: the key id
+
+            kcolname: the key column name for dup. check
+
+            kid: the key id to check in the kcolname
+
             colname: the colname you need to set value to
-            val: the value for the column to set
-            unique: True while the key column is unique
+
+            val:    the value for the column to set
+
+            unique=True: only insert when kcolname=kid not found
         """
         tblname, kid = _nrm(tblname), trimu(kid)
-         # when there is no tn item, below statement will create it
-        self.append(tblname, append=False)
-        flag, lst = False, self._mp[tblname]
+        flag, lst = False, self._mp.get(tblname, ())
         for nl in lst:
             x = nl[kcolname]
             flag = x is None or unique and x == kid
@@ -239,7 +247,9 @@ class _Tbl_Optr(object):
                     nl[kcolname] = kid
                 break
         if not flag:
-            nl = lst[0].clone()
+            if not lst:
+                self._mp[tblname] = lst = []
+            nl = self._new_nl(tblname)
             lst.append(nl)
             nl[kcolname] = kid
         s0 = nl[colname] or ""
@@ -276,7 +286,39 @@ class _Tbl_Optr(object):
     def add_finishing(self, method, spec, rmk):
         ''' add finishing
         '''
-        nl = self.set_item('finishing', 'method', method, 'spec', spec, False)
+        tblname = _nrm('finishing')
+        if spec == '0.125 MIC' and rmk != 'CHAIN':
+            nl = self._new_nl(tblname)
+            nl.method, nl.spec = method, spec
+            nls = self._find(tblname, nl)
+            if nls:
+                for nl in nls:
+                    rmk0 = nl['remarks']
+                    if not rmk0 or rmk0 == rmk or rmk0 != 'CHAIN':
+                        nl['remarks'] = rmk
+                        return None
+        nl = self.set_item(tblname, 'method', method, 'spec', spec, False)
         if rmk:
             nl['remarks'] = rmk
         return nl
+
+    def _find(self, tblname, nl):
+        ''' find the items in given tblname who has the same value of nl
+        column in nl as None value won't be match
+        '''
+        lst = self._mp.get(tblname)
+        if not lst:
+            return None
+        mp = {x: nl[x] for x in nl.colnames if nl[x] is not None}
+        if not mp:
+            return None
+        rc = []
+        for nl1 in lst:
+            flag = True
+            for k, v in mp.items():
+                flag = nl1[k] == v
+                if not flag:
+                    break
+            if flag:
+                rc.append(nl1)
+        return rc

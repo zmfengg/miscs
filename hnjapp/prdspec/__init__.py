@@ -8,6 +8,6 @@ Product Spec handler, including Acessor/Normalizer
 
 '''
 
-from ._handler import Handler
+from ._fromjo import FromJO, JOFormHandler
 
-__all__ = ['Handler']
+__all__ = ['FromJO', 'JOFormHandler']
