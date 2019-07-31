@@ -1,9 +1,11 @@
-#! coding=utf-8
 '''
+#! coding=utf-8
 * @Author: zmFeng
 * @Date: 2018-06-16 14:41:00
 * @Last Modified by:   zmFeng
 * @Last Modified time: 2018-06-16 14:41:00
+
+tests for the key function of utilz
 '''
 
 import logging
@@ -17,6 +19,7 @@ from unittest import TestCase, main
 from cProfile import Profile
 from pstats import Stats
 from io import StringIO, FileIO
+from sys import stdout
 
 from sqlalchemy import VARCHAR, Column, ForeignKey, Integer
 from sqlalchemy.engine import create_engine
@@ -28,9 +31,10 @@ from utilz import getvalue, imagesize, iswritable, karatsvc, stsizefmt, xwu
 from utilz._jewelry import RingSizeSvc
 from utilz.miscs import (Config, NamedList, NamedLists, Salt, appathsep,
                           daterange, getfiles, list2dict, lvst_dist, monthadd,
-                          shellopen, Number2Word)
+                          shellopen, Number2Word, Literalize)
 from utilz.resourcemgr import ResourceCtx, ResourceMgr, SessionMgr
 from utilz.exp import Exp, AbsResolver
+from utilz._miscclz import Segments
 
 from .main import logger, thispath
 from time import clock
@@ -334,6 +338,18 @@ class KeySuite(TestCase):
         from sys import modules
         self.assertEqual(modules[__package__], getmodule(__package__))
         self.assertEqual(path.dirname(getfile(currentframe())), getpath(), 'my working path')
+    
+    def testSafeOpen(self):
+        app, tk = xwu.appmgr.acq()
+        root = path.join(thispath, 'res')
+        wbs = []
+        fns = [path.join(root, x) for x in path.os.listdir(root) if x.find('xlsx') > 0]
+        for fn in fns:
+            wbs.append(xwu.safeopen(app, fn))
+        self.assertEqual(len(fns), len(wbs))
+        for wb in wbs:
+            wb.close()
+
 
 class ConfigSuite(TestCase):
     '''
@@ -959,6 +975,182 @@ class SessMgrSuite(TestCase):
             pk1 = cur.query(PKNAC).filter(PKNAC.id == pk.id).first()
             self.assertEqual(pk.id, pk1.id)
 
+class LiteralizeSuite(TestCase):
+    ''' the Number <-> Literal convertor tests
+    '''
+    def testNext(self):
+        ni = Literalize('ABCDEF')
+        # common case
+        self.assertEqual('AFDB', ni.next('AFDA'))
+        self.assertEqual('01DB', ni.next('01DA'))
+        # initial, set it to zero
+        self.assertEqual('AAAA', ni.next(''))
+        self.assertEqual('AAAA', ni.next(None))
+        # digit up
+        self.assertEqual('AABA', ni.next('F'))
+        # digits up
+        self.assertEqual('BAAA', ni.next('FFF'))
+        with self.assertRaises(OverflowError):
+            ni.next('FFFF')
+        with self.assertRaises(TypeError):
+            ni.next('0000')
+        ni = Literalize('ABCDEF', digits=5)
+        self.assertEqual('BAAAA', ni.next('FFFF'))
+    
+    def testInt(self):
+        ''' test the from/to Int function
+        '''
+        ni = Literalize('ABCDEF', digits=5)
+        self.assertEqual(10, ni.toInteger('BE'))
+        self.assertEqual('AAABE', ni.fromInteger(10))
+
+        ni = Literalize('0123456789ABCDEF', expand=False) # hex
+        self.assertEqual(0, ni.toInteger('0'))
+        self.assertEqual(10, ni.toInteger('A'))
+        self.assertEqual(15, ni.toInteger('F'))
+        self.assertEqual(16, ni.toInteger('10'))
+        self.assertEqual('BE', ni.fromInteger(190))
+        def _run(i):
+            for idx in range(i):
+                ni.fromInteger(idx)
+        pf = Profile()
+        pf.runcall(_run, 10)
+        ticks = Stats(pf).total_tt * 1000
+        self.assertTrue(ticks < 1) # 10 loops less than 1 ms
+    
+    def testProdSpecName(self):
+        ''' a test just showing how to make use of SN and ver using 2 Literalize
+        '''
+        chars = '0123456789ABCDEFGHJKLMNPQRTUVWXY'
+        nc = Literalize(chars)
+        vc = Literalize(chars, digits=2)
+        ver = vc.next()
+        n = None
+        for i in range(len(chars) + 1):
+            n = '1234'
+            print('T' + n + ver)
+            ver = vc.next(ver)
+
+class SegmentSuites(TestCase):
+    ''' segment tests
+    '''
+    def testSegments(self):
+        def _segs(nc):
+            lst, styn = [], None
+            while True:
+                try:
+                    styn = nc.next(styn)
+                    lst.append(styn)
+                except OverflowError:
+                    break
+            return lst
+        verbose = False
+        exps = {
+            1: ['00', '10', '20', '30', '40', '01', '11', '21', '31', '41', '02', '12', '22', '32', '42', '03', '13', '23', '33', '43', '04', '14', '24', '34', '44'],
+            2: ['00', '10', '20', '30', '40', '02', '12', '22', '32', '42', '04', '24'],
+            3: ['00', '10', '20', '30', '40', '03', '04', '33'],
+            4: ['00', '10', '20', '30', '40', '04'],
+            5: ['00', '10', '20', '30', '40']}
+        for szCnt, lst0 in exps.items():
+            if szCnt == 1:
+                continue
+            nc = Segments(5, szCnt)
+            lst = _segs(nc)
+            lst0 = [(int(x[0]), int(x[1])) for x in lst0]
+            self.assertListEqual(lst0, lst, 'szCnt=%d' % szCnt)
+            if verbose:
+                nc.all(stdout)
+        # a larger set, complex enough
+        nc = Segments(32, 20)
+        lst = _segs(nc)
+        self.assertEqual(51, len(lst))
+        self.assertEqual((31, 0), lst[31], 'last level 0')
+        self.assertEqual((0, 31), lst[43], 'last level 1')
+
+        lst = lst[44:]
+        lst0 = [(20, 20), (21, 28), (23, 24), (25, 20), (26, 28), (28, 24), (30, 20)]
+        self.assertListEqual(lst0, lst0, 'the spans')
+        if verbose:
+            nc.all(stdout)
+
+        # column first
+        nc = Segments(32, 20, False)
+        lst = _segs(nc)
+        self.assertEqual(51, len(lst))
+        self.assertEqual((0, 31), lst[31], 'last level 0')
+        self.assertEqual((31, 0), lst[43], 'last level 1')
+        lst = lst[44:]
+        lst0 = [(20, 20), (28, 21), (24, 23), (20, 25), (28, 26), (24, 28), (20, 30)]
+        self.assertListEqual(lst0, lst0, 'the spans')
+        if verbose:
+            nc.all(stdout)
+
+        if verbose:
+            for i in range(10, 32, 2):
+                Segments(32, i).all(stdout)
+
+    def testRange(self):
+        ''' Segment's get_range function
+        '''
+        exps = {
+            # level 0
+            '0.0': ('0.0', '0.19'),
+            '0.18': ('0.0', '0.19'),
+            '0.19': ('0.0', '0.19'),
+            '3.1': ('3.0', '3.19'),
+            '31.19': ('31.0', '31.19'),
+            # level 1
+            '9.20': ('0.20', '19.20'),
+            '17.20': ('0.20', '19.20'),
+            '0.21': ('0.21', '19.21'),
+            '19.31': ('0.31', '19.31'),
+            # level 3
+            '20.20': ('20.20', '21.27'),
+            '21.21': ('20.20', '21.27'),
+            '22.24': ('21.28', '23.23'),
+            '30.24': ('30.20', '31.27')
+            }
+        s2a = lambda s: tuple(int(x) for x in s.split('.'))
+        s2aR = lambda s: tuple(reversed(s2a(s)))
+
+        nc = Segments(32, 20)
+        for key, val in exps.items():
+            rng = nc.get_range(s2a(key))
+            rng0 = tuple(s2a(x) for x in val)
+            self.assertTupleEqual(rng0, rng, key)
+
+        nc = Segments(32, 20, False)
+        for key, val in exps.items():
+            rng = nc.get_range(s2aR(key))
+            rng0 = tuple(s2aR(x) for x in val)
+            self.assertTupleEqual(rng0, rng, 'revise of %s' % key)
+
+        exps = {
+            # level 0
+            '0.0': ('0.0', '0.1'),
+            '0.1': ('0.0', '0.1'),
+            '0.2': ('0.2', '0.3'),
+            '4.2': ('4.2', '4.3'),
+            '2.3': ('2.2', '2.3'),
+            # level 1
+            '0.4': ('0.4', '1.4'),
+            '2.4': ('2.4', '3.4'),
+            '3.4': ('2.4', '3.4')
+        }
+        for flag in (True, False):
+            nc = Segments(5, 2, flag)
+            for key, val in exps.items():
+                s2 = s2a if flag else s2aR
+                rng = nc.get_range(s2(key))
+                rng0 = tuple(s2(x) for x in val)
+                self.assertTupleEqual(rng0, rng, '%s of row_first=%s' % (key, 'True' if flag else 'False'))
+
+    def testDemo(self):
+        mx = 32
+        for i in range(10, mx):
+            nc = Segments(mx, i)
+            lst = nc.segments()
+            self.assertEqual(nc.segmentCnt, len(lst))
 
 class CatalogTest(TestCase):
     """ class for catalog making """

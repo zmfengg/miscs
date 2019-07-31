@@ -105,7 +105,7 @@ class StyleFinder(object):
     def find_by_book(self, wb):
         ''' find by providing a workbook
         '''
-        srcttl = 'stynos excludes snnos limits'.split()
+        srcttl = 'stynos excludes snnos keyword limits'.split()
         nls = xwu.NamedRanges(xwu.usedrange(wb.sheets[0]))
         if not nls:
             self._make_wb_tpl(wb, srcttl)
@@ -128,9 +128,13 @@ class StyleFinder(object):
                 lst = self._get_by_sns([JOElement(x).value for x in stynos.split(',')], excludes)
                 snflag = True
             else:
-                stynos = nl.stynos
-                lst = self.find_intersect(stynos.split(','), excludes)
                 snflag = False
+                stynos = nl.stynos
+                if stynos:
+                    lst = self.find_intersect(stynos.split(','), excludes)
+                else:
+                    # TODO:: deep search the SN# field. don't return too much
+                    lst = None
             if lst and lst[0]:
                 stymp = {}
                 for sn, tlst in lst[1].items():
@@ -151,6 +155,14 @@ class StyleFinder(object):
     def _make_wb_tpl(wb, ttl):
         sht = wb.sheets.add(before=wb.sheets[0])
         sht.cells(1, 1).value = (ttl, )
+        if False:
+            #create a readme sheet, showing how to use
+            nl = NamedList(ttl)
+            lst = [nl.newdata(), ]
+            nl.stynos = 'P40461'
+            lst.append(nl.newdata())
+            nl.snno = 'HB922'
+            sht.cells(2, 1).value = lst
         sht.autofit('c')
         try:
             sht.name = 'template'
@@ -446,18 +458,18 @@ class LKSizeFinder(object):
         Args:
             deep_find=False:    when True, try all candiates even if it's inside the hints
         Returns:
-            A {Styno(string), tuple(size(string))}
+            A generator which yield (Styno(string), tuple(size(string))
         '''
         nl = NamedList('cand styno size sns')
         # ratio limited, set it to non-zero to block result by some low-ratio SN of a given style
         rltd = 0
-        mp, dbg = {}, logger.isEnabledFor(DEBUG)
+        dbg = logger.isEnabledFor(DEBUG)
         dups = [] if dbg else None
         for styn_r in stynos or self._stynos:
             if not deep_find:
                 sz = self._sz_hints.get(styn_r)
                 if sz:
-                    mp[styn_r] = (sz, )
+                    yield styn_r, (sz, )
                     continue
             lst, hints = self._style_finder.find(styn_r, level=3)
             if not lst:
@@ -488,10 +500,9 @@ class LKSizeFinder(object):
             uks = tuple(x for x in szstymp if x)
             if len(uks) > 1:
                 self._lksz_solv_dup(styn_r, hints, nl, szstymp, dups)
-            mp[styn_r] = uks
+            yield styn_r, uks
         if dbg and dups:
             self._dump_conflicts(dups, nl)
-        return mp
 
     def _dump_conflicts(self, dups, nl):
         if not dups:
@@ -502,6 +513,7 @@ class LKSizeFinder(object):
         flag = None
         for x in dups:
             nl.setdata(x)
+            nl.cand = 'Good' if nl.cand else 'Bad'
             if nl.styno != flag:
                 pns.append('')
                 flag = nl.styno
@@ -559,7 +571,7 @@ class LKSizeFinder(object):
                     sns[y[0]] = y[1]
             nl.sns = sns
         flag = nl.getcol('cand')
-        if dups:
+        if dups is not None:
             dups.extend(sorted(lsts, key=lambda x: x[flag], reverse=True))
 
 _style_finderbase = declarative_base()

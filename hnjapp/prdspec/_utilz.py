@@ -26,7 +26,7 @@ class _Utilz(object):
             s: the string to normalize
         """
         if not cls._nrm:
-            c = config.get("prdspec.case") or 'UPPER'
+            c = config.get("prodspec.case") or 'UPPER'
             cls._nrm = triml if  c == 'LOWER' else trimu
         return cls._nrm(s)
 

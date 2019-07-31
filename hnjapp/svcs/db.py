@@ -8,9 +8,9 @@ container of dbsvcs for both HK and CN
 '''
 
 from ._cnsvc import CNSvc, BCSvc, _JO2BC
-from ._common import SNFmtr, formatsn, idset, idsin, jesin, nameset, namesin
+from ._common import SvcBase, SNFmtr, formatsn, idset, idsin, jesin, nameset, namesin
 from ._hksvc import HKSvc
 
 __all__ = [
-    "BCSvc", "CNSvc", "HKSvc", "SNFmtr", "_JO2BC", "formatsn", "idset", "idsin", "jesin", "nameset", "namesin",
+    "BCSvc", "CNSvc", "HKSvc", "SNFmtr", "SvcBase", "_JO2BC", "formatsn", "idset", "idsin", "jesin", "nameset", "namesin",
 ]

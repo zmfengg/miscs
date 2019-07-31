@@ -9,12 +9,14 @@ classes to hold jodata into sqlite for faster calculation
 
 from numbers import Number
 
-from sqlalchemy.dialects.sqlite import DATETIME, TIMESTAMP
+# from sqlalchemy.dialects.sqlite import DateTime, TIMESTAMP
 from sqlalchemy.ext.declarative.api import declarative_base
 from sqlalchemy.orm import composite, relationship
 from sqlalchemy.sql.schema import Column, ForeignKey, Index
+from sqlalchemy import text
 from sqlalchemy.sql.sqltypes import (DECIMAL, VARCHAR, Integer,
-                                     SmallInteger, Float, CHAR)
+                                     SmallInteger, Float, CHAR, DateTime, TIMESTAMP)
+String = VARCHAR
 
 _base = declarative_base()
 ''' a docno column was appended to PajItem on 2019/01/16,
@@ -49,8 +51,8 @@ class PajInv(_base):
     cn = Column(DECIMAL(8, 2))
     mtlcost = Column(DECIMAL(8, 2))  #CN's metal cost
     otcost = Column(DECIMAL(8, 2))  #CN's other cost(Labour and stone(if))
-    jodate = Column(DATETIME)
-    invdate = Column(DATETIME)
+    jodate = Column(DateTime)
+    invdate = Column(DateTime)
     createdate = Column(TIMESTAMP)
     lastmodified = Column(TIMESTAMP)
 
@@ -64,8 +66,8 @@ class PajWgt(_base):
         SmallInteger)  #wgt type, 0 -> main, 10 for sub, 100 for parts
     karat = Column(SmallInteger)
     wgt = Column(DECIMAL(6, 2))
-    createdate = Column(DATETIME)
-    lastmodified = Column(DATETIME)
+    createdate = Column(DateTime)
+    lastmodified = Column(DateTime)
     remark = VARCHAR(100)
     tag = Column(Integer)
 
@@ -76,8 +78,8 @@ class PajCnRev(_base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     pid = Column(ForeignKey("pajitem.id"))
     uprice = Column(DECIMAL(6, 2))
-    revdate = Column(DATETIME)
-    createdate = Column(DATETIME)
+    revdate = Column(DateTime)
+    createdate = Column(DateTime)
     tag = Column(Integer)
 
 
@@ -96,8 +98,8 @@ class C1JC(_base):
     setcost = Column(DECIMAL(6, 2))
     basecost = Column(DECIMAL(6, 2))
     labcost = Column(DECIMAL(6, 2))
-    createdate = Column(DATETIME)
-    lastmodified = Column(DATETIME)
+    createdate = Column(DateTime)
+    lastmodified = Column(DateTime)
     tag = Column(Integer)
 
     @property
@@ -177,8 +179,8 @@ class PajBom(_base):
     karat = Column(Integer)
     wgt = Column(DECIMAL(6, 3))
     flag = Column(SmallInteger)  # 1 for main-part, 0 for chain
-    createdate = Column(DATETIME)
-    lastmodified = Column(DATETIME)
+    createdate = Column(DateTime)
+    lastmodified = Column(DateTime)
     tag = Column(SmallInteger) # 0 for current, gt 0 for revision
 
 class Codetable(_base):
@@ -197,12 +199,12 @@ class Codetable(_base):
     codec0 = Column(VARCHAR(250))
     codec1 = Column(VARCHAR(250))
     codec2 = Column(VARCHAR(250))
-    coded0 = Column(DATETIME)
-    coded1 = Column(DATETIME)
-    coded2 = Column(DATETIME)
+    coded0 = Column(DateTime)
+    coded1 = Column(DateTime)
+    coded2 = Column(DateTime)
     description = Column(VARCHAR(250))
-    createdate = Column(DATETIME)
-    lastmodified = Column(DATETIME)
+    createdate = Column(DateTime)
+    lastmodified = Column(DateTime)
     tag = Column(SmallInteger)
 
 class Stysn(_base):
@@ -220,3 +222,72 @@ class Stysn(_base):
     # S for SN#, snno is the snno of styno; P for hierachi, snno is the Parent of styno
     # K for keyword
     tag = Column(CHAR(1))
+
+# below several class for prdspec
+class SNDice(_base):
+    __tablename__ = 'sndice'
+    __table_args__ = (
+        Index('idx_sndice_name', 'prefix', 'name', unique=True),
+    )
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    prefix = Column(String(2), primary_key=False, nullable=False)
+    name = Column(String(15))
+    tag = Column(SmallInteger)
+
+
+class Style(_base):
+    __tablename__ = 'style'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(20), unique=True)
+    description = Column(String(255))
+    netwgt = Column(DECIMAL(6, 2), server_default=text("'0.00'"))
+    increment = Column(String(50))
+    keywords = Column(String(255), index=True)
+    dim = Column(String(255))
+    creatorid = Column(Integer)
+    createddate = Column(DateTime)
+    lastuserid = Column(Integer, server_default=text("'0'"))
+    modifieddate = Column(DateTime)
+    remarks = Column(String(255))
+    size = Column(String(255))
+    tag = Column(Integer, server_default=text("'0'"))
+
+class Mat(_base):
+    __tablename__ = 'mat'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    type = Column(String(255))
+    name = Column(String(255), unique=True)
+    code = Column(String(10), unique=True)
+    description = Column(String(255))
+    creatorid = Column(Integer)
+    createddate = Column(DateTime)
+    lastuserid = Column(Integer, index=True)
+    modifieddate = Column(DateTime)
+    tag = Column(Integer)
+
+class Stymat(_base):
+    __tablename__ = 'stymat'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    styid = Column(Integer, ForeignKey("style.id"), index=True)
+    style = relationship("Style")
+    idx = Column(Integer, index=True)
+    matid = Column(Integer, ForeignKey("mat.id"), index=True)
+    mat = relationship("Mat")
+    qty = Column(Integer)
+    wgt = Column(DECIMAL(8, 4))
+    remarks = Column(String(255))
+    tag = Column(Integer)
+
+
+class Stystone(_base):
+    __tablename__ = 'stystone'
+
+    id = Column(Integer, ForeignKey("stymat.id"), primary_key=True)
+    stymat = relationship("Stymat")
+    setting = Column(String(255))
+    wgtunit = Column(String(255))
+    ismain = Column(SmallInteger, server_default=text("'0'"))
+    remarks = Column(String(255))

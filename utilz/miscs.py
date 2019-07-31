@@ -7,20 +7,19 @@
 '''
 
 import tkinter as tk
-from base64 import b64decode, b64encode
 from collections import OrderedDict
 from collections.abc import Iterator, Sequence
 from datetime import date
 from imghdr import what
-from inspect import getabsfile, getfile, currentframe
+from inspect import currentframe, getfile
 from math import ceil
-from numbers import Integral, Number
+from numbers import Integral
 from os import listdir, path, remove
-from random import randint, random
+from random import random
 from re import sub
 from struct import unpack
 from sys import getfilesystemencoding, version_info
-from json import load as load_json
+from ._miscclz import Config, Salt, Number2Word, Literalize
 
 _sh = _se = None
 
@@ -28,7 +27,7 @@ __all__ = [
     "NamedList", "NamedLists", 'config', "appathsep", "daterange", "deepget",
     "easydialog", "easymsgbox", "getfiles", "getvalue", "iswritable", "isnumeric",
     "imagesize", "list2dict", "lvst_dist", "monthadd", "na", "NA", "removews",
-    "Config", "Salt", "shellopen", "Number2Word", "splitarray", "tofloat", "triml", "trimu", "updateopts"
+    "Config", "Salt", "shellopen", "Number2Word", "Literalize", "splitarray", "tofloat", "triml", "trimu", "updateopts"
 ]
 
 NA = "N/A"
@@ -453,6 +452,59 @@ def triml(s0, removewsps=False):
             s0 = removews(s0)
     return s0
 
+def easydialog(dlg):
+    """
+    open a tk dialog and return sth. easily
+    use dlg.show() works, but sometimes there is a background windows there
+    so, use for better looking
+    """
+    rt = tk.Tk()
+    rt.withdraw()
+    dlg.master = rt
+    rc = dlg.show()
+    # non of quit()/destroy() can kill tk while shown in excel, mainloop() even make it non-reponsible
+    rt.quit()
+    # rt.mainloop()
+    # rt.destroy()
+    return rc
+
+
+def easymsgbox(box, *args):
+    r"""
+    show a messagebox with provided arguments, common snippets, the only usage
+    is to hide the master window:
+    from tkinter import messagebox as mb
+    rc = easymsgbox(mb.showinfo, "hello", "you")
+    or
+    rc = easymsgbox(mb.askyesno, "attention", "need to delete sth?")
+    """
+    rt = tk.Tk()
+    rt.withdraw()
+    rc = box(*args, master=rt)
+    rt.quit()
+    return rc
+
+
+def lvst_dist(s, t):
+    """
+    calculate the minimum movement steps(LevenshteinDistance) from string s to string t
+    """
+    if not s:
+        return len(t) if t else 0
+    if not t:
+        return len(s) if s else 0
+    n, m = len(s), len(t)
+    p = [x + 1 for x in range(n + 1)]  #'previous' cost array, horizontally
+    d = [0] * (n + 1)  # cost array, horizontally
+
+    for j in range(1, m + 1):
+        d[0], t_j = j + 1, t[j - 1]
+        for i in range(1, n + 1):
+            d[i] = min(
+                min(d[i - 1], p[i]) + 1,
+                p[i - 1] + (0 if s[i - 1] == t_j else 1))
+        p, d = d, p
+    return p[n] - 1
 
 class NamedList(object):
     """
@@ -721,297 +773,5 @@ class NamedLists(Iterator):
 
     def __repr__(self):
         return self._lsts.__repr__() if self._lsts else None
-
-
-def easydialog(dlg):
-    """
-    open a tk dialog and return sth. easily
-    use dlg.show() works, but sometimes there is a background windows there
-    so, use for better looking
-    """
-    rt = tk.Tk()
-    rt.withdraw()
-    dlg.master = rt
-    rc = dlg.show()
-    # non of quit()/destroy() can kill tk while shown in excel, mainloop() even make it non-reponsible
-    rt.quit()
-    # rt.mainloop()
-    # rt.destroy()
-    return rc
-
-
-def easymsgbox(box, *args):
-    r"""
-    show a messagebox with provided arguments, common snippets, the only usage
-    is to hide the master window:
-    from tkinter import messagebox as mb
-    rc = easymsgbox(mb.showinfo, "hello", "you")
-    or
-    rc = easymsgbox(mb.askyesno, "attention", "need to delete sth?")
-    """
-    rt = tk.Tk()
-    rt.withdraw()
-    rc = box(*args, master=rt)
-    rt.quit()
-    return rc
-
-
-def lvst_dist(s, t):
-    """
-    calculate the minimum movement steps(LevenshteinDistance) from string s to string t
-    """
-    if not s:
-        return len(t) if t else 0
-    if not t:
-        return len(s) if s else 0
-    n, m = len(s), len(t)
-    p = [x + 1 for x in range(n + 1)]  #'previous' cost array, horizontally
-    d = [0] * (n + 1)  # cost array, horizontally
-
-    for j in range(1, m + 1):
-        d[0], t_j = j + 1, t[j - 1]
-        for i in range(1, n + 1):
-            d[i] = min(
-                min(d[i - 1], p[i]) + 1,
-                p[i - 1] + (0 if s[i - 1] == t_j else 1))
-        p, d = d, p
-    return p[n] - 1
-
-class Salt(object):
-    '''
-    a simple hash class for storing not human-readable senstive data. Don't call me crypto because crypto is not revisable but I can
-    '''
-    def __init__(self, key_mp=None):
-        self._key_mp = key_mp or {"A": 2, "C": 10, "D": 5, "E": 18, "F": 0, "G": 18, "H": 6, "I": 9, "J": 4, "K": 1, "L": 3, "N": 15, "O": 9, "P": 8, "Q": 10, "R": 12, "S": 8, "T": 17, "U": 5, "V": 2, "X": 11, "Y": 13, "a": 0, "b": 18, "c": 17, "f": 12, "l": 19, "p": 2, "q": 12, "s": 5, "t": 8, "u": 15, "v": 6, "*": 7, "w": 10, "x": 12, "y": 12, "z": 8, "=": 19, "|": 7, "`": 3}
-        self._keys = [x for x in self._key_mp.keys()]
-        self._key_ln = len(self._keys)
-
-    def encode(self, src):
-        '''
-        encode the source using b64 while appending sth. to the suffix and suffix
-        '''
-        rc = b64encode(src.encode()).decode()
-        ptr = randint(0, self._key_ln - 1)
-        hdl = self._key_mp[self._keys[ptr]]
-        salt, idx = "".join([self._keys[randint(0, self._key_ln - 1)] for x in range(hdl)]), hdl % 3
-        if idx == 0:
-            rc = salt + rc
-        elif idx == 1:
-            rc = rc[:len(rc)//2] + salt + rc[len(rc)//2:]
-        else:
-            rc = rc + salt
-        return rc + self._keys[ptr]
-
-    def decode(self, cookie):
-        '''
-        revise an encoded item
-        '''
-        hdl = cookie[-1]
-        if hdl not in self._key_mp:
-            raise AttributeError("cookie(%s) not encoded by me")
-        hdl = self._key_mp[hdl]
-        idx = hdl % 3
-        if idx == 0:
-            rc = cookie[hdl:-1]
-        elif idx == 1:
-            rc = len(cookie) - 1 - hdl
-            rc = cookie[:rc // 2] + cookie[rc // 2 + hdl:-1]
-        else:
-            rc = cookie[:len(cookie) - 1 - hdl]
-        return b64decode(rc).decode()
-
-class Config(object):
-    '''
-    A dict like config storage, different call can get/set changes here. Also have the ability for change listener to monitor setting changes.
-    It's advised for the consumer for this class to have it's name space.
-    Also, the key won't be normalized, the consumer take control if it
-    By default, this module contains one Config instance for convenience. You can  store settings directly to this instance.
-
-    example of boot strap:
-        from utilz import config
-        ...
-        if not config.get("_MY_SIGNATURE_"):
-            config.load(json_file)
-        ...
-        config.get("a")
-
-    example of put your own Config:
-        from utilz import config
-        if not config.get("_MY_SIGNATURE_"):
-            config.set("_MY_SIGNATURE_", Config(json_file))
-        ...
-        config.get("_MY_SIGNATURE_").get("a")
-    '''
-
-    def __init__(self, json_file=None):
-        self._dict, self._listeners = {}, {}
-        if json_file:
-            self.load(json_file)
-
-    def get(self, key, df=None):
-        '''
-        return the given setting of given key
-        '''
-        return self._dict.get(key, df) if self._dict else df or None
-
-    def set(self, key, new_value):
-        '''
-        set value to specified key
-        '''
-        old_val = self._dict.setdefault(key, new_value)
-        lstrs = self._listeners.get(key)
-        if not lstrs:
-            return
-        for lstr in (x for x in lstrs if x):
-            try:
-                lstr(key, old_val, new_value)
-            except:
-                pass
-
-    def addListener(self, key, chg_listener):
-        '''
-        monitor the setting changes
-        @param key: the key or keys that the chg_listener need to monitor
-        @param chg_listener:
-            A method that should have this form: method(key, old_value, new_value) and return value
-        '''
-        lst = self._listeners.setdefault(key, [])
-        if chg_listener not in lst:
-            lst.append(chg_listener)
-
-    def removeListener(self, key, listener):
-        '''
-        remove the listener added to me
-        '''
-        lst = self._listeners.get(key)
-        if not lst:
-            return None
-        if listener not in lst:
-            return None
-        lst.remove(listener)
-        return listener
-
-    def load(self, json_file, refresh=False):
-        '''
-        load setting from the given fn(json file)
-        @param json_file:
-            the file to load data from, or a dict already contains data
-        @param refresh:
-            clear existing settings(if there is)
-        '''
-        if refresh or self._dict is None:
-            self._dict = {}
-        try:
-            if isinstance(json_file, dict):
-                mp = json_file
-            else:
-                with open(json_file, encoding="utf-8") as fp:
-                    mp = load_json(fp)
-                    if not mp:
-                        return
-            di = {x: y for x, y in mp.items() if x not in self._listeners}
-            self._dict.update(di)
-            di = {x: y for x, y in mp.items() if x in self._listeners}
-            if not di:
-                return
-            for key, val in di.items():
-                self.set(key, val)
-        except:
-            pass
-
-class Number2Word(object):
-    '''
-    number to English word
-    Usage:
-    n2w = Number2Word()
-    s = n2w.convert(123.45)
-    s = n2w.convert(123.45, join_hund=True, join_ten=True)
-    references:
-    https://en.wikipedia.org/wiki/Long_and_short_scales#Long_scale
-    https://lingojam.com/NumbersToWords
-    accept below constructor arguments, all default is False:
-    @param join_hund: create an "AND" between hundred and ten
-    @param join_ten: create an "-" between ten and digit
-    @param show_no_cents: show "And No Cents" when there no cent
-    @param case: one of U[pper]/L[ower]
-    '''
-    def __init__(self, **kwds):
-        self._join_ten = self._join_hund = self._show_no_cents = None
-        self._case = "U"
-        if not kwds:
-            kwds = {}
-        for x in "join_hund".split():
-            if x not in kwds:
-                kwds[x] = True
-            self._config(kwds)
-        ss = ["One Two Three Four Five Six Seven Eight Nine Ten Eleven Twelve Thirteen Fourteen Fifteen Sixteen Seventeen Eighteen Nineteen Twenty Thirty Forty Fifty Sixty Seventy Eighty Ninety", ", Thousand , Million , Billion , Trillion ", "And", "Hundred", "Dollar", "Cent", "No", "s"]
-        if self._case in ('U', 'L'):
-            for idx, s0 in enumerate(ss):
-                s0 = s0.upper() if self._case == 'U' else s0.lower()
-                ss[idx] = s0
-        self._digits, self._pwrs = ss[0].split(), ss[1].split(',')
-        self._ttl = {x[0]: x[1] for x in zip(('and', 'hundred', 'dollar', 'cent', 'no', 'cpl',), ss[2:])}
-
-    def _config(self, kwds):
-        self._join_hund, self._join_ten, self._show_no_cents = [kwds.get(x, False) for x in "join_hund join_ten show_no_cents".split()]
-
-    def convert(self, theVal, **kwds):
-        '''
-        translate the number to Words
-        you can provide convert option to override the ones in the constructor, except for case(U/L)
-        '''
-        # hold current settings
-        if kwds:
-            cents = {x[0]: x[1] for x in zip("join_hund join_ten show_no_cents".split(), (self._join_ten, self._join_hund, self._show_no_cents, ))}
-            self._config(kwds)
-            kwds = cents
-        theVal, cents = str(theVal) if isinstance(theVal, Number) else theVal.strip(), None
-        idx = theVal.find(".")
-        if idx >= 0:
-            cents, theVal = self._ten((theVal[idx+1:] + "00")[:2]), theVal[:idx]
-        dollars, cnt, segs = "", -1, []
-        while theVal:
-            segs.append(theVal[-3:])
-            theVal = theVal[:-3] if len(theVal) > 3 else None
-        for cnt, s0 in enumerate(reversed(segs)):
-            s0 = self._hund(s0, dollars)
-            if s0:
-                dollars += s0 + self._pwrs[len(segs) - cnt - 1]
-        dc = lambda cnt, unit: ("%s %s%s" % (self._ttl['no'], unit, self._ttl['cpl']) if self._show_no_cents else "") if not cnt else "%s %s" % (self._dig("1"),  unit) if cnt == self._dig("1") else "%s %s%s" % (cnt, unit, self._ttl['cpl'])
-        dollars, cents = dc(dollars, self._ttl["dollar"]), dc(cents, self._ttl['cent'])
-        if dollars and (cents or self._show_no_cents):
-            cents = (" %s " % self._ttl['and']) + cents
-        if kwds:
-            self._config(kwds)
-        return dollars + cents
-
-    def _hund(self, txt, pfx=None):
-        if not int(txt):
-            return ""
-        txt = ("000" + txt)[-3:]
-        h = self._dig(txt[0]) + " %s" % self._ttl['hundred'] if txt[0] != "0" else ""
-        t = self._ten(txt[1:])
-        if h:
-            t = (" %s " % self._ttl['and'] if self._join_hund else " ") + t
-        elif pfx:
-            t = ("%s " % self._ttl['and'] if self._join_hund else "") + t
-        return h + t
-
-    def _ten(self, txt):
-        s0 = txt[0]
-        if s0 == "0":
-            s0 = self._dig(txt[-1])
-        elif s0 == "1":
-            s0 = self._digits[int(txt) - 1]
-        else: # If value between 20-99...
-            s1, idx = self._dig(txt[-1]), int(txt[0]) + 17
-            s0 = self._digits[idx]
-            if s1:
-                s0 += ("-" if self._join_ten else " ")  + s1
-        return s0
-
-    def _dig(self, txt):
-        txt = int(txt)
-        return self._digits[txt - 1] if txt else ""
 
 config = Config()

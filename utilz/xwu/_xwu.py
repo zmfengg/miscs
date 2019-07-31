@@ -15,7 +15,7 @@ from os import path, remove
 from tempfile import gettempdir
 
 import xlwings.constants as const
-from xlwings import App, Range, apps, xlplatform
+from xlwings import App, Range, Book, apps, xlplatform
 from xlwings.utils import col_name
 
 from ..miscs import NamedLists, getvalue, list2dict, trimu, updateopts, triml
@@ -300,14 +300,15 @@ def safeopen(appx, fn, updlnk=False, readonly=True):
     open a workbook with the ability to control readonly/updatelink,
     replace the app.books.open(fn)
     """
-    flag = appx and path.exists(fn)
-    if not flag:
+    wb = appx and path.exists(fn)
+    if not wb:
         return None
     try:
-        appx.api.workbooks.Open(fn, updlnk, readonly)
+        api = appx.api.workbooks.Open(fn, updlnk, readonly)
+        wb = Book(impl=xlplatform.Book(api))
     except:
-        flag = False
-    return appx.books[-1] if flag else None
+        wb = None
+    return wb
 
 def _pos(org, ttl, margin, width, align):
     align, rc = _alignment_mp[align[0]], 0
