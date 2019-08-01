@@ -338,7 +338,7 @@ class KeySuite(TestCase):
         from sys import modules
         self.assertEqual(modules[__package__], getmodule(__package__))
         self.assertEqual(path.dirname(getfile(currentframe())), getpath(), 'my working path')
-    
+
     def testSafeOpen(self):
         app, tk = xwu.appmgr.acq()
         root = path.join(thispath, 'res')
@@ -717,7 +717,7 @@ class XwuSuite(TestCase):
             self.assertEqual(k, xwu.col(v))
         self.assertEqual(((2, 1), ), xwu.addr2rc('$A$2'))
         self.assertEqual(((2, 1), (3, 2), ), xwu.addr2rc('$A$2:$B$3'))
-    
+
     def testPerf(self):
         '''
         xlwings is infact very slow, test how slow it was
@@ -801,7 +801,7 @@ class XwuSuite(TestCase):
         self.assertAlmostEqual(2, shp.top, 2, 'the top')
         self.assertAlmostEqual(117.97, shp.left, 2, 'the left')
         xwu.appswitch(self._app, sws)
-    
+
     def testXwPerf(self):
         '''
         test for the performance issue of xlwings.
@@ -844,7 +844,7 @@ class ExpressionTest(TestCase):
         r = _DecHex()
         self.assertTrue(Exp("F", '>', 3).eval(r), "Hex(F) > 3")
         self.assertEqual(12, Exp("F", '-', 3).eval(r), "F - 3 == 12")
-    
+
     def testChain(self):
         _add = lambda x, y: Exp(x, '+', y)
         _gt = lambda x, y: Exp(x, '>', y)
@@ -996,7 +996,7 @@ class LiteralizeSuite(TestCase):
             ni.next('0000')
         ni = Literalize('ABCDEF', digits=5)
         self.assertEqual('BAAAA', ni.next('FFFF'))
-    
+
     def testInt(self):
         ''' test the from/to Int function
         '''
@@ -1017,7 +1017,7 @@ class LiteralizeSuite(TestCase):
         pf.runcall(_run, 10)
         ticks = Stats(pf).total_tt * 1000
         self.assertTrue(ticks < 1) # 10 loops less than 1 ms
-    
+
     def testProdSpecName(self):
         ''' a test just showing how to make use of SN and ver using 2 Literalize
         '''
@@ -1035,15 +1035,6 @@ class SegmentSuites(TestCase):
     ''' segment tests
     '''
     def testSegments(self):
-        def _segs(nc):
-            lst, styn = [], None
-            while True:
-                try:
-                    styn = nc.next(styn)
-                    lst.append(styn)
-                except OverflowError:
-                    break
-            return lst
         verbose = False
         exps = {
             1: ['00', '10', '20', '30', '40', '01', '11', '21', '31', '41', '02', '12', '22', '32', '42', '03', '13', '23', '33', '43', '04', '14', '24', '34', '44'],
@@ -1052,17 +1043,16 @@ class SegmentSuites(TestCase):
             4: ['00', '10', '20', '30', '40', '04'],
             5: ['00', '10', '20', '30', '40']}
         for szCnt, lst0 in exps.items():
-            if szCnt == 1:
-                continue
             nc = Segments(5, szCnt)
-            lst = _segs(nc)
+            self.assertEqual(nc.capacity, 5 * 5 // szCnt)
+            lst = nc.segments
             lst0 = [(int(x[0]), int(x[1])) for x in lst0]
             self.assertListEqual(lst0, lst, 'szCnt=%d' % szCnt)
             if verbose:
                 nc.all(stdout)
         # a larger set, complex enough
         nc = Segments(32, 20)
-        lst = _segs(nc)
+        lst = nc.segments
         self.assertEqual(51, len(lst))
         self.assertEqual((31, 0), lst[31], 'last level 0')
         self.assertEqual((0, 31), lst[43], 'last level 1')
@@ -1075,7 +1065,7 @@ class SegmentSuites(TestCase):
 
         # column first
         nc = Segments(32, 20, False)
-        lst = _segs(nc)
+        lst = nc.segments
         self.assertEqual(51, len(lst))
         self.assertEqual((0, 31), lst[31], 'last level 0')
         self.assertEqual((31, 0), lst[43], 'last level 1')
@@ -1089,8 +1079,41 @@ class SegmentSuites(TestCase):
             for i in range(10, 32, 2):
                 Segments(32, i).all(stdout)
 
+    def testSector(self):
+        ''' the ability get sector of segment
+        '''
+        sz, sgsz = 32, 20
+        nc = Segments(sz, sgsz)
+        sgs = nc.segments
+        # level 0
+        for r in range(sgsz):
+            self.assertListEqual([(r, i) for i in range(sgsz)], nc.sectors(sgs[r]))
+        # level 1
+        for r in range(sz, sz * 2 - sgsz):
+            self.assertListEqual([(i, r - sz + sgsz) for i in range(sgsz)], nc.sectors(sgs[r]))
+        # level 2, spans, random choose some
+        org = sz * 2 - sgsz
+        sg = sgs[org]
+        sects = nc.sectors(sg)
+        exps = [(20, i) for i in range(20, sz)]
+        exps.extend([(21, i) for i in range(20, 28)])
+        self.assertListEqual(exps, sects, 'first in level 3')
+
+        sg = sgs[org + 1]
+        sects = nc.sectors(sg)
+        exps = [(21, i) for i in range(28, sz)]
+        exps.extend([(22, i) for i in range(sgsz, sz)])
+        exps.extend([(23, i) for i in range(sgsz, 24)])
+        self.assertListEqual(exps, sects, '2nd in level 3')
+
+        sg = sgs[-1]
+        sects = nc.sectors(sg)
+        exps = [(30, i) for i in range(sgsz, sz)]
+        exps.extend([(31, i) for i in range(sgsz, 28)])
+        self.assertListEqual(exps, sects, 'last in level 3')
+
     def testRange(self):
-        ''' Segment's get_range function
+        ''' Segment's range function
         '''
         exps = {
             # level 0
@@ -1115,13 +1138,13 @@ class SegmentSuites(TestCase):
 
         nc = Segments(32, 20)
         for key, val in exps.items():
-            rng = nc.get_range(s2a(key))
+            rng = nc.range(s2a(key))
             rng0 = tuple(s2a(x) for x in val)
             self.assertTupleEqual(rng0, rng, key)
 
         nc = Segments(32, 20, False)
         for key, val in exps.items():
-            rng = nc.get_range(s2aR(key))
+            rng = nc.range(s2aR(key))
             rng0 = tuple(s2aR(x) for x in val)
             self.assertTupleEqual(rng0, rng, 'revise of %s' % key)
 
@@ -1141,16 +1164,25 @@ class SegmentSuites(TestCase):
             nc = Segments(5, 2, flag)
             for key, val in exps.items():
                 s2 = s2a if flag else s2aR
-                rng = nc.get_range(s2(key))
+                rng = nc.range(s2(key))
                 rng0 = tuple(s2(x) for x in val)
                 self.assertTupleEqual(rng0, rng, '%s of row_first=%s' % (key, 'True' if flag else 'False'))
 
-    def testDemo(self):
-        mx = 32
-        for i in range(10, mx):
-            nc = Segments(mx, i)
-            lst = nc.segments()
-            self.assertEqual(nc.segmentCnt, len(lst))
+    def testSegmentBySect(self):
+        ''' when not providing header of segment to get segment, still return
+        next header of segment
+        '''
+        nc = Segments(32, 20)
+        self.assertEqual((1, 0), nc.next((0, 0)), 'using group header')
+        self.assertEqual((1, 0), nc.next((0, 2)), 'using sector')
+
+    def testOutOfBorder(self):
+        ''' input an address that's out of the size border
+        '''
+        nc, addr = Segments(32, 20), (0, 99)
+        for act in (nc.next, nc.range, nc.sectors):
+            with self.assertRaises(OverflowError):
+                nc.next(act(addr))
 
 class CatalogTest(TestCase):
     """ class for catalog making """

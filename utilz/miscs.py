@@ -19,7 +19,7 @@ from random import random
 from re import sub
 from struct import unpack
 from sys import getfilesystemencoding, version_info
-from ._miscclz import Config, Salt, Number2Word, Literalize
+from ._miscclz import Config, Salt, Number2Word, Literalize, Segments
 
 _sh = _se = None
 

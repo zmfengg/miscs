@@ -388,7 +388,6 @@ class Literalize(object):
         '''
 
         self._validate(literal)
-        lst = [x for x in literal]
         ln = len(literal) + 1
         if not self._powers:
             self._powers = []
@@ -429,9 +428,9 @@ class Literalize(object):
 class Segments(object):
     '''
     given an A * A area and the length(size) of a segment, split the area
-    into segments. Segment contains sector(s).
+    into segments. Segment contains length of sector(s).
 
-    First sector of a segment is the segment's address.
+    First sector of a segment is the segment's header.
 
     A sector is a tuple of 2 integer, tuple[0] for row index and tuple[1] for column index
 
@@ -439,25 +438,29 @@ class Segments(object):
 
         size:   length of the area.
 
-        span_size=20: the length of a segment
+        segment_size=20: the length of a segment
 
-        row_first=True: segments by row first, for example, 00 -> 10 -> 20
+        row_first=True: segments spawn by row then column
 
-    Partition using below pattern:
-        figure(assume A=8, span_size=5):
-        00000111
-        00000111
-        00000111
-        00000111
-        00000111
-        00000222
-        00000222
+    row_first using below pattern:
+        figure(assume size=5, segment_size=3):
+        00011
+
+        00011
+
+        00011
+
+        00022
+
+        00022
+
+    here 0 and stands for level 0&1, 2 for span
     '''
     def __init__(self, size, segment_size, row_first=True):
         self._size = size
-        self._fmt = _Format(row_first)
-        self._calc = _SpanCalc(size, segment_size, self._fmt)
-    
+        self._row_first = row_first
+        self._calc = _SpanCalc(size, segment_size)
+
     def next(self, addr, segment=True):
         ''' get the next segment or sector, based on what ${segment} specified
         Args:
@@ -470,70 +473,90 @@ class Segments(object):
 
             OverflowError if current is already at the end
         '''
+        self._validate(addr)
         if segment:
-            return self._fmt.fmt(self._new_segment(addr))
-        return self._fmt.fmt(self._new_sector(addr))
+            if addr:
+                addr = self.range(addr)[0]
+            return self._transpose(self._new_segment(self._transpose(addr)))
+        return self._transpose(self._new_sector(self._transpose(addr)))
+
+    def _validate(self, addr):
+        if addr:
+            if any(x < 0 or x >= self._size for x in addr):
+                raise OverflowError('given address is out of border')
+
+    def _transpose(self, addr):
+        if not addr:
+            return addr
+        return addr if self._row_first else (addr[1], addr[0])
 
     def all(self, dump=None):
         ''' return all the segments and sectors, each segments as a list
         '''
-        sgs, sg = [], None
-        while True:
-            try:
-                sg = self.next(sg)
-                sct = sg
-                scts = [sct, ]
-                while True:
-                    try:
-                        sct = self.next(sct, False)
-                        scts.append(sct)
-                    except OverflowError:
-                        break
-                if scts and len(scts) == self._calc.size:
-                    sgs.append(scts)
-            except OverflowError:
-                break
+
+        sgs = [self.sectors(sg) for sg in self.segments]
         if dump:
             chcnt = '%0' + str(len(str(self._size))) + 'd'
             _ts = lambda arr: '.'.join(chcnt % x for x in arr)
-            print('size=%d, segment_size=%d, RowFirst=%s, Seg_Cnt=%d, use_rate=%4.2f%%' % (self._size, self._calc.size, 'True' if self._fmt.row == 0 else 'False', len(sgs), len(sgs) * len(sgs[0]) / self._size ** 2 * 100), file=dump)
+            sgc = self.capacity
+            stc = sgc * self._calc.size
+            rt = stc / self._size ** 2 * 100
+            print('Size=%d, SegSz=%d, RowFirst=%s, SegCnt=%d, SectCnt=%d, Ratio=%4.2f%%' % (self._size, self._calc.size, 'True' if self._row_first else 'False', sgc, stc, rt), file=dump)
             for scts in sgs:
                 print('%s: %s' % (_ts(scts[0]), ', '.join(_ts(x) for x in scts[1:])), file=dump)
         return sgs
-    
+
+    @property
     def segments(self):
         ''' return the segments available
         '''
-        lst, styn = [], None
+        lst, seg = [], None
         while True:
             try:
-                styn = self.next(styn)
-                lst.append(styn)
+                seg = self.next(seg)
+                lst.append(seg)
+            except OverflowError:
+                break
+        return lst
+
+    def sectors(self, addr):
+        ''' return all the sectors(from head to tail) of given address
+        '''
+        self._validate(addr)
+        sect = self.range(addr)[0]
+        lst = [sect, ]
+        while True:
+            try:
+                sect = self.next(sect, False)
+                lst.append(sect)
             except OverflowError:
                 break
         return lst
 
     @property
-    def segmentCnt(self):
+    def capacity(self):
+        ''' the count of segments that I can hold
+        '''
         return self._size ** 2 // self._calc.size
 
-    def get_range(self, addr):
+    def range(self, addr):
         ''' return the header/tail sector of given address
         '''
+        self._validate(addr)
         if self._calc.size == 1:
-            return (addr) * 2
-        lvl = self._calc.get_level(addr)
-        # ln = _Format.dim_convert(addr, 0, self._size, self._fmt)
-        ss, fmtr = self._calc.size, self._fmt
+            return (addr, ) * 2
+        addr = self._transpose(addr)
+        lvl = self._calc.level(addr)
+        ss = self._calc.size
         if lvl == 0:
-            rc = (addr[fmtr.row], addr[fmtr.col] // ss * ss)
+            rc = (addr[0], addr[1] // ss * ss)
             rc1 = (rc[0], rc[1] + ss - 1)
         elif lvl == 1:
-            rc = (addr[fmtr.row] // ss * ss, addr[fmtr.col])
+            rc = (addr[0] // ss * ss, addr[1])
             rc1 = (rc[0] + ss - 1, rc[1])
         else:
-            return self._calc.get_range(addr, True)
-        return tuple(fmtr.fmt(x) for x in (rc, rc1))
+            rc, rc1 = self._calc.range(addr, True)
+        return tuple(self._transpose(x) for x in (rc, rc1))
 
     def _next_axis(self, current=None, steps=None):
         if current is None:
@@ -546,75 +569,52 @@ class Segments(object):
 
     def _new_segment(self, addr):
         if not addr:
-            # init
-            return (0, 0)
-        g1, calc = self._next_axis, self._calc
+            return 0, 0
+        g1, calc, rc = self._next_axis, self._calc, None
         mx = calc.client_org - calc.size + 1
-        verxi = addr[self._fmt.col]
+        verxi = addr[1]
         if verxi < mx:
             # size level 0
             try:
-                return g1(addr[self._fmt.row]), addr[self._fmt.col]
+                rc = g1(addr[0]), addr[1]
             except OverflowError:
                 # next span of level 0
                 if verxi + calc.size < self._size:
-                    return (0, g1(addr[self._fmt.col], steps=calc.size))
-        verxi = addr[self._fmt.row]
+                    rc = 0, g1(addr[1], steps=calc.size)
+        if rc:
+            return rc
+        verxi = addr[0]
         if verxi < mx:
             # level 1
             if verxi + calc.size * 2 < self._size:
-                return (g1(addr[self._fmt.row], steps=calc.size), addr[self._fmt.col])
-            try:
-                return (0, g1(addr[self._fmt.col]))
-            except OverflowError:
-                # header for level 2
-                hgt = calc.client_height
-                if hgt * hgt < calc.size:
-                    raise OverflowError('no chance to enter level 2')
-                return (calc.client_org, ) * 2
-        return calc.add_span(addr)
+                rc = g1(addr[0], steps=calc.size), addr[1]
+            else:
+                try:
+                    rc = 0, g1(addr[1])
+                except OverflowError:
+                    # header for level 2
+                    if calc.client_area < calc.size:
+                        raise OverflowError('no chance to enter level 2')
+                    rc = (calc.client_org, ) * 2
+        return rc or calc.add_span(addr)
 
     def _new_sector(self, addr):
         if not addr:
-            return (0, 0)
+            return 0, 0
         nxt, calc = self._next_axis, self._calc
         if calc.size == 1:
             raise OverflowError('segment of size = 1 should not have sector')
-        lvl = calc.get_level(addr)
+        lvl = calc.level(addr)
         def _eo_sgt(idx):
             if idx and (idx + 1) % calc.size == 0:
                 raise OverflowError('level 0 ends')
             return idx
         if lvl == 0:
-            return addr[self._fmt.row], nxt(_eo_sgt(addr[self._fmt.col]))
+            return addr[0], nxt(_eo_sgt(addr[1]))
         if lvl == 1:
-            return nxt(_eo_sgt(addr[self._fmt.row])), addr[self._fmt.col]
-        return self._fmt.fmt(calc.next_sector(addr))
+            return nxt(_eo_sgt(addr[0])), addr[1]
+        return calc.next_sector(addr)
 
-class _Format(object):
-
-    def __init__(self, rowfirst=True):
-        if rowfirst:
-            self.row, self.col = 0, 1
-        else:
-            self.row, self.col = 1, 0
-
-    def fmt(self, arr):
-        ''' decorate the output
-        '''
-        if self.row == 0:
-            return arr
-        return arr[1], arr[0]
-
-    @staticmethod
-    def dim_convert(addr, org, hgt, fmtr):
-        ''' convert between 2d and 1d
-        '''
-        if isinstance(addr, (tuple, list)):
-            if addr[fmtr.row] < org:
-                org = 0
-            return (addr[fmtr.row] - org) * hgt + addr[fmtr.col] - org
-        return fmtr.fmt((addr // hgt + org, addr % hgt + org))
 
 class _SpanCalc(object):
     ''' help Partition to calculate the span locaions
@@ -626,9 +626,8 @@ class _SpanCalc(object):
         segment_size: length of a segment
     '''
 
-    def __init__(self, size, segment_size, fmt):
+    def __init__(self, size, segment_size):
         self._size = segment_size
-        self._fmt = fmt
         self._cache = mp = {}
         x = size // segment_size * segment_size
         mp['_client_org'] = x
@@ -638,6 +637,17 @@ class _SpanCalc(object):
             mp['_client_area'] = x * x
         else:
             mp['_client_height'] = mp['_client_area'] = 0
+
+    @staticmethod
+    def dim_convert(addr, org, hgt):
+        ''' convert between 2d and 1d
+        '''
+        if isinstance(addr, (tuple, list)):
+            if addr[0] < org:
+                org = 0
+            return (addr[0] - org) * hgt + addr[1] - org
+        return addr // hgt + org, addr % hgt + org
+
 
     def _get_cache(self, key, calc):
         if key not in self._cache:
@@ -668,13 +678,13 @@ class _SpanCalc(object):
         '''
         return self._cache['_client_org']
 
-    def get_level(self, addr):
+    def level(self, addr):
         ''' return the level of given address
         '''
         org = self.client_org
-        if addr[self._fmt.col] < org:
+        if addr[1] < org:
             return 0
-        if addr[self._fmt.row] < org:
+        if addr[0] < org:
             return 1
         return 2
 
@@ -684,13 +694,13 @@ class _SpanCalc(object):
 
             addr: a formatted address
         '''
-        rng = self.get_range(addr)
+        rng = self.range(addr)
         r_c = self._add(addr, 1)
         if self._dim_convert(r_c) <= self._dim_convert(rng[1]):
             return r_c
         raise OverflowError('end of span')
 
-    def get_range(self, addr, offset=False):
+    def range(self, addr, offset=False):
         ''' return the head/tail sector of given addr
         '''
         ln = self._dim_convert(addr)
@@ -709,7 +719,7 @@ class _SpanCalc(object):
             org = self.client_org
         else:
             org = self.client_org if offset else 0
-        return _Format.dim_convert(addr, org, self.client_height, self._fmt)
+        return _SpanCalc.dim_convert(addr, org, self.client_height)
 
     def add_span(self, addr):
         ''' add one span to given ver
@@ -718,7 +728,7 @@ class _SpanCalc(object):
             raise OverflowError('perfect fit, no level 2 needed')
         if self._dim_convert(addr) + self.size * 2 > self.client_area:
             raise OverflowError('level 2 overflow')
-        return self._fmt.fmt(self._add(addr))
+        return self._add(addr)
 
     def _add(self, r_c, steps=None, offset=True):
         if not steps:
