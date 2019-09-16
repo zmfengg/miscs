@@ -7,33 +7,24 @@
 for python's language/basic facility test, a practice farm
 '''
 
-import dbm
 import gettext
 import re
-import subprocess as sp
-import tempfile
 from argparse import ArgumentParser
 from cProfile import Profile
-from datetime import date
-from decimal import Decimal
-from io import StringIO
 from itertools import islice
 from logging import Logger
 from numbers import Number
-from os import path, remove, walk
 from pstats import Stats
-from sys import platform
 from unittest import TestCase, skip
+import tempfile
+from os import remove, path
+import dbm
 
-import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
 from bidict import ValueDuplicationError
 from bidict import bidict as bd
-from matplotlib.backends.backend_pdf import PdfPages
 
 from utilz import getfiles, imagesize
-from utilz.miscs import getpath, trimu
+from utilz.win32 import clearTempFiles
 
 _logger = Logger(__name__)
 try:
@@ -500,7 +491,6 @@ class TechTests(TestCase):
         self.assertTrue(dbfn)
         for fn in dbfn:
             remove(fn)
-        del tempfile, dbm, remove
 
     def testbidict(self):
         ''' usage of the bidict '''
@@ -551,7 +541,6 @@ class TechTests(TestCase):
     def testShellX(self):
         ''' invoke the shell, capture the output
         '''
-        from utilz._win32_reparse import clearTempFiles
         # print(users())
         # print(users('home'))
         clearTempFiles()
@@ -637,256 +626,3 @@ class SqlAlchemyURL(TestCase):
     https://docs.sqlalchemy.org/en/13/core/engines.html
     '''
     pass
-
-class PandasSuite(TestCase):
-    ''' try pandas out
-    '''
-
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        cls._dates_ = None
-
-    @property
-    def _dates(self):
-        if self._dates_ is not None:
-            return self._dates_
-        def _probe_fmt(col):
-            if col.find('-') > 0:
-                fmt = '%Y-%m-%d %H:%M:%S' if col.find(':') > 0 else '%Y-%m-%d'
-            else:
-                fmt = '%H:%M:%S'
-            return fmt
-        def _dp(*dt):
-            # will pass an array of array, each column as a array
-            fmt, lsts = None, []
-            for cols in dt:
-                if isinstance(cols, str):
-                    fmt = _probe_fmt(cols)
-                    lsts.append(pd.datetime.strptime(cols, fmt))
-                else:
-                    lst, fmt = [], _probe_fmt(cols[0])
-                    lsts.append(lst)
-                    for col in cols:
-                        lst.append(pd.datetime.strptime(col, fmt))
-            return lsts
-        s0 = 'id,name,height,bdate,btime,ts\n' +\
-            '1,peter,120,2019-02-01,12:30:45,2019-03-02 9:30:00\n' +\
-            '2,watson,125,2019-02-02,7:25:13,2019-03-02 9:32:00\n' +\
-            '3,winne,110,2019-02-07,9:25:13,2019-03-04 5:10:00\n' +\
-            '10,kate,100,2019-02-10,7:12:10,2019-03-04 5:10:00\n' +\
-            '20,john,123,2019-03-18,9:25:10,2019-03-07 5:10:00\n'
-        fh = StringIO(s0)
-        self._dates_ = pd.read_csv(fh, parse_dates={'birthday': ['bdate', 'btime'], 'lastModified': ['ts']}, date_parser=_dp, converters={'name': trimu})
-        return self._dates_
-
-    def testSeries(self):
-        ''' access Series by id/name or slice
-        '''
-        sts = self._dates
-        sr = sts.id
-        self.assertEqual(2, sts.columns.get_loc('id'), 'id was put to the 3 position')
-        self.assertTrue(isinstance(sr, pd.Series), 'Return when access by colname')
-        self.assertEqual(1, sr[0])
-        self.assertEqual(5, len(sr))
-
-        sr = sts.iloc[0]
-        self.assertTrue(isinstance(sr, pd.Series), 'Return when access by row')
-        self.assertEqual(1, sr.id, 'access by name')
-        self.assertEqual(1, sr[2], 'access by index')
-
-        # column of rows
-        sr = sts.iloc[:2]
-        self.assertListEqual([1, 2], [x for x in sr.id])
-
-        sr = sts[['id', 'name']]
-        self.assertTrue(isinstance(sr, pd.DataFrame))
-        # can not use sts.loc['id', 'name'] or sts.loc[['id', 'name']]
-        with self.assertRaises(KeyError):
-            sts.loc['id', 'name']
-        with self.assertRaises(KeyError):
-            sts.loc[['id', 'name']]
-
-    def testDataFrame(self):
-        sts = self._dates
-        for cn in ('birthday', 'lastModified'):
-            self.assertTrue(cn in sts.columns)
-        self.assertEqual(len(sts.columns), 4)
-        # when iloc is not slice, the return item is a tuple
-        # sr will be a tuple
-        sr = sts.iloc[0].birthday
-        self.assertTrue(isinstance(sr, list))
-        self.assertTrue(isinstance(sr[0], pd.datetime))
-
-        # sr will be a Series
-        sr = sts.iloc[:2].id
-        self.assertTrue(isinstance(sr, pd.Series))
-        self.assertListEqual([1, 2], [x for x in sr])
-
-        # instead of using iloc, get by colname then row, save writing time
-        self.assertEqual('PETER', sts.name[0])
-        self.assertEqual(1, sts.id[:2][0])
-
-        sr = sts.loc[sts.id <= 2]
-        sr = sts.loc[sts.id in (1, 2)]
-        sr = sts.loc[~sts.id in (1, 2)]
-
-    def testReadTable(self):
-        ''' read table/csv differs only for the tab delimiter
-        '''
-        frm = pd.read_table(path.join(getpath(), 'res', 'pd_tbl.txt'), encoding='gbk')
-        top = frm[frm.id > 5000]
-    
-    def testCSVRW(self):
-        ''' csv's read/write ability
-        '''
-        d = date(2019, 2, 1)
-        df = pd.DataFrame(((1, 'a', Decimal('0.1234'), d), ), columns='id name weight date'.split())
-        fh = StringIO()
-        df.to_csv(fh, index=None)
-        fh = StringIO(fh.getvalue()) # reset the file pointer
-        df1 = pd.read_csv(fh, parse_dates=['date'])
-        self.assertEqual(d, df1.date[0], 'pd.timestamp can be compared directly to date')
-        self.assertEqual(d, df1.date[0].date(), 'timestamp\'s date function')
-        self.assertAlmostEqual(0.1234, df1.weight[0])
-
-    def testDummyDF(self):
-        ''' empty dataframe, empty/any/all usage
-        '''
-        df = pd.DataFrame(None, columns='a b c'.split())
-        self.assertTrue(df.empty, 'dataframe is empty')
-        sr = df.c
-        self.assertTrue(sr.empty, 'Series is emptyj')
-        df = pd.DataFrame(((None, None, None), ), columns='a b c'.split())
-        self.assertFalse(df.empty, 'not empty dataFrame')
-        with self.assertRaises(ValueError):
-            self.assertFalse(df.any(), 'dataframe does not support any() function')
-        with self.assertRaises(ValueError):
-            self.assertFalse(df.all(), 'no non-empty data')
-        sr = df.iloc[0]
-        self.assertFalse(sr.any(), 'no non-empty data')
-        self.assertFalse(sr.all(), 'all() function is wrong')
-    
-    def testModify(self):
-        ''' append column assign() from existing column
-        '''
-        def _xx(row):
-            # type(row) is a DataFrame
-            return row.height * 2
-        org = self._dates.copy()
-        cns = org.columns
-        df = org.assign(wgtx2=_xx)
-        self.assertEqual(len(cns), len(df.columns) - 1)
-        self.assertEqual(len(org.columns), len(cns), 'the original value not changed')
-        df = org.assign(x=None)
-        self.assertFalse(df.x.any())
-        df = org.loc[org.id > 3]
-        df.id[0] = 'xyx'
-        self.assertEqual('xyx', df.id[0], 'yes, value in the view changed')
-        self.assertNotEqual(df.id[0], org.loc[org.id > 3].id[0], 'but the original is not changed')
-        df.loc[0, 'id'] = 'xyx'
-        self.assertEqual('xyx', df.id[0], 'using loc can change it without warning')
-
-
-class MplSuite(TestCase):
-    ''' matplotlib tests
-    '''
-
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        cls._show_plt = True
-    
-    def _show(self):
-        if self._show_plt:
-            plt.show()
-        plt.close()
-
-    def testQuickStart(self):
-        ''' one axes set only
-        '''
-        ax = plt.subplot()
-        t1 = np.arange(0.0, 2.0, 0.1)
-        t2 = np.arange(0.0, 2.0, 0.01)
-        l1, = ax.plot(t2, np.exp(-t2))
-        l2, l3 = ax.plot(t2, np.sin(2 * np.pi * t2), '--o', t1, np.log(1 + t1), '.')
-        l4, = ax.plot(t2, np.exp(-t2) * np.sin(2 * np.pi * t2), 's-.')
-        l5, = ax.plot((0, 0.1, 0.3, 0.5, 0.1), label='a line')
-        ax.legend((l2, l4, l5), ('oscillatory', 'damped', 'tuple'), loc='upper right', shadow=True)
-        ax.set_xlabel('time')
-        ax.set_ylabel('volts')
-        ax.set_title('Damped oscillation')
-        self._show()
-    
-    def testSubplotWithId(self):
-        ''' invoke several subplot(), see the output
-        '''
-        # calling subplot() several times will have only one axes on top, so
-        # need to do more
-        # 2x2 can hold up to 4, so 224 is the upper limit
-        for i in range(221, 225):
-            ax = plt.subplot(i)
-            print(id(ax))
-            ax.plot([1, 2, 3])
-            ax.set_xlabel('%d of' % i)
-        with self.assertRaises(ValueError):
-            ax = plt.subplot(226)
-        self._show()
-
-    def testsubplots(self):
-        ''' 2x2 subplots, flat, constrained_layout
-        '''
-        fig, axs = plt.subplots(2, 2, constrained_layout=True)
-        idx = 0
-        # don't use "for ax in axs" because it return narray only, flat do it
-        for ax in axs.flat:
-            if idx == 2:
-                ax.plot((1, 2, 3, 4, 5), (1, 2, 5, 3, 2), '--x', label='Line%d' % idx)
-                ln = ax.plot((1, 2, 5, 3, 2), '--^', label="won't be shown")
-                ax.legend((ln[0], ), ('use ln[0], not ln',))
-                ax.set_xlabel('sequence') # or plt.xlabel()
-                ax.set_ylabel('value') # or plt.ylabel()
-                ax.set_title('%d axes' % idx)
-            else:
-                ax.plot((1, 2, 5, 3, 2), '--o', label='Line%d' % idx)
-                ax.legend()
-            ax.set_title("%d axes" % idx)
-            idx += 1
-        fig.suptitle('%d-row X %d-col figure' % axs.shape)
-        self._show()
-    
-    def testMinorGridlines(self):
-        fig = plt.figure(1)
-        for idx in range(221, 225):
-            ax = plt.subplot(idx)
-            # below 2 lines can be before or after the grid commands
-            for i in range(1, 30, 5):
-                x = np.linspace(0, 10, 50)
-                plt.plot(x, np.sin(x) * i, label='line %d' % i)
-            # grids
-            if idx == 221:
-                ax.grid(b=True, which='major', color='k', linestyle='-.', alpha=0.8)
-                ax.grid(b=True, which='minor', color='r')
-                ax.legend()
-            else:
-                ax.grid(b=True, which='both', linestyle='-.')
-            ax.minorticks_on() # must be call for each axes
-        plt.show()
-
-        
-    def testMultiPage(self):
-        ''' create a 2-page 2X2 axes pdf file
-        '''
-        fn = tempfile.TemporaryFile().name + '.pdf'
-        with PdfPages(fn) as pdf:
-            for cnt in range(2):
-                fig, axs = plt.subplots(2, 2)
-                fig.suptitle('page %d' % (cnt + 1))
-                for ax in axs.flat:
-                    for i in range(1, 30, 5):
-                        x = np.linspace(0 + i, 10 + i, 50)
-                        ax.plot(x, np.sin(x) * i, label='line %d' % i)
-                    ax.grid(b=True, which='both', linestyle='-.')
-                    ax.minorticks_on() # must be call for each axes
-                pdf.savefig(fig)
-        remove(fn)
