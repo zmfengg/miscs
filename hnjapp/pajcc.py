@@ -12,11 +12,12 @@ all weight related field are GM based
 
 from collections import namedtuple
 from decimal import Decimal
+from datetime import datetime
 
 from hnjcore import karatsvc
 from utilz import getvalue as gv
 
-from .common import _logger as logger
+from .common import _logger as logger, config
 
 # the fineness map for this calculation
 MPSINVALID = -10000.00
@@ -122,13 +123,13 @@ class WgtInfo(namedtuple("WgtInfo", "karat,wgt")):
         if karat:
             return super().__new__(cls, karat, _tofloat(wgt, precious))
         return super().__new__(cls, 0, 0)
-    
+
     def __str__(self):
         return "0" if not self.wgt else "%d=%4.2f" % (self.karat, self.wgt)
 
 
 # mps string and the corresponding silver/gold value
-class MPS():
+class MPS(object):
     """
     class to hold gold/silver price
     you can construct by:
@@ -330,21 +331,60 @@ class PrdWgt(namedtuple("PrdWgt", "main,aux,part,netwgt")):
 
 
 # constants
-PAJCHINAMPS = MPS("S=30;G=1500")
+PAJCHINAMPS = MPS(config.get('pajcc.consts')['paj.ref.mps'])
 
+class DiscountHis(object):
+    ''' manage the discount histories
+    '''
+    def __init__(self):
+        mp = config.get('pajcc.consts')
+        ttl = 'frm,thru,silver,other'
+        nc, ttl = namedtuple('DiscountDef', ttl), ttl.split(',')
+        lst = [[x.get(y) for y in ttl] for x in mp['discounts']]
+        for x in lst:
+            for idx in range(2):
+                if not x[idx]:
+                    continue
+                x[idx] = datetime.strptime(x[idx], '%Y/%m/%d').date()
+        self._dscs = sorted([nc(*x) for x in lst], key=lambda x: x.frm)
+        self._first, self._latest = self._dscs[0], self._dscs[-1]
 
-def newchina(cn, wgts):
-    """while knowing the china/wgts, return a PajChina instance
-    @param cn: the known China cost
-    @param wgt: A PrdWgt instance
-    """
-    cc = PajCalc()
-    return PajChina(cn, cc.calcincrement(wgts), PAJCHINAMPS, cc.calcdiscount(wgts), \
-        cc.calcmtlcost(wgts, PAJCHINAMPS))
+    def discount(self, d0=None):
+        ''' return the discount of given date as tuple
+        Args:
+            d0=None:  the date for that discount, None for the initial date
+        '''
+        inst = None
+        if not d0:
+            inst = self._first
+        else:
+            if isinstance(d0, datetime):
+                d0 = d0.date()
+            idxf, idxt = 0, len(self._dscs) - 1
+            while idxf <= idxt:
+                idx = (idxf + idxt) // 2
+                inst0 = self._dscs[idx]
+                if not inst0.thru or (inst0.frm <= d0 < inst0.thru):
+                    inst = inst0
+                    break
+                if inst0.frm > d0:
+                    idxt = idx - 1
+                else:
+                    idxf = idx + 1
+        return (inst.silver, inst.other) if inst else None
 
-
-class PajCalc():
+class PajCalc(object):
     """the PAJ related calculations"""
+
+    _markup = _lr_silver = _lr_other = None
+    _disc_his = DiscountHis()
+
+    @classmethod
+    def _args(cls):
+        if cls._lr_silver:
+            return
+        mp = config.get('pajcc.consts')
+        cls._lr_silver, cls._lr_other, cls._markup = (mp[x] for x in ('lossrate.silver', 'lossrate.other', 'paj.ref.markup'))
 
     @classmethod
     def getfineness(cls, karat, vendor="PAJ"):
@@ -361,22 +401,33 @@ class PajCalc():
         """
         calcualte the lossrate based on the prdwgt data
         """
+        cls._args()
         rts = [
-            1.1 if x.karat == 925 else 1.06
-            for x in [x for x in (prdwgt.main, prdwgt.aux) if x and x.wgt > 0]
+            cls._lr_silver if x.karat == 925 else cls._lr_other for x in [x for x in (prdwgt.main, prdwgt.aux) if x and x.wgt > 0]
         ]
-        return max(rts) if rts else 1.06
+        return max(rts) if rts else cls._lr_other
 
     @classmethod
-    def calcmtlcost(cls,
-                    prdwgt,
-                    mps, **kwds):
+    def calcmtlcost(cls, prdwgt, mps, **kwds):
         """
         calculate the metal cost
 
+        Args:
+
+            prdwgt: PrdWgt instance
+
+            mps:    MPS instance
+
+            lossrate=None:  lossrate for the prdwgt
+
+            vendor=PAJ: the vendor ID
+
+            oz2gm=31.1035:  onze to gm conversion
+
+
         """
 
-        lossrate, vendor, oz2gm = tuple(kwds.get(x) for x in ("lossrate vendor oz2gm".split()))
+        lossrate, vendor, oz2gm = (kwds.get(x) for x in "lossrate vendor oz2gm".split())
         if not vendor:
             vendor = "PAJ"
         if not oz2gm:
@@ -398,11 +449,21 @@ class PajCalc():
         return round(r0, 2)
 
     @classmethod
-    def calcdiscount(cls, prdwgt):
-        """ the discount rate of PAJ"""
+    def calcdiscount(cls, prdwgt, affdate=None):
+        """ calculate the discount rate of given wgts
+
+        Args:
+
+            prdwgt: PrdWgt instance
+
+            affdate=None: the date that the discount blongs to, when omitted, it's 2017/03/01
+
+        """
+        dsc = cls._disc_his.discount(affdate)
         kws = prdwgt.wgts
-        return 0.9 if kws[0].karat == 925 or (kws[1] and
-                                              kws[1].karat == 925) else 0.85
+        #return 0.9 if kws[0].karat == 925 or (kws[1] and kws[1].karat == 925) else 0.85
+        idx = 0 if kws[0].karat == 925 or (kws[1] and kws[1].karat == 925) else 1
+        return dsc[idx]
 
     @classmethod
     def calcincrement(cls, prdwgt, lossrate=None, vendor=None):
@@ -422,12 +483,26 @@ class PajCalc():
                     (lossrate if idx < 2 else 1.0) / 31.1035
             if kw.karat == 925:
                 s += r0
-            elif kw.karat == 200:
-                pass
-            else:
+            elif kw.karat != 200:
                 g += r0
 
         return Increment(prdwgt, s, g, lossrate)
+
+    @classmethod
+    def newchina(cls, cn, wgts, affdate=None):
+        ''' new an PajChina instance based on the cn and wgts provided
+
+        Args:
+
+            cn:     the china cost
+
+            wgts:   the PrdWgt data
+
+            affdate=None: affected date of this calculation
+
+        '''
+        return PajChina(cn, cls.calcincrement(wgts), PAJCHINAMPS,
+            cls.calcdiscount(wgts, affdate), cls.calcmtlcost(wgts, PAJCHINAMPS))
 
     @classmethod
     def _checkargs(cls, incr, refmps, tarmps):
@@ -438,60 +513,84 @@ class PajCalc():
             (not incr.silver or incr.silver and tarmps.silver and refmps.silver)
 
     @classmethod
-    def calchina(cls, prdwgt, refup, refmps, tarmps=None):
+    def calchina(cls, prdwgt, refup, refmps, affdate=None, tarmps=None):
         """ calculate the China cost based on the provided arguments
-        @param prdwgt: weights of the product
-        @param refup: the reference unit price
-        @param refmps: the reference mps of the @refup
-        @param tarmps: the target MPS the need to be calculated. PAJ's china MPS is S = 30; G = 1500
-        return: a PajChina Object
+
+        Args:
+
+            prdwgt: weights of the product
+
+            refup: the reference unit price
+
+            refmps: the reference mps of the @refup
+
+            tarmps=None: the target MPS the need to be calculated. PAJ's china MPS is S = 30; G = 1500
+
+            affdate=None: date the refup belongs to
+
+        Returns:
+
+            a PajChina Object
         """
-        if not all((prdwgt, refup, refmps)):
+        if isinstance(refmps, str):
+            refmps = MPS(refmps)
+        if not (all((prdwgt, refup, refmps)) and (refup > 0 and refmps.isvalid)):
             return None
         if not tarmps:
             tarmps = PAJCHINAMPS
-        if isinstance(tarmps, str):
-            tarmps = MPS(tarmps)
-        if isinstance(refmps, str):
-            refmps = MPS(refmps)
+        for x in (tarmps, refmps):
+            if isinstance(x, str):
+                x = MPS(x)
         if isinstance(refup, Decimal):
             refup = float(refup)
-        if not (refup > 0 and refmps.isvalid and tarmps.isvalid):
-            return None
 
         # the discount ratio, when there is silver, follow silver, silver = 0.9 while gold = 0.85
         incr = cls.calcincrement(prdwgt, None, "PAJ")
-        dc = cls.calcdiscount(prdwgt)
+        dc = cls.calcdiscount(prdwgt, affdate)
         if not cls._checkargs(incr, refmps, tarmps):
-            cn = MPSINVALID
-            mc = MPSINVALID
+            cn = mc = MPSINVALID
             logger.debug("MPS(%s) not enough for calculating increment(%s)" %
                          (tarmps.value, str(incr)))
         else:
-            cn = refup / dc + incr.gold * (tarmps.gold - refmps.gold) * 1.25 \
-                + incr.silver * (tarmps.silver - refmps.silver) * 1.25
+            mc = 0
+            for cat in ('gold', 'silver'):
+                wgt = getattr(incr, cat)
+                if not wgt:
+                    continue
+                wgt *= cls._markup
+                mc += wgt * (getattr(refmps, cat) - getattr(tarmps, cat))
+            cn = refup / dc - mc
             mc = cls.calcmtlcost(prdwgt, tarmps, lossrate=incr.lossrate, vendor="PAJ")
         return PajChina(round(cn, 2), incr, tarmps, dc, mc)
 
     @classmethod
-    def calctarget(cls, cn, tarmps):
+    def calctarget(cls, cn, tarmps, affdate=None):
         """calculate the target unit price based on the data _NotProvided
-        @param cn: the PAJChina cost
-        @param tarmps: the target MPS
-        @return: a PajChina object, the china is the current value
+
+        Args:
+
+            cn: an PajChina instance
+
+            tarmps: the target MPS
+
+            affdate=None: date for this calculation
+
+        Returns:
+
+            an PajChina object whose china is the target cost
         """
 
         if isinstance(tarmps, str):
             tarmps = MPS(tarmps)
         incr = cn.increment
         if not cls._checkargs(incr, cn.mps, tarmps):
-            r0 = MPSINVALID
-            mc = MPSINVALID
+            r0 = mc = MPSINVALID
             logger.debug("MPS(%s) not enough for calculating increment(%s)" %
                          (tarmps.value, str(incr)))
         else:
-            r0 = cn.china + (tarmps.gold - cn.mps.gold) * incr.gold * 1.25 \
-                + (tarmps.silver - cn.mps.silver) * incr.silver * 1.25
-            r0 = round(r0 * cn.discount, 2)
+            r0 = cn.china + (tarmps.gold - cn.mps.gold) * incr.gold * cls._markup \
+                + (tarmps.silver - cn.mps.silver) * incr.silver * cls._markup
+            dc = cls.calcdiscount(incr.wgts, affdate)
+            r0 = round(r0 * dc, 2)
             mc = cls.calcmtlcost(incr.wgts, tarmps, lossrate=incr.lossrate, vendor="PAJ")
-        return PajChina(r0, cn.increment, tarmps, cn.discount, mc)
+        return PajChina(r0, cn.increment, tarmps, dc, mc)

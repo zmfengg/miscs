@@ -290,8 +290,8 @@ class PajShpHdlr(object):
     @staticmethod
     def _str2date(s_date):
         if isinstance(s_date, str):
-            s_date = datetime.strptime(s_date, "%Y-%m-%d").date()
-        return s_date
+            s_date = datetime.strptime(s_date, "%Y-%m-%d")
+        return s_date.date()
 
     @staticmethod
     def _extring(x):

@@ -223,7 +223,7 @@
         "電(\\d*[\\.\\d{0,2}]?)咪",
         "電([一二叁肆伍])咪"
     ],
-    "pattern.mit": "^M[iI]T\\.?",
+    "pattern.mit": "^\\.?M\\.?[iI]\\.?T\\.?",
     "pattern.locket.pics": "(\\d)頁",
     "pattern.locket.size": "\\d+\\.?\\d*",
     "pattern.numeric": "([+-]?\\d+(\\.\\d*)?|\\.\\d+)([eE][+-]?\\d+)?",
@@ -297,6 +297,7 @@
     "parts.wgt.sc":{
         "_df_karat": "925",
         "光身金波鍊2.5MM": 7.39,
+        "PY龍蝦扣": 0.32,
         "MR9 18\"源豐": 1.574,
         "BOX 1.2MM 18\" ": 3.5,
         "BABY BOX 0.75MM 18\"": 1.8,
@@ -308,6 +309,7 @@
         "1.3MM側身鍊 18\"": 1.89,
         "側1.3MM-18\"": 1.89,
         "1.3MM側身鍊 14\"": 1.47,
+        "側1.3MM-14\"": 1.47,
         "MR9 20\"X2": 3.252,
         "1.6MM軟蛇 15\"": 3.484,
         "1.8MM劍片鍊 15\"": 2.882,
@@ -320,7 +322,10 @@
         "切角波鍊N5341": 4.69,
         "MR9 24\" 源豐": 2.098,
         "1MM側身鍊18\"連扣(成品)": 1.38,
+        "側1.0-18\"": 1.38,
+        "側1mm-18\"": 1.38,
         "1MM側身鍊14\"連扣(成品)": 1.07,
+        "側1MM-14\"": 1.097,
         "MR9 18\"開口圈頚鍊": 1.4,
         "MR9 7.5\"開口圈手鍊": 0.6,
         "十字錬 0.3MM  18\"連扣(成品)": 1.35,
@@ -369,6 +374,8 @@
         "N6009 CT129  13\"": "1.72@10K",
         "N6008 ROLO 15\"": "1.8@10K",
         "N6009 ROLO  13\"": "1.6@10K",
+        "R2 BABY ROLO 1.2MM 18\"+圈+2\"+圈": 1.55,
+        "R2 BABY ROLO 1.2MM 16\"+圈+2\"+圈": 1.31,
         "MR9 18\" 10K": "0.816@10K",
         "圈扣圈錬2\"": "0.3@10K",
         "E17118 CC028  3\"": "0.3@9K",
@@ -396,10 +403,12 @@
         "BABY BOX 18\" L&G": "0.89@10K",
         "GC18DC 16\"": "0.42@9K",
         "GC18DC 18\"": "0.46@9K",
+        "GC18DC-18\"": "0.46@9K",
         "WC18DC 16\"": "0.46@9K",
         "WC18DC 18\"": "0.52@9K",
         "CT129圈扣圈錬2\"": "0.3@10K",
         "GR5 18\" L&G": "0.42@9K",
+        "GR5 16\"+圈+2\"+圈": "0.40@9K",
         "MR5 18\"+2\" L&G": "0.52@10K",
         "0.65MM側身鍊18\" 天豐": "1@14K",
         "GR5 18\" 天豐": "0.41@9K",
@@ -602,11 +611,12 @@
     "stio.out.rdr.colmap": {
         "id": "序号",
         "btchno": "水号",
+        "pkno": "包头",
         "jono": "工单",
         "qty": "数量",
         "wgt": "重量",
         "type": "记录,",
-        "btchid": "备注"
+        "remark": "备注"
     },
     "prodspec.case": "LOWER",
     "prodspec.naming":{
@@ -707,5 +717,116 @@
         "keyword": "K",
         "parent": "P",
         "text": "T"
+    },
+    "stysn.kw.replace":{
+        "HEAR": "HEART",
+        "MIRACLE PLATE": "DSET",
+        "REVOLV": "REVOLVE",
+        "TORTOISE": "TUTLE",
+        "PEOPLE": "HUMAN",
+        "FAMILY": "HUMAN"
+    },
+    "pajcc.consts":{
+        "lossrate.silver": 1.10,
+        "lossrate.other": 1.06,
+        "paj.ref.markup": 1.25,
+        "paj.ref.mps": "S=30;G=1500",
+        "discounts":[
+            {
+                "frm": "2017/04/01",
+                "thru": "2019/07/18",
+                "silver": 0.9,
+                "other": 0.85
+            },
+            {
+                "frm": "2019/07/18",
+                "silver": 0.85,
+                "other": 0.82
+            }
+        ]
+    },
+    "pajcc.ack.chk":{
+        "reader.def":{
+            "jono": "Job,",
+            "pcode": "item,",
+            "styno": "Style,",
+            "qty": "Quant,Qty",
+            "pajprice": "Price"
+        },
+        "cats":{
+            "_except": "_PAJPriceExcpt",
+            "_new_sml": "_NewItem_SAMILIAR",
+            "_new": "_NewItem",
+            "_paj_enq": "_Quo_Reconfirm",
+            "pft.normal": "PFT.Normal",
+            "pft.low": "PFT.Low"
+        },
+        "cat.excl":{
+            "_new": "expected,diff,ref,rev",
+            "pft.normal": "mps,expected,diff,wgts,rev",
+            "pft.low": "${pft.normal}",
+            "pft.error": "diff,poprice,profit,profitt,ratio",
+            "_paj_enq": "poprice,profit,profitt,ratio,result"
+        },
+        "cat.sorting":{
+            "_default": ["ratio"],
+            "_except": ["file", "jono"],
+            "_new": "${_except}",
+            "_new_sml": "${_new}",
+            "_paj_enq": "${_except}"
+        },
+        "labels":{
+            "pft.error": "PFT.Error",
+            "pft.normal": "PFT.Normal",
+            "pft.low": "PFT.Low",
+            "rf.rev": "RFR_",
+            "rf.his": "RFH_",
+            "rf.ref": "REF_",
+            "rf.sml": "RFS_",
+            "rf.noref": "REF_NOREF",
+            "prg.error": "PRG_ERROR"
+        },
+        "cat.cns":{
+            "file": ["File", 4],
+            "pcode": ["PCode", 3],
+            "ref": ["Ref.", 3],
+            "rev": ["Rev.", 6],
+            "jono": "JO#",
+            "styno": "Sty#",
+            "qty": "Qty.",
+            "pajprice": "Paj.",
+            "expected": "Exp.",
+            "diff": "P-E",
+            "poprice": "PO.",
+            "profit": "Pft.",
+            "profitt": "Pfts.",
+            "ratio": "PRt.",
+            "wgts": ["Wgt.", 8],
+            "mps": ["MPS", 3],
+            "date": "Ack.Date",
+            "result": "Pft.Rmk"
+        },
+        "misc":{
+            "date.fmt": "%Y%m%d",
+            "pft.min.ratio": 1.2
+        },
+        "pft.ref.classify":{
+            "absolute": [0.2, 1],
+            "relative": [0.03, 0.2],
+            "labels": ["OK", "Acceptable", "Critical"],
+            "_orig_abs_rel": [0.5, 0.05]
+        },
+        "plot.his.args":{
+            "title": "PAJ's Other Cost (China - Metal) Trend",
+            "page_size": [210, 297],
+            "lines_per_ax": 5,
+            "max_diff_per_ax": 10,
+            "ax_labels": ["Sequence", "Other Cost"],
+            "marks": ["o", "+", "^"],
+            "col_cnt": 2,
+            "grids": 2,
+            "font.size": 8,
+            "_grids_": "0=off; 1=major, 2=major+minor"
+        }
     }
 }

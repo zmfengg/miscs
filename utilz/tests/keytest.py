@@ -34,7 +34,7 @@ from utilz.miscs import (Config, NamedList, NamedLists, Salt, appathsep,
                           shellopen, Number2Word, Literalize)
 from utilz.resourcemgr import ResourceCtx, ResourceMgr, SessionMgr
 from utilz.exp import Exp, AbsResolver
-from utilz._miscclz import Segments
+from utilz._miscclz import Segments, NumericRange
 
 from .main import logger, thispath
 from time import clock
@@ -545,6 +545,24 @@ class NamedListSuite(TestCase):
         self.assertTrue("id" not in nl.colnames)
         self.assertEqual(2, nl.getcol("age"))
 
+    def testClone(self):
+        ''' clone with/without data
+        '''
+        nl = NamedList("id,name,agex,array")
+        nl.id, nl.agex, nl.array = 1, 30, [1, 2, 3]
+        nl1 = nl.clone(False)
+        self.assertEqual(nl.id, nl1.id)
+        self.assertFalse(nl.array is nl1.array, 'deep copied, list newly created')
+        self.assertListEqual(nl.array, nl1.array)
+        nl1.id = nl1.id + 10
+        self.assertNotEqual(nl.id, nl1.id)
+
+        nl1 = nl.clone()
+        self.assertIsNone(nl1.id)
+        self.assertIsNone(nl1.array)
+        nl1.id = 2
+        self.assertEqual(2, nl1.id)
+
 
 class XwuSuite(TestCase):
     """
@@ -1034,46 +1052,50 @@ class LiteralizeSuite(TestCase):
 class SegmentSuites(TestCase):
     ''' segment tests
     '''
+
+    @classmethod
+    def _s2a(cls, s, rowFirst=True):
+        lst = tuple(int(x) for x in s.split('.'))
+        if not rowFirst:
+            lst = tuple(reversed(lst))
+        return lst
+
+    @classmethod
+    def _s2as(cls, ss, rowFirst=True):
+        lsts = []
+        for s in ss.split(';'):
+            lsts.append(cls._s2a(s, rowFirst))
+        return tuple(lsts)
+
     def testSegments(self):
         verbose = False
         exps = {
-            1: ['00', '10', '20', '30', '40', '01', '11', '21', '31', '41', '02', '12', '22', '32', '42', '03', '13', '23', '33', '43', '04', '14', '24', '34', '44'],
-            2: ['00', '10', '20', '30', '40', '02', '12', '22', '32', '42', '04', '24'],
-            3: ['00', '10', '20', '30', '40', '03', '04', '33'],
-            4: ['00', '10', '20', '30', '40', '04'],
-            5: ['00', '10', '20', '30', '40']}
+            1: ['0.0', '1.0', '2.0', '3.0', '4.0', '0.1', '1.1', '2.1', '3.1', '4.1', '0.2', '1.2', '2.2', '3.2', '4.2', '0.3', '1.3', '2.3', '3.3', '4.3', '0.4', '1.4', '2.4', '3.4', '4.4'],
+            2: ['0.0', '1.0', '2.0', '3.0', '4.0', '0.2', '1.2', '2.2', '3.2', '4.2', '0.4', '2.4'],
+            3: ['0.0', '1.0', '2.0', '3.0', '4.0', '0.3', '0.4', '3.3'],
+            4: ['0.0', '1.0', '2.0', '3.0', '4.0', '0.4'],
+            5: ['0.0', '1.0', '2.0', '3.0', '4.0']}
         for szCnt, lst0 in exps.items():
             nc = Segments(5, szCnt)
             self.assertEqual(nc.capacity, 5 * 5 // szCnt)
             lst = nc.segments
-            lst0 = [(int(x[0]), int(x[1])) for x in lst0]
+            lst0 = [self._s2a(x) for x in lst0]
             self.assertListEqual(lst0, lst, 'szCnt=%d' % szCnt)
             if verbose:
                 nc.all(stdout)
         # a larger set, complex enough
-        nc = Segments(32, 20)
-        lst = nc.segments
-        self.assertEqual(51, len(lst))
-        self.assertEqual((31, 0), lst[31], 'last level 0')
-        self.assertEqual((0, 31), lst[43], 'last level 1')
+        for row_first in (True, False):
+            nc = Segments(32, 20, row_first)
+            lst = nc.segments
+            self.assertEqual(51, len(lst))
+            self.assertEqual(self._s2a('31.0', row_first), lst[31], 'last level 0')
+            self.assertEqual(self._s2a('0.31', row_first), lst[43], 'last level 1')
 
-        lst = lst[44:]
-        lst0 = [(20, 20), (21, 28), (23, 24), (25, 20), (26, 28), (28, 24), (30, 20)]
-        self.assertListEqual(lst0, lst0, 'the spans')
-        if verbose:
-            nc.all(stdout)
-
-        # column first
-        nc = Segments(32, 20, False)
-        lst = nc.segments
-        self.assertEqual(51, len(lst))
-        self.assertEqual((0, 31), lst[31], 'last level 0')
-        self.assertEqual((31, 0), lst[43], 'last level 1')
-        lst = lst[44:]
-        lst0 = [(20, 20), (28, 21), (24, 23), (20, 25), (28, 26), (24, 28), (20, 30)]
-        self.assertListEqual(lst0, lst0, 'the spans')
-        if verbose:
-            nc.all(stdout)
+            lst = lst[44:]
+            lst0 = list(self._s2as('20.20;21.28;23.24;25.20;26.28;28.24;30.20', row_first))
+            self.assertListEqual(lst0, lst, 'the spans')
+            if verbose:
+                nc.all(stdout)
 
         if verbose:
             for i in range(10, 32, 2):
@@ -1117,37 +1139,30 @@ class SegmentSuites(TestCase):
         '''
         exps = {
             # level 0
-            '0.0': ('0.0', '0.19'),
-            '0.18': ('0.0', '0.19'),
-            '0.19': ('0.0', '0.19'),
-            '3.1': ('3.0', '3.19'),
-            '31.19': ('31.0', '31.19'),
+            '0.0': '0.0;0.19',
+            '0.18': '0.0;0.19',
+            '0.19': '0.0;0.19',
+            '3.1': '3.0;3.19',
+            '31.19': '31.0;31.19',
             # level 1
-            '9.20': ('0.20', '19.20'),
-            '17.20': ('0.20', '19.20'),
-            '0.21': ('0.21', '19.21'),
-            '19.31': ('0.31', '19.31'),
+            '9.20': '0.20;19.20',
+            '17.20': '0.20;19.20',
+            '0.21': '0.21;19.21',
+            '19.31': '0.31;19.31',
             # level 3
-            '20.20': ('20.20', '21.27'),
-            '21.21': ('20.20', '21.27'),
-            '22.24': ('21.28', '23.23'),
-            '30.24': ('30.20', '31.27')
+            '20.20': '20.20;21.27',
+            '21.21': '20.20;21.27',
+            '22.24': '21.28;23.23',
+            '30.24': '30.20;31.27'
             }
-        s2a = lambda s: tuple(int(x) for x in s.split('.'))
-        s2aR = lambda s: tuple(reversed(s2a(s)))
 
-        nc = Segments(32, 20)
-        for key, val in exps.items():
-            rng = nc.range(s2a(key))
-            rng0 = tuple(s2a(x) for x in val)
-            self.assertTupleEqual(rng0, rng, key)
-
-        nc = Segments(32, 20, False)
-        for key, val in exps.items():
-            rng = nc.range(s2aR(key))
-            rng0 = tuple(s2aR(x) for x in val)
-            self.assertTupleEqual(rng0, rng, 'revise of %s' % key)
-
+        for flag in (True, False):
+            nc = Segments(32, 20, flag)
+            for key, val in exps.items():
+                rng = nc.range(self._s2a(key, flag))
+                rng0 = self._s2as(val, flag)
+                self.assertTupleEqual(rng0, rng, key)
+        
         exps = {
             # level 0
             '0.0': ('0.0', '0.1'),
@@ -1163,10 +1178,18 @@ class SegmentSuites(TestCase):
         for flag in (True, False):
             nc = Segments(5, 2, flag)
             for key, val in exps.items():
-                s2 = s2a if flag else s2aR
-                rng = nc.range(s2(key))
-                rng0 = tuple(s2(x) for x in val)
+                rng = nc.range(self._s2a(key, flag))
+                rng0 = tuple(self._s2a(x, flag) for x in val)
                 self.assertTupleEqual(rng0, rng, '%s of row_first=%s' % (key, 'True' if flag else 'False'))
+
+
+    def testLevel2Only(self):
+        ''' size < segment_size <= size ** 2, all in level 2 
+        there should be answer
+        '''
+        nc = Segments(5, 6)
+        exps = list(self._s2as('0.0;1.1;2.2;3.3'))
+        self.assertListEqual(exps, nc.segments)
 
     def testSegmentBySect(self):
         ''' when not providing header of segment to get segment, still return
@@ -1183,6 +1206,25 @@ class SegmentSuites(TestCase):
         for act in (nc.next, nc.range, nc.sectors):
             with self.assertRaises(OverflowError):
                 nc.next(act(addr))
+
+    def testNumericRange(self):
+        ''' the numeric range function test
+        '''
+        _fl = lambda *x: tuple(float(y) for y in x)
+        nr = NumericRange(0, 100, 10)
+        self.assertEqual((0, _fl(0, 10)), nr.range(1))
+        self.assertEqual((0, _fl(0, 10)), nr.range(9.99))
+        self.assertEqual((1, _fl(10, 20)), nr.range(10))
+        self.assertEqual((9, _fl(90, 100)), nr.range(90))
+        self.assertEqual((9, _fl(90, 100)), nr.range(99))
+        self.assertEqual((10, _fl(100, 110)), nr.range(100), 'the last one, special')
+        with self.assertRaises(OverflowError):
+            nr.range(-1)
+        with self.assertRaises(OverflowError):
+            nr.range(100.1)
+        nr = NumericRange(0, 100, step=20.0)
+        self.assertEqual((0, _fl(0, 20),), nr.range(1))
+        self.assertEqual((5, _fl(100, 120),), nr.range(100))
 
 class CatalogTest(TestCase):
     """ class for catalog making """

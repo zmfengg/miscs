@@ -47,7 +47,7 @@ def _getjos(self, objclz, q0, jns, extfltr=None):
         rsts[0] = self._getbyids(q0, ids, idsin, objclz, idset, extfltr)
     if rns:
         rsts[1] = self._getbyids(q0, rns, lambda x, y: y.running.in_(x), objclz,
-                                 lambda x: set([y.running for y in x]), extfltr)
+                                 lambda x: {y.running for y in x}, extfltr)
     if jes:
         rsts[2] = self._getbyids(q0, jes, jesin, objclz, nameset, extfltr)
     its, failed = dict(), []
@@ -55,7 +55,7 @@ def _getjos(self, objclz, q0, jns, extfltr=None):
         if not x:
             continue
         if x[0]:
-            its.update(dict([(y.id, y) for y in x[0]]))
+            its.update({y.id: y for y in x[0]})
         if x[1]:
             failed.extend(x[1])
     return list(its.values()), failed

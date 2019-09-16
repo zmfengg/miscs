@@ -19,7 +19,8 @@ from random import random
 from re import sub
 from struct import unpack
 from sys import getfilesystemencoding, version_info
-from ._miscclz import Config, Salt, Number2Word, Literalize, Segments
+from copy import copy, deepcopy
+from ._miscclz import Config, Salt, Number2Word, Literalize, Segments, NumericRange
 
 _sh = _se = None
 
@@ -361,28 +362,25 @@ def imagesize(fn):
 def getfiles(fldr, part=None, nameonly=False):
     """
     return files under given folder
-    @param nameonly : don't return the full-path
+
+    Args:
+
+    part=None:  part of the file name
+    
+    nameonly=False: True to return name only, else name with full-path
     """
 
-    if fldr and path.exists(fldr):
-        if part:
-            part = part.lower()
-            fns = [
-                x
-                if version_info.major >= 3 else str(x, getfilesystemencoding())
-                for x in listdir(fldr)
-                if x.lower().find(part) >= 0
-            ]
-        else:
-            fns = [
-                x
-                if version_info.major >= 3 else str(x, getfilesystemencoding())
-                for x in listdir(fldr)
-            ]
-        if not nameonly:
-            fns = [path.join(fldr, x) for x in fns]
-        return fns
-    return None
+    if not (fldr and path.exists(fldr)):
+        return None
+    _fn = lambda fn: fn if version_info.major >= 3 else\
+            str(fn, getfilesystemencoding())
+    fns = [_fn(x) for x in listdir(fldr)]
+    if part and fns:
+        part = part.lower()
+        fns = [x for x in fns if x.lower().find(part) >= 0]
+    if not nameonly:
+        fns = [path.join(fldr, x) for x in fns]
+    return fns
 
 
 def daterange(year, month, day=1):
@@ -536,12 +534,19 @@ class NamedList(object):
         if data:
             self.setdata(data)
 
-    def clone(self, data=None):
-        """ create a clone with the same definination as me, but not the same data set """
+    def clone(self, struct_only=True):
+        """ clone me
+
+        Args:
+
+            struct_only=True:    only clone the structure, no data will be cloned
+
+        """
         self._mkidmap()
         nl = NamedList(None)
         nl._nmap, nl._idmap, nl._kwds, nl._nrl = self._nmap, self._idmap, self._kwds, self._nrl # save memory, share map
-        nl.setdata(data or self.newdata(False))
+        if not struct_only:
+            nl.setdata(deepcopy(self._data))
         return nl
 
     def _replace(self, trmap, data=None):
@@ -692,7 +697,7 @@ class NamedList(object):
         return the internal list/tuple
         """
         return self._data
-    
+
     @property
     def isblank(self):
         '''
@@ -717,30 +722,47 @@ class NamedList(object):
 
 class NamedLists(Iterator):
     """
-    make a list of list(2d array) accessable by name, for example, you read data from a csv
-    lsts = (("id","name","price"),(1,"Jan",23.45),(2,"Pet",30.25)), you don't want to get id by
+    make a list of list(2d array) accessable by name,
+
+    for example, you read data from a csv
+
+    lsts = (("id","name","price"),(1,"Jan",23.45),(2,"Pet",30.25)),
+
+    you don't want to get id by
         lsts[0][0]
+
         or
         nmap = dict([(lsts[0][idx],idx) for x in range(len(lsts[0]))])
         lsts[0][nmap["id"]]
 
     Use this as:
+
         its = NamedLists(lsts):
+
         for x in its:
+
             id = x.id...
 
     """
 
     def __init__(self, lsts, trmap=None, newinst=True, **kwds):
-        """
-        init one named list instance
-        @param lsts: the list(or tuple) of a list(or tuple, but when it's a tuple, you can not assigned value)
-            always send the title rows to the first item
-        @param trmap: nmap translation map. used when nmap == None and you want to do some name tranlation
+        """ init one named list instance
+
+        Args:
+            lsts: A list(or tuple) of a list(or tuple, but when it's a tuple, you can not assigned value),
+
+            always put the title row at first
+
+            trmap:  nmap translation map. used when nmap == None and you want to do some name tranlation
+
                     @refer to list2dict for more info.
-        @param newinst: set this to False if you use "for" loop to save memory
-            set it to True if you use lst = [x for x in nl] or lst = list(nl).
-            for safe reason, it's True by default
+
+            newinst=True:
+                False to save memory in "for" loop
+
+                set it to True if you use lst = [x for x in nl] or lst = list(nl).
+
+                for safe reason, it's True by default
         """
         super(NamedLists, self).__init__()
         nmap = list2dict(lsts[0], alias=trmap, **kwds)
@@ -758,7 +780,7 @@ class NamedLists(Iterator):
         if not self._lsts or self._ptr >= self._ubnd:
             raise StopIteration()
         if self._newinst:
-            return self._wrpr.clone(self._lsts[self._ptr])
+            return self._wrpr.clone().setdata(self._lsts[self._ptr])
         return self._wrpr.setdata(self._lsts[self._ptr])
 
     @property

@@ -734,3 +734,47 @@ class _SpanCalc(object):
         if not steps:
             steps = self.size
         return self._dim_convert(self._dim_convert(r_c) + steps, offset)
+
+class NumericRange(object):
+    ''' given numeric a and b, split (b - a) into n segments, then query the span that a numer belongs to
+
+    sometimes you have a set of numeric range from a to b, for performance issue, 
+    you split it into n groups, then for each group you do some issue.
+
+    Now you have a number x, you need to know which group it belongs to.
+
+    nr = NumericRange(1, 100, 10)
+    idx, rg = nr.range(0)
+    idx, rg = nr.range(10)
+    idx, rg = nr.range(32.5)
+    idx, rg = nr.range(100.1)
+
+    '''
+    def __init__(self, a, b, spancnt=10, step=None):
+        if a > b:
+            a, b = b, a
+        self._a, self._b = a, b
+        if step:
+            self._n, self._step = int((b - a + step - 1) // step), step
+        else:
+            self._n, self._step = spancnt, (b - a) / spancnt
+    
+    @property
+    def step(self):
+        ''' return step of each range
+        '''
+        return self._step
+
+    def range(self, x):
+        '''
+        Returns:
+            the span id and range of given x
+
+            but:
+                when x not in [a, b], OverflowError will be raised
+        '''
+        if x < self._a or x > self._b:
+            raise OverflowError()
+        cnt = int((x - self._a) // self._step)
+        tmp = self._a + cnt * self._step
+        return cnt, (tmp, tmp + self._step)

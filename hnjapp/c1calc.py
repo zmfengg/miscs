@@ -175,11 +175,11 @@ class _C1Utilz(object):
             return None
         skus = {x[1]: x[0] for x in jnskump.items() if x[1] and x[1][1] != na}
         q = Query(C1JC).order_by(C1JC.name)
-        sq = Query((C1JC.skuno, C1JC.styno, func.max(C1JC.docno).label("mdocno"),)).group_by(C1JC.skuno, C1JC.styno).subquery()
+        sq = Query((C1JC.skuno, C1JC.styno, func.max(C1JC.lastmodified).label("lmd"),)).group_by(C1JC.skuno, C1JC.styno).subquery()
         mp = {}
         mk_key = lambda styno, skuno: styno + "_" + skuno
         for sku in splitarray(tuple(skus.keys())):
-            x = q.join(sq, and_(C1JC.skuno == sq.c.skuno, C1JC.docno == sq.c.mdocno)).filter(C1JC.skuno.in_([x[1] for x in sku]))
+            x = q.join(sq, and_(C1JC.skuno == sq.c.skuno, C1JC.lastmodified == sq.c.lmd)).filter(C1JC.skuno.in_([x[1] for x in sku]))
             lst = x.with_session(cur).all()
             if not lst:
                 continue
@@ -667,7 +667,14 @@ class HisMgr(object):
 
     @classmethod
     def _norm_fn(cls, fn):
-        return trimu(path.splitext(path.basename(fn))[0])
+        ''' sometimes there is very stupid a.xls.xlsx case
+        '''
+        xtr = lambda nm: trimu(path.splitext(path.basename(nm))[0])
+        x, x1 = None, xtr(fn)
+        while x != x1:
+            x = x1
+            x1 = xtr(x)
+        return x
 
     def persist(self, fldr):
         """ gather cc file from sub-folder of fldr and persist
@@ -684,10 +691,11 @@ class HisMgr(object):
             if not fns:
                 continue
             self._persist_file(path.join(fldr, sfldr, fns[0]))
-            # return
 
     def _persist_file(self, fn):
         """ persist the given file, if already persisted, do nothing """
+        if fn.find('CC201804_F') > 0:
+            print('x')
         flag = self._is_persisted(fn)
         if flag == 1:
             logger.debug("file(%s) has already been persisted",
@@ -703,28 +711,28 @@ class HisMgr(object):
              "stone;shape;size,stsize;qty,stqty;wgt,stwgt;setting".split(";")))
         dates = datetime.today(), datetime.fromtimestamp(path.getmtime(fn))
         # remove existing if there is
-        self._remove_exists(pps)
-        with self._hksvc.sessionctx() as flag:
-            var = self._utilz.fetch_jo_skunos(flag, [JOElement(x) for x in pps])
-        if var:
-            for flag, pp in var.items():
-                pps[flag]["skuno"] = pp
-        for pp in pps.values():
-            pp = self._new_entity(pp, mstr_map, st_map, dates)
-            jcs.append(pp[0])
-            for var in zip(pp[1:], (feas, sts)):
-                if var[0]:
-                    var[1].extend(var[0])
-        with self._sessionctx as var:
+        with self._sessionctx as cur:
+            # self._remove_exists(pps)
+            with self._hksvc.sessionctx() as var1:
+                var = self._utilz.fetch_jo_skunos(var1, [JOElement(x) for x in pps])
+                if var:
+                    for var1, pp in var.items():
+                        pps[var1]["skuno"] = pp
+            for pp in pps.values():
+                pp = self._new_entity(pp, mstr_map, st_map, dates)
+                jcs.append(pp[0])
+                for var in zip(pp[1:], (feas, sts)):
+                    if var[0]:
+                        var[1].extend(var[0])
             if flag == -1:
-                self._clear_expired(fn, var)
-            var.add_all(jcs)
-            var.flush()
+                self._clear_expired(fn, cur)
+            cur.add_all(jcs)
+            cur.flush()
             if feas:
-                var.add_all(feas)
+                cur.add_all(feas)
             if sts:
-                var.add_all(sts)
-            var.commit()
+                cur.add_all(sts)
+            cur.commit()
         logger.debug("%d of records persisted from file(%s)" % (len(jcs), fn))
         return jcs
 
@@ -739,7 +747,7 @@ class HisMgr(object):
         if jc.styno and jc.styno.find("_") > 0:
             jc.styno = jc.styno.split("_")[0]
         if jc.docno.find(".") > 0:
-            jc.docno = jc.docno.split(".")[0]
+            jc.docno = self._norm_fn(jc.docno)
         jc.createdate, jc.lastmodified = dates
         jc.tag = 0
         if not jc.skuno:
@@ -764,14 +772,16 @@ class HisMgr(object):
         jns, lsts = splitarray([x for x in mp]), []
         with self._sessionctx as cur:
             for jn in jns:
-                lst = cur.query(C1JC.name).filter(C1JC.name.in_(jn)).all()
+                q = Query(C1JC).filter(C1JC.name.in_(jn))
+                lst = q.with_session(cur).all()
                 if not lst:
                     continue
-                lsts.extend([x[0] for x in lst])
+                lsts.extend([x.name for x in lst])
         if lsts:
             logger.debug("JOs(%s) already found in db" % lsts)
-            for x in lsts:
-                del mp[x]
+            if False:
+                for x in lsts:
+                    del mp[x]
         return mp
 
     def _nrm_jc_st(self, st):

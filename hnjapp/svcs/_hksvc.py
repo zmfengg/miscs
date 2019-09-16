@@ -30,7 +30,7 @@ from .. import pajcc
 from ..common import Utilz
 from ..common import _logger as logger
 from ..common import config
-from ..pajcc import MPS, PrdWgt, WgtInfo, addwgt
+from ..pajcc import MPS, PrdWgt, WgtInfo, addwgt, PajCalc
 from ._common import SvcBase, _getjos, idset, idsin, fmtsku
 
 _ptn_mit = re.compile(config.get("pattern.mit"))
@@ -77,11 +77,14 @@ class HKSvc(SvcBase):
     def getjos(self, jesorrunns, extfltr=None):
         """get jos by a collection of JOElements/Strings or Integers
         when the first item is string or JOElement, it will be treated as getbyname, else by runn
-        return a tuple, the first item is list containing hnjcore.models.hk.JO
-                        the second item is a set of ids/jes/runns not found
-        @param groupby: can be one of id/running/name, running should be a string
+        Args:
+            groupby: can be one of id/running/name, running should be a string
             starts with 'r' for example, 'r410100', id should be integer,
             name should be JOElement or string without 'r' as prefix
+        
+        Returns:
+            a tuple, the first item is list containing hnjcore.models.hk.JO
+                the second item is a set of ids/jes/runns not found
         """
         return _getjos(self, JO, Query(JO), jesorrunns, extfltr)
 
@@ -124,7 +127,7 @@ class HKSvc(SvcBase):
             if limit:
                 q = q.limit(limit)
             rows = q.with_session(cur).all()
-            if rows:
+            if rows and len(rows) > 1:
                 rows = sorted(rows, key=attrgetter("tag"))
         return rows
 
@@ -137,7 +140,7 @@ class HKSvc(SvcBase):
         with self.sessionctx() as cur:
             if not calcdate:
                 rows = self.getrevcns(pcode, limit=1)
-                if rows and rows[0] == 0:
+                if rows and rows[0].tag == 0:
                     rc = rows[0]
             else:
                 q = Query(PajCnRev).filter(PajCnRev.pcode == pcode).filter(
@@ -148,23 +151,28 @@ class HKSvc(SvcBase):
 
     def findsimilarjo(self, jo, level=1, mindate=datetime.datetime(2015, 1, 1)):
         """ return an list of JO based on below criteria
-        @param level:   0 for extract SKU match
-                        1 for extract karat match
-                        1+ for extract style match
-        @param mindate: the minimum date to fetch data
+
+        Args:
+            level=1:   0 for extract SKU match
+                       1 for extract karat match
+                       1+ for extract style match
+
+            mindate=date(2015, 1, 1): the minimum date to fetch data
         """
         rc = None
         level = 0 if level < 0 else level
-        je = jo.name
-        jns, jn = None, None
         with self.sessionctx() as cur:
             #don't lookup too much, only return data since 2015
-            q = Query([JO,POItem.skuno]).join(Orderma).join(POItem,POItem.id == JO.poid).filter(Orderma.styid == jo.orderma.style.id)
+            if not isinstance(jo, JO):
+                jo = self.getjo(jo)
+            je = jo.name
+            jns = jn = None
+            q = Query([JO, POItem.skuno]).join(Orderma).join(POItem, POItem.id == JO.poid).filter(Orderma.styid == jo.orderma.style.id)
             if mindate:
                 q = q.filter(JO.createdate >= mindate)
             try:
                 rows = q.with_session(cur).all()
-                if (rows):
+                if rows:
                     jns = {}
                     for x in rows:
                         jn = x.JO.name
@@ -179,12 +187,24 @@ class HKSvc(SvcBase):
                         sks = [
                             x.JO
                             for x in rows
-                            if je != x.JO.name and self._samekarat(jo, x.JO)
+                            if x.JO.name != je and self._samekarat(jo, x.JO)
                         ]
+                        if sks and level == 1:
+                            # at least all field's karat are the same
+                            wgt0 = self.getjowgts(jo)
+                            def _rc(wgt1):
+                                kws = zip(wgt0.wgts, wgt1.wgts)
+                                for knw0, knw1 in kws:
+                                    if bool(knw0) ^ bool(knw1):
+                                        return False
+                                    if knw0 and self._ktsvc.getfamily(knw0.karat) != self._ktsvc.getfamily(knw1.karat):
+                                        return False
+                                return True
+                            sks = [jo for jo in sks if _rc(self.getjowgts(jo))] or sks
                         if not sks and level > 1:
-                            sks = [x.JO for x in rows]
+                            sks = [x.JO for x in rows if x.JO.name != je]
                     rc = sks
-            except UnicodeDecodeError as e:
+            except UnicodeDecodeError:
                 logger.debug(
                     "description/edescription/po.description of JO#(%s) contains invalid Big5 character "
                     % jn.value)
@@ -193,13 +213,19 @@ class HKSvc(SvcBase):
         return rc
 
     def getjowgts(self, jo):
-        """ return a PrdWgt object of given JO """
+        """ return a PrdWgt object of given JO
+
+        Args:
+
+            jo: An JO instance or JOElement or String. providing JO instance
+            fasten the query process(especially when the JO is not a pendant)
+        """
         if not jo:
             return None
 
         with self.sessionctx() as cur:
-            if isinstance(jo, str) or isinstance(jo, JOElement):
-                jo = self.getjos([jo])[0]
+            if isinstance(jo, (str, JOElement)):
+                jo = self.getjos([jo, ])[0]
                 if not jo:
                     return None
                 jo = jo[0]
@@ -207,7 +233,7 @@ class HKSvc(SvcBase):
             rk, oth_chn = knws[0], []
             if jo.auxwgt:
                 knws[1] = WgtInfo(jo.auxkarat, float(jo.auxwgt))
-                if (knws[1].karat == 925):  # most of 925's parts is 925
+                if knws[1].karat == 925:  # most of 925's parts is 925
                     rk = knws[1]
             #only pendant's parts weight should be returned
             if jo.style.name.alpha.find("P") >= 0:
@@ -260,7 +286,7 @@ class HKSvc(SvcBase):
             "PajInv": None,
             "wgts": None
         }
-        if (not je.isvalid):
+        if not je.isvalid:
             return rmap
         with self.sessionctx():
             ups = self.getpajinvbyjes([je])
@@ -276,9 +302,10 @@ class HKSvc(SvcBase):
             rmap["PajInv"] = hnp.PajInv
             rmap["PajShp"] = hnp.PajShp
             revcn = self.getrevcn(hnp.PajShp.pcode)
-        rmap["china"] = pajcc.newchina(revcn, prdwgt) if revcn else \
-            pajcc.PajCalc.calchina(prdwgt, float(
-                hnp.PajInv.uprice), MPS(hnp.PajInv.mps))
+        invd = hnp.PajShp.invdate
+        rmap["china"] = PajCalc.newchina(revcn, prdwgt, affdate=invd) if revcn else \
+            PajCalc.calchina(prdwgt, float(hnp.PajInv.uprice), MPS(hnp.PajInv.mps), \
+            affdate=invd)
         return rmap
 
     def getmmioforjc(self, df, dt, runns):
@@ -314,16 +341,20 @@ class HKSvc(SvcBase):
                 jes = (JOElement(jes))
         jes = [x if isinstance(x, JOElement) else JOElement(x) for x in jes]
 
-        with self.sessionctx() as cur:
-            q0 = self._pjq()
-            for ii in splitarray(jes, self._querysize):
-                q = JO.name == ii[0]
-                for yy in ii[1:]:
-                    q = or_(JO.name == yy, q)
-                q = q0.filter(q).with_session(cur)
-                rows = q.all()
-                if rows:
-                    lst.extend(rows)
+        try:
+            with self.sessionctx() as cur:
+                q0 = self._pjq()
+                for ii in splitarray(jes, self._querysize):
+                    q = JO.name == ii[0]
+                    for yy in ii[1:]:
+                        q = or_(JO.name == yy, q)
+                    q = q0.filter(q).with_session(cur)
+                    rows = q.all()
+                    if rows:
+                        lst.extend(rows)
+        except UnicodeDecodeError:
+            print('%s might contains invalid big5 character' % jes)
+            return None
         return lst
 
     def getpajinvbypcode(self, pcode, maxinvdate=None, limit=0):

@@ -342,6 +342,8 @@ class PajBomHdlr(object):
                 prdwgt = prdwgt._replace(part=WgtInfo(prdwgt.part.karat, -prdwgt.part.wgt * 100))
             if self._from_his(pcode, prop):
                 continue
+            if prdwgt.aux and prdwgt.main.karat == 9925 and prdwgt.aux.karat == 925 and prdwgt.aux.wgt < 0.1:
+                prdwgt = PrdWgt(WgtInfo(prdwgt.main.karat, prdwgt.main.wgt + prdwgt.aux.wgt), None, prdwgt.part)
             prop["mtlwgt"] = prdwgt._replace(netwgt=round(prop.get("netwgt", 0) - subs, 2))
 
     def _from_his(self, pcode, prop):

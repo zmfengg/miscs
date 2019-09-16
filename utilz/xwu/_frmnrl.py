@@ -257,7 +257,7 @@ class NrlsInvoker(object):
         for log in logs:
             key = _mk(log)
             if key not in mp:
-                mp[key] = log.clone(log.data)
+                mp[key] = log.clone(False)
             else:
                 log0 = mp[key]
                 log0.newvalue = log.newvalue
