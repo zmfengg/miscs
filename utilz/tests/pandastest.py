@@ -145,7 +145,7 @@ class DataFrameSuite(_Base):
         self.assertEqual(df.loc['kate', 'a'], df.a['kate'])
 
     def testIndexer(self):
-        ''' access using attribute/loc/iloc/[]
+        ''' access dataframe using attribute/loc/iloc/[]
         '''
         # with columns, range() as default index
         df = pd.DataFrame(np.random.random((6, 4)), columns=tuple('abcd'))
@@ -159,18 +159,24 @@ class DataFrameSuite(_Base):
         df = pd.DataFrame(np.random.random((6, 4)), index=range(1, 7), columns=tuple('abcd'))
         self.assertTrue(0 not in df.a.index)
         self.assertTrue(6 in df.a.index)
+        self.assertEqual(df.iloc[0].a, df.a[1], 'iloc[] always starts from 0, no matter what index is')
+        self.assertEqual(df.loc[1, 'a'], df.a[1], 'loc[] use index, not zero-base')
 
         # string as indexer
         df = pd.DataFrame(np.random.random((2, 2)), index='kate peter'.split(), columns=list('ab'))
         self.assertTrue('kate' in df.a.index)
         self.assertEqual(df.loc['kate', 'a'], df.a[0])
         self.assertEqual(df.loc['kate', 'a'], df.a['kate'])
+        self.assertEqual(df.iloc[0].a, df.a['kate'])
+        idx = df.index
+        self.assertEqual(idx[0], 'kate')
+        self.assertEqual(idx.get_loc('kate'), 0, 'yes, index, name and idx using default indexer and get_loc')
 
     def testDataFrame(self):
         sts = self._dates
         for cn in ('birthday', 'lastModified'):
             self.assertTrue(cn in sts.columns)
-        self.assertEqual(len(sts.columns), 4)
+        self.assertEqual(len(sts.columns), 5)
         # when iloc is not slice, the return item is a tuple
         # sr will be a tuple
         sr = sts.iloc[0].birthday
@@ -185,10 +191,25 @@ class DataFrameSuite(_Base):
         # instead of using iloc, get by colname then row, save writing time
         self.assertEqual('PETER', sts.name[0])
         self.assertEqual(1, sts.id[:2][0])
-
-        sr = sts.loc[sts.id <= 2]
-        sr = sts.loc[sts.id in (1, 2)]
-        sr = sts.loc[~sts.id in (1, 2)]
+    
+    def testQuery(self):
+        ''' query by in/not_in or so on
+        '''
+        sts = self._dates
+        df = sts.loc[sts.id < 2]
+        self.assertEqual(1, len(df))
+        df = sts.loc[sts.id.isin((1, 2))]
+        self.assertEqual(2, len(df))
+        # don't know why 2 not in df.id, but 0 is in?
+        for idx in (1, ):
+            self.assertTrue(idx in df.id)
+        df = sts.loc[~sts.id.isin((1, 2))]
+        self.assertEqual(3, len(df), 'the not in query')
+        lst = (1, 2)
+        df = sts.query('id not in @lst')
+        self.assertEqual(3, len(df), 'use string query')
+        df1 = sts.query('id not in (1, 2)')
+        self.assertTrue(df.equals(df1))
 
     def testReadTable(self):
         ''' read table/csv differs only for the tab delimiter
