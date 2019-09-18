@@ -261,8 +261,19 @@ class DataFrameSuite(_Base):
         df = org.assign(x=None)
         self.assertFalse(df.x.any())
         df = org.loc[org.id > 3]
-        df.id[0] = 'xyx'
-        self.assertEqual('xyx', df.id[0], 'yes, value in the view changed')
-        self.assertNotEqual(df.id[0], org.loc[org.id > 3].id[0], 'but the original is not changed')
+        # df is a view, don't try to set data in a view
+        df.iloc[0].id = 'xyx'
+        self.assertNotEqual('xyx', df.iloc[0].id, 'value in the view not changed')
+        # but how to query then change?, maybe use the returned df's index is a good point
+        # https://stackoverflow.com/questions/17729853/replace-value-for-a-selected-cell-in-pandas-dataframe-without-using-index
+        # 3 ways to change value of a dataFrame
+        org.id[org.id == 3] = 30
+        self.assertFalse(org.loc[org.id == 30].empty)
+        # only these two without warning
+        org.loc[org.id == 30, 'id'] = 3
+        self.assertFalse(org.loc[org.id == 3].empty)
+        org.id.replace(3, 30, inplace=True)
+        self.assertFalse(org.loc[org.id == 30].empty)
+        self.assertTrue(org.loc[org.id == 3].empty)
         df.loc[0, 'id'] = 'xyx'
         self.assertEqual('xyx', df.id[0], 'using loc can change it without warning')
