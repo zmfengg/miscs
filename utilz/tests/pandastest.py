@@ -138,6 +138,12 @@ class DataFrameSuite(_Base):
         self.assertTrue(0 not in df.a.index)
         self.assertTrue(6 in df.a.index)
 
+        # create from some rows from an existing df
+        lst = [df.iloc[x].values for x in (0, 2)]
+        dfx = pd.DataFrame(lst, columns=df.columns)
+        self.assertEqual(2, len(dfx))
+        self.assertEqual(df.a[1], dfx.a[0])
+
         # string as indexer
         df = pd.DataFrame(np.random.random((2, 2)), index='kate peter'.split(), columns=list('ab'))
         self.assertTrue('kate' in df.a.index)
@@ -159,6 +165,9 @@ class DataFrameSuite(_Base):
         df = pd.DataFrame(np.random.random((6, 4)), index=range(1, 7), columns=tuple('abcd'))
         self.assertTrue(0 not in df.a.index)
         self.assertTrue(6 in df.a.index)
+        with self.assertRaises(KeyError):
+            print(df.a[0])
+        self.assertEqual(df.a[1], df.iloc[0].a, 'iloc is always from 0')
 
         # string as indexer
         df = pd.DataFrame(np.random.random((2, 2)), index='kate peter'.split(), columns=list('ab'))
@@ -186,9 +195,34 @@ class DataFrameSuite(_Base):
         self.assertEqual('PETER', sts.name[0])
         self.assertEqual(1, sts.id[:2][0])
 
-        sr = sts.loc[sts.id <= 2]
-        sr = sts.loc[sts.id in (1, 2)]
-        sr = sts.loc[~sts.id in (1, 2)]
+    def testQuery(self):
+        ''' common use query
+        '''
+        sts = self._dates
+        lst = (1, 2)
+        df = sts.loc[sts.id <= 2]
+        df = sts.loc[sts.id.isin(lst)]
+        df = sts.query('id not in @lst')
+        df = sts.loc[~sts.id.isin((1, 2))] # not in
+
+    def testBoolean(self):
+        ''' test the union/intersection funciton
+        '''
+        df = pd.read_excel(r'd:\temp\syn.xlsx')
+        lst = []
+        for loc in df.location.unique():
+            lst.append(df.loc[df.location == loc].pcode.unique())
+        df, dfs = lst[0], set()
+        for df1 in lst[1:]:
+            df2 = pd.np.intersect1d(df, df1)
+            if len(df2) == 0:
+                dfs.update([x for x in df])
+                df = df1
+            else:
+                df = df2
+        dfs.update([x for x in df])
+        print(dfs)
+
 
     def testReadTable(self):
         ''' read table/csv differs only for the tab delimiter

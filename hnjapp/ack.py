@@ -684,7 +684,8 @@ class AckPriceCheck(object):
                 var.append([pcode, '*' + nl.jono, nl.qty, nl.date, nl.pajprice, nl.mps, cn.china, cn.metalcost, cn.china - cn.metalcost])
             df.append(pd.DataFrame(var, columns=df.columns))
         ttl = 'Other Cost (China - Metal) Trend of "%s"' % path.basename(self._fldr)
-        _HisPltr(df, title=ttl).plot(path.join(self._fldr, '_invHis.pdf'), sht, method='changes')
+        #        _HisPltr(df, title=ttl).plot(path.join(self._fldr, '_invHis.pdf'), sht, methods=['changes'])
+        _HisPltr(df, title=ttl).plot(_HisPltr.make_fn(self._fldr, '_invHis', 'pdf'), sht, methods=['changes'])
         try:
             sht.name = '_InvHis'
         except:
@@ -798,24 +799,21 @@ class AckPriceCheck(object):
         s_fldr = path.join(fldr, '_rst')
         if not path.exists(s_fldr):
             mkdir(s_fldr)
-        for mt in method.split(','):
-            fn = prefix + '_%s' % mt
-            fn_xls = path.join(s_fldr, fn + '.xlsx')
+        pcodes = [x for x in pcodes if x[0] != '#']
+
+        flag, methods, fn = False, method.split(','), path.join(s_fldr, prefix)
+        for mt in methods:
+            fn_xls = _HisPltr.make_fn(fn, mt, 'xlsx')
             if path.exists(fn_xls):
                 continue
+            flag = True
+        if flag:
             # translate those JO# or Sty# to pcodes
-            var = [x for x in pcodes if x.find('title') < 0 and x.find('method') < 0 and (len(x) != 17 or x.find(':') > 0)]
+            var = [x for x in pcodes if len(x) != 17 or x.find(':') > 0]
             if var:
                 pcodes = cls._extend(pcodes, var, hksvc)
-            if not pltr:
-                pltr = _HisPltr(_fetch_invs(hksvc, fldr, pcodes), title=ttl)
-                app, tk = xwu.appmgr.acq()
-            wb = app.books.add()
-            pltr.plot(path.join(s_fldr, fn + '.pdf'), wb.sheets[0], method=mt)
-            wb.save(fn_xls)
-            wb.close()
-        if tk:
-            xwu.appmgr.ret(tk)
+            pltr = _HisPltr(_fetch_invs(hksvc, fldr, pcodes), title=ttl)
+            pltr.plot(path.join(s_fldr, fn), None, methods=methods)
 
     @classmethod
     def _extend(cls, pcodes, other, hksvc):
@@ -1030,63 +1028,106 @@ class _HisPltr(object):
         # After using plt.subplots_adjust, the figure's size won't work
         # plt.subplots_adjust(top=0.92, bottom=0.08, left=0.08, right=0.92, wspace=0.1) make the figure un-scalable
 
-    def _liner(self, df, method='all'):
-        _to_discard, pcode, modcnt = [], None, 0
+    def _liner(self, df, methods='all'):
+        accepts, pcode, trcnt = defaultdict(list,), None, 0
         th = config.get('pajcc.ack.chk')['pft.ref.classify']
         th = [th[x][0] for x in ("relative", "absolute")]
-        def _discard():
+        def _accept():
             if not pcode:
                 return
-            flag = False
-            if method != 'all':
-                flag = modcnt < 2
-            if not flag:
-                if method == 'up':
-                    flag = trend != 1
-                elif method == 'down':
-                    flag = trend != -1
-            if flag:
-                _to_discard.append(pcode)
+            for method in methods:
+                flag, modcnt = False, len(trend)
+                flag = method == 'all'
+                if not flag:
+                    if method == 'changes':
+                        flag = modcnt > 2
+                if not flag and modcnt:
+                    if method in ('up', 'down'):
+                        flag = trend[-1][0] == ('U' if method == 'up' else 'D')
+                    elif method in ('high', 'low'):
+                        flag = (his[-1] > his[0]) == (method == 'high')
+                    elif method == 'sea-food':
+                        flag = modcnt >= 3 and modcnt / trcnt >= 0.3
+                    elif method != 'all':
+                        shape = ''.join([x[0] for x in trend])
+                        if method == 'shape-v':
+                            flag = shape.find('DU') >= 0
+                        elif method == 'shape-n':
+                            flag = shape.find('UD') >= 0
+                        elif method == 'shape-2u':
+                            flag = shape.find('UU') >= 0
+                        elif method == 'shape-2d':
+                            flag = shape.find('DD') >= 0
+                if flag:
+                    accepts[method].append(pcode)
 
         for idx, row in df.iterrows():
+            # bonded gold, ignore
+            if row.pcode[0] == 'K':
+                continue
             if row.pcode != pcode:
-                _discard()
-                trend = loc = modcnt = 0
+                _accept()
+                loc = trcnt = 0
                 pcode = row.pcode
+                trend, his = [], []
+            trcnt += 1
             if loc and abs(loc / row.ocost - 1) < th[0] and abs(loc - row.ocost) < th[1]:
                 df.loc[idx, 'ocost'] = loc
                 # below 2 methods might has warning or does not work at all
                 # df.ocost[idx] = loc
                 # row.ocost = loc won't work because it's a view
             else:
-                if loc and (method == 'up' or method == 'down'):
-                    trend = -1 if loc > row.ocost else 1
+                if loc:
+                    trend.append(('D' if loc > row.ocost else 'U', trcnt))
                 loc = row.ocost
-                modcnt += 1
-        _discard()
-        if _to_discard:
-            # in/notin query can be df.pcode.isin(mx)
-            # notin: ~df.pcode.isin(mx)
-            # df.query('pcode not in @mx')
-            df = df.loc[~df.pcode.isin(_to_discard)]
-        return df
+                his.append(loc)
+        _accept()
+        if not accepts:
+            return None
+        return {k: df.loc[df.pcode.isin(v)] for k, v in accepts.items()}
 
-    def plot(self, fn=None, sht=None, method='changes'):
-        ''' plot to a file
+    def plot(self, fn=None, sht=None, methods=['changes']):
+        ''' plot to a file or a set of files
         Args:
             fn=None: the pdf file to plot to, omitting will create a temp file
             sht=None: the sheet to write data to, omitting won't produce any excel thing
-            method='changes': what to show, can be one of:
+            method=['changes']: what to show, a list of one of:
                 'all'     -> any series
                 'changes' -> the series that contains changes
                 'up'      -> the series that belongs to up-trend
                 'down'    -> the series that belongs to down-trend
         '''
         df = self._df.sort_values(by=['styno', 'pcode', 'invdate'])
-        df = self._liner(df, method)
-        if df.empty:
+        accepts = self._liner(df, methods)
+        if not accepts:
             return None
         self._plt_fmt()
+        app = tk = None
+        if sht is None:
+            fldr, fn = (gettempdir(), '_') if not fn else (path.dirname(fn), path.basename(fn))
+            app, tk = xwu.appmgr.acq()
+        for method, df in accepts.items():
+            if app:
+                fn_pdf = self.make_fn(path.join(fldr, fn), method, 'pdf')
+                if path.exists(fn_pdf):
+                    continue
+                self._plot_one_method(df, method, fn_pdf)
+                wb = app.books.add()
+                self._write_sht(df, wb.sheets[0], [fn_pdf, ])
+                wb.save(self.make_fn(path.join(fldr, fn), method, 'xlsx'))
+                wb.close()
+            else:
+                self._plot_one_method(df, method, fn)
+                if sht:
+                    self._write_sht(df, sht, [fn, ])
+        if app:
+            xwu.appmgr.ret(tk)
+
+    @classmethod
+    def make_fn(cls, pfx, method, ext):
+        return pfx + '_' + method + '.' + ext
+
+    def _plot_one_method(self, df, method, fn):
         grps = [(n, d.ocost.mean(), len(d)) for n, d in df.groupby('pcode')]
         var = [y for x in grps for y in range(1, int(x[2]) + 1)]
         df = df.assign(idx=var)
@@ -1135,10 +1176,7 @@ class _HisPltr(object):
                         ax.legend()
                 pdf.savefig(fig)
                 plt.close(fig)
-        plt.close()
-        if sht:
-            self._write_sht(df, sht, [fn, ])
-        return fn
+            plt.close()
 
     def _write_sht(self, df, sht, atts):
         # df.jono = "'" + df.jono
