@@ -39,16 +39,16 @@ except:
     pass
 
 
-def _fetch_invs(hksvc, fldr, pcodes):
+def _fetch_invs(hksvc, fldr, pcodes, fn_cns=None, fn_wgts=None):
     pcodes = [x for x in pcodes if x[0] != '#']
     if not pcodes:
         return None
-    fn_cns = path.join(fldr, '_cns.csv')
+    fn_cns = path.join(fldr, fn_cns or '_cns.csv')
     cns = 'pcode styno jono qty description invdate mps uprice china mtlcost ocost'.split()
     df = pd.read_csv(fn_cns, parse_dates=['invdate']) if path.exists(fn_cns) else pd.DataFrame(None, columns=cns)
     lns = {x for x in pcodes if x[0] != '#'} - set(df.pcode)
     if lns:
-        wgtsvc, lsts = LocalJOWgts(path.join(fldr, '_wgts.csv'), hksvc), []
+        wgtsvc, lsts = LocalJOWgts(path.join(fldr, fn_wgts or '_wgts.csv'), hksvc), []
         def _flush(df, lsts):
             if lsts:
                 df = df.append(pd.DataFrame(lsts, columns=df.columns))
@@ -671,7 +671,7 @@ class AckPriceCheck(object):
         ''' write the history of exception pcodes to a sheet and plot
         '''
         fn = path.join(self._fldr, '_invhis.csv')
-        df = pd.read_csv(fn, parse_dates=['invdate', ]) if path.exists(fn) else  pd.DataFrame(None, columns='pcode jono invdate uprice mps china mtlcost ocost'.split())
+        df = pd.read_csv(fn, parse_dates=['invdate', ]) if path.exists(fn) else  pd.DataFrame(None, columns='pcode styno jono qty description invdate uprice mps china mtlcost ocost'.split())
         reqs = [nl.pcode for nl in nls if df.loc[df.pcode == nl.pcode].empty]
         if reqs:
             var, nls = [], {nl.pcode: nl for nl in nls}
@@ -681,11 +681,10 @@ class AckPriceCheck(object):
                 wgts = self._wgtsvc.wgts(pcode)
                 nl = nls[pcode]
                 cn = PajCalc.calchina(wgts, nl.pajprice, nl.mps, nl.date)
-                var.append([pcode, '*' + nl.jono, nl.qty, nl.date, nl.pajprice, nl.mps, cn.china, cn.metalcost, cn.china - cn.metalcost])
+                var.append([pcode, nl.styno, '*' + nl.jono, '*__', nl.qty, nl.date, nl.pajprice, nl.mps, cn.china, cn.metalcost, cn.china - cn.metalcost])
             df.append(pd.DataFrame(var, columns=df.columns))
         ttl = 'Other Cost (China - Metal) Trend of "%s"' % path.basename(self._fldr)
-        #        _HisPltr(df, title=ttl).plot(path.join(self._fldr, '_invHis.pdf'), sht, methods=['changes'])
-        _HisPltr(df, title=ttl).plot(_HisPltr.make_fn(self._fldr, '_invHis', 'pdf'), sht, methods=['changes'])
+        _HisPltr(df, title=ttl).plot(path.join(self._fldr, '_invhis.pdf'), sht, methods=['changes'])
         try:
             sht.name = '_InvHis'
         except:
@@ -1000,7 +999,7 @@ class _HisPltr(object):
     '''
 
     def __init__(self, df, **kwds):
-        self._df = df.drop_duplicates(['pcode', 'jono', 'invdate'])
+        self._df = df.drop_duplicates(['pcode', 'jono', 'invdate']) if df is not None else None
         self._args = args = config.get('pajcc.ack.chk')['plot.his.args'].copy()
         args.update(kwds)
         args['page_size'] = [x / 25.4 for x in args['page_size']]
@@ -1040,7 +1039,7 @@ class _HisPltr(object):
                 flag = method == 'all'
                 if not flag:
                     if method == 'changes':
-                        flag = modcnt > 2
+                        flag = modcnt > 0
                 if not flag and modcnt:
                     if method in ('up', 'down'):
                         flag = trend[-1][0] == ('U' if method == 'up' else 'D')
@@ -1058,6 +1057,8 @@ class _HisPltr(object):
                             flag = shape.find('UU') >= 0
                         elif method == 'shape-2d':
                             flag = shape.find('DD') >= 0
+                        elif method == 'suspicious':
+                            flag = max(his) / min(his) >= 1.2
                 if flag:
                     accepts[method].append(pcode)
 
@@ -1097,6 +1098,8 @@ class _HisPltr(object):
                 'up'      -> the series that belongs to up-trend
                 'down'    -> the series that belongs to down-trend
         '''
+        if self._df is None:
+            return None
         df = self._df.sort_values(by=['styno', 'pcode', 'invdate'])
         accepts = self._liner(df, methods)
         if not accepts:
@@ -1111,13 +1114,13 @@ class _HisPltr(object):
                 fn_pdf = self.make_fn(path.join(fldr, fn), method, 'pdf')
                 if path.exists(fn_pdf):
                     continue
-                self._plot_one_method(df, method, fn_pdf)
+                df = self._plot_one_method(df, method, fn_pdf)
                 wb = app.books.add()
                 self._write_sht(df, wb.sheets[0], [fn_pdf, ])
                 wb.save(self.make_fn(path.join(fldr, fn), method, 'xlsx'))
                 wb.close()
             else:
-                self._plot_one_method(df, method, fn)
+                df = self._plot_one_method(df, method, fn)
                 if sht:
                     self._write_sht(df, sht, [fn, ])
         if app:
@@ -1177,6 +1180,7 @@ class _HisPltr(object):
                 pdf.savefig(fig)
                 plt.close(fig)
             plt.close()
+        return df
 
     def _write_sht(self, df, sht, atts):
         # df.jono = "'" + df.jono
