@@ -18,7 +18,6 @@ import pandas as pd
 
 from utilz.miscs import getpath, trimu
 
-
 class _Base(TestCase):
     @classmethod
     def setUpClass(cls):
@@ -277,3 +276,17 @@ class DataFrameSuite(_Base):
         self.assertTrue(org.loc[org.id == 3].empty)
         df.loc[0, 'id'] = 'xyx'
         self.assertEqual('xyx', df.id[0], 'using loc can change it without warning')
+
+class OdbctplSuite(TestCase):
+    ''' test for odbctemplate
+    '''
+    @classmethod
+    def setUpClass(clz):
+        super().setUpClass()
+        clz._fldr = r'd:\temp\dbfs'
+
+    def testOpen(self):
+        print('x')
+        cnn = connect('Provider=vfpoledb;Data Source=%s;Collating Sequence=general;' % self._fldr)
+
+        print(cnn)
