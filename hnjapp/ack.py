@@ -38,13 +38,14 @@ try:
 except:
     pass
 
+_inv_cols = 'pcode styno jono qty description invdate mps uprice china mtlcost ocost'.split()
 
 def _fetch_invs(hksvc, fldr, pcodes, fn_cns=None, fn_wgts=None):
     pcodes = [x for x in pcodes if x[0] != '#']
     if not pcodes:
         return None
     fn_cns = path.join(fldr, fn_cns or '_cns.csv')
-    cns = 'pcode styno jono qty description invdate mps uprice china mtlcost ocost'.split()
+    cns = _inv_cols
     df = pd.read_csv(fn_cns, parse_dates=['invdate']) if path.exists(fn_cns) else pd.DataFrame(None, columns=cns)
     lns = {x for x in pcodes if x[0] != '#'} - set(df.pcode)
     if lns:
@@ -96,12 +97,12 @@ class AckPriceCheck(object):
         return path.join(self._fldr, self._fndts)
     
     def __init__(self, fldr, hksvc):
-        self._fldr = fldr
-        self._hksvc = hksvc
+        self._fldr, self._hksvc = fldr, hksvc
         self._fmtr = _AckFmt()
         self._nl_src = NamedList("jono,date,file,mps,pcode,pajprice,styno,qty")
         self._nl_rst = self._fmtr.nl_rst
         self._wgtsvc = LocalJOWgts(path.join(self._fldr, '_wgts.csv'), hksvc)
+        self._src_mp = None
 
     def _uptodate(self, fns):
         ''' return True if data in fnsrc is up-to-date
@@ -240,21 +241,18 @@ class AckPriceCheck(object):
             return rc
         rc = err = jos = None
         logger.debug("begin to analyse acknowledgements (%s)" % self._fldr)
-        tk = xwu.appmgr.acq()[1]
         with self._hksvc.sessionctx():
             # keep session to make sure self.persist() can still access the JOs
-            try:
-                srcs = self._read_srcs(fns, utd)
-                if isinstance(srcs, str):
-                    err = srcs[1:]
-                elif srcs:
-                    logger.debug("%d JOs returned" % len(srcs))
-                    rc = self._process_all(srcs)
-                    if rc:
-                        jos = rc[1]
-                        rc = self._write_wb(rc[0], path.join(self._fldr, tar_fn))
-            finally:
-                xwu.appmgr.ret(tk)
+            srcs = self._read_srcs(fns, utd)
+            if isinstance(srcs, str):
+                err = srcs[1:]
+            elif not srcs.empty:
+                logger.debug("%d JOs returned" % len(srcs))
+                self._src_mp = srcs
+                rc = self._process_all()
+                if rc:
+                    jos = rc[1]
+                    rc = self._write_wb(rc[0], path.join(self._fldr, tar_fn))
             if err:
                 logger.info("exception(%s) occured" % err[1:])
             elif rc and persist:
@@ -306,50 +304,19 @@ class AckPriceCheck(object):
                     wtr.writerow(dct)
                     idx += 1
 
-    def _read_src(self, fn, app, fds):
-        bfn = path.basename(fn)
+    def _read_src(self, fn, fds):
+        _jc = lambda x: None if not x else JOElement(x).name
+        bfn, err = path.basename(fn), None
         logger.debug("Reading file(%s)" % bfn)
         fds[bfn] = str(path.getmtime(fn))
-        wb, shtcnt, data, err = xwu.safeopen(app, fn), 0, {}, None
-        for sht in wb.sheets:
-            adate, sp, gp = None, 0, 0
-            adate = self._getvalue(sht, "Order Date:")
-            sp, gp = (tofloat(self._getvalue(sht, x)) for x in ("Silver*:", "gold*:"))
-            if not (adate and any((sp, gp))):
-                if any((adate, sp, gp)):
-                    err = "Key argument missing in (%s)" % bfn
-                    logger.debug("sheet(%s) has not enough arguments" % bfn)
-                break
-            shtcnt += 1
-            mps = MPS("S=%f;G=%f" % (sp, gp)).value
-            #don't use the NO field, sometimes it's blank, use JO# instead
-            rng = xwu.find(sht, "Job*")
-            nls = NamedLists(xwu.usedrange(sht).value[rng.row - 1:],\
-                self._fmtr.reader_def)
-            exc = set(('jono', 'qty', 'pcode', 'pajprice', ))
-            for nl in nls:
-                jono = nl.jono
-                if not jono:
-                    break
-                it = self._nl_src.clone()
-                jono = JOElement(jono).value
-                if jono in data:
-                    it = data[jono]
-                else:
-                    data[jono] = it
-                    it.pajprice = max(nl.pajprice or 0, 0)
-                    it.pcode, it.jono, it.qty = [], jono, 0
-                    it.file, it.mps, it.date = bfn, mps, adate
-                for cn in it.colnames:
-                    if cn not in exc and cn in nl.colnames:
-                        it[cn] = nl[cn]
-                it.qty += tofloat(nl.qty)
-                if nl.pcode not in it.pcode:
-                    it.pcode.append(nl.pcode)
-        if shtcnt <= 0:
-            logger.critical("file(%s) doesn't contains any valid sheet" % bfn)
-        wb.close()
-        return data, err
+        df = pd.read_excel(fn, 'To Factory -Other_1')
+        sp = [df.loc[df["Purchase Order"] == x].iloc[0]['Unnamed: 3'] for x in ('Silver:', 'Gold :', 'Order Date:')]
+        if not all(sp):
+            err = "Key argument(sp/gp/date) missing in (%s)" % bfn
+            logger.debug("sheet(%s) has not enough arguments" % bfn)
+        df = pd.read_excel(fn, 'To Factory -Other_1', header=11, converters={'Job#': _jc}).dropna(subset=['Job#'])
+        df = df.assign(mps=MPS("S=%f;G=%f" % tuple(sp[:2])).value, adate=sp[-1])
+        return df, err
 
     def _read_srcs(self, fns, utd):
         """read necessary data from the ack excel file.
@@ -371,34 +338,31 @@ class AckPriceCheck(object):
 
         if not fns:
             return None, None
-        mp = None
+        df = None
         if utd and path.exists(self.fnsrc):
-            mp = self._read_dat(self.fnsrc)
-        if mp:
-            return mp
-        mp, fds = {}, {}
-        app, kxl = xwu.appmgr.acq()
-        try:
-            err = None
-            for fn in fns:
-                dx, err = self._read_src(fn, app, fds)
-                if err:
-                    break
-                mp.update(dx)
-        except Exception as e:
-            err = "file(%s),err(%s)" % (path.basename(fn), e)
-        if kxl:
-            xwu.appmgr.ret(kxl)
-        if err:
-            return "_" + err
-        if mp:
-            self._write_dat(mp, self.fnsrc)
-            lst = [','.join(x) for x in fds.items()]
-            lst.insert(0, "file,date")
-            with open(self.fndts, "w") as fh:
-                for x in lst:
-                    print(x, file=fh)
-        return mp
+            df = pd.read_csv(self.fnsrc)
+        if df is None or df.empty:
+            df, fds = None, {}
+            try:
+                err = None
+                for fn in fns:
+                    dx, err = self._read_src(fn, fds)
+                    if err:
+                        break
+                    df = dx if not df else pd.concat([df, dx], ignore_index=True)
+                if not err:
+                    df = pd.concat([df[x] for x in 'Job# Style# Quantity Price mps adate'.split()], keys='jono styno qty price mps adate'.split(), axis=1)
+                    df.to_csv(self.fnsrc, index=None)
+                    lst = [','.join(x) for x in fds.items()]
+                    lst.insert(0, "file,date")
+                    with open(self.fndts, "w") as fh:
+                        for x in lst:
+                            print(x, file=fh)
+            except Exception as e:
+                err = "file(%s),err(%s)" % (path.basename(fn), e)
+            if err:
+                return "_" + err
+        return df
 
     def _process_one(self, nl_src, jo_mp, smlookup=False):
         """
@@ -416,21 +380,19 @@ class AckPriceCheck(object):
         """
         pajup = nl_src.pajprice
         nl = self._nl_rst.clone()
-        pdx = jo_mp.get(nl_src.jono)
+        pdx = jo_mp.loc[jo_mp.jono == nl_src.jono]
         for cn in 'date file jono mps pajprice qty styno'.split():
             nl[cn] = nl_src[cn]
-        if pdx and pdx['poprice'] > 0:
-            nl.wgts = pdx["wgts"]
-            x = pdx["poprice"]
-            if x:
-                nl.poprice = x
-                nl.profit = x - pajup
-                nl.profitt = nl.profit * nl_src.qty
-                if pajup:
-                    nl.ratio = x / pajup * 100.0
+        if not pdx.empty and pdx.poprice > 0:
+            nl.wgts = self._wgtsvc.wgts(pdx.pcode)
+            nl.poprice = x = pdx.poprice
+            nl.profit = x - pajup
+            nl.profitt = nl.profit * nl_src.qty
+            if pajup:
+                nl.ratio = x / pajup * 100.0
             nl.result = self._fmtr.classify_pft(pajup, x)
         else:
-            nl.wgts = pdx["wgts"] or self._wgtsvc.wgts(nl_src.pcode)
+            nl.wgts = self._wgtsvc.wgts(nl_src.pcode)
             nl.result = self._fmtr.classify_pft(pajup, 0)
 
         pfx = self._p_frm_rev(nl_src, nl)
@@ -519,7 +481,7 @@ class AckPriceCheck(object):
             shp = shp[0]
             jono0, wgt0 = nl.jono, nl.wgts
             # change wgts to history
-            nl.wgts = self._fetchjos([jo, ])[jo.name.value]['wgts']
+            nl.wgts = self._wgtsvc.wgts(self._src_mp[jo.name.value].pcode[0])
             nl_srcx = nl_src.clone(False)
             nl_srcx.jono = jo.name.value
             nl.pcode = shp.PajShp.pcode
@@ -529,46 +491,52 @@ class AckPriceCheck(object):
         nl.ref = self._fmtr.label('labels', 'rf.noref')
         return None
 
-    def _fetchjos(self, jos):
+    def _fetch_jos(self, jos):
         """
         return a dict with jono as key and dict with columns: "poprice,mps,wgts"
         """
-        mp = {}
+        mp = []
         for jo in jos:
             try:
-                mp[jo.name.value] = {"jo": jo,
-                    "poprice":float(jo.po.uprice),
-                    "mps": jo.poid,
-                    "wgts": self._hksvc.getjowgts(jo)
-                }
+                jn = jo.name.value
+                pcode = self._src_mp[jn].pcode
+                po = jo.po
+                if isinstance(pcode, pd.Series):
+                    pcode = pcode[0]
+                mp.append((jn, po.price, po.mps, pcode))
             except:
                 logger.debug('failed to get po/wgts for JO(%s), maybe BIG5 encoding error' % jo.name.value)
-        return mp
+        return pd.DataFrame(mp, columns='jono uprice mps pcode'.split())
 
-    def _process_all(self, src_mp):
+    def _process_all(self):
         """
         @param all: a dict with jono as key and a dict with these keys: "jono,pajprice,file,mps,styno,date,qty,pcode". ref @_read_srcs() FMI.
         """
-        if not src_mp:
+        src_mp = self._src_mp
+        if src_mp is None or src_mp.empty:
             return None
-        hksvc, rsts = self._hksvc, {}
-        with hksvc.sessionctx():
-            nls = src_mp.values()
-            jo_mp = [JOElement(x.jono) for x in nls]
-            jo_mp = self._fetchjos(hksvc.getjos(jo_mp)[0])
-            jos = [x['jo'] for x in jo_mp.values()]
-            idx = 0
-            for nl_src in nls:
-                try:
-                    nl = self._process_one(nl_src, jo_mp, True)
-                    rsts.setdefault(nl.result, []).append(nl)
-                    idx += 1
-                    if idx % 10 == 0:
-                        logger.info("%d of %d done" % (idx, len(nls)))
-                except:
-                    nl_src.pcode = nl_src.pcode[0]
-                    rsts.setdefault(self._fmtr.label('labels', 'prg.error'), []).append(nl_src)
-        return rsts, jos
+        fn = path.join(self._fldr, '_jos.csv')
+        df = pd.read_csv(fn) if path.exists(fn) else None
+        reqs = set(src_mp.jono)
+        if not (df is None or df.empty):
+            reqs = reqs - set(df.jono)
+        if reqs:
+            rsts = {}
+            with self._hksvc.sessionctx():
+                po = [JOElement(x.jono) for x in reqs]
+                po = self._fetch_jos(self._hksvc.getjos(po)[0])
+                df = pd.concat([df, po])
+        for idx, nl_src in df.iterrows():
+            try:
+                nl = self._process_one(nl_src, po, True)
+                rsts.setdefault(nl.result, []).append(nl)
+                idx += 1
+                if idx % 10 == 0:
+                    logger.info("%d of %d done" % (idx, len(nls)))
+            except:
+                nl_src.pcode = nl_src.pcode[0]
+                rsts.setdefault(self._fmtr.label('labels', 'prg.error'), []).append(nl_src)
+        return rsts, None # TODO:: return jos for what?
 
     def _write_wb(self, rsts, fn):
         app, kxl = xwu.appmgr.acq()
@@ -671,18 +639,19 @@ class AckPriceCheck(object):
         ''' write the history of exception pcodes to a sheet and plot
         '''
         fn = path.join(self._fldr, '_invhis.csv')
-        df = pd.read_csv(fn, parse_dates=['invdate', ]) if path.exists(fn) else  pd.DataFrame(None, columns='pcode styno jono qty description invdate uprice mps china mtlcost ocost'.split())
+        df = pd.read_csv(fn, parse_dates=['invdate', ]) if path.exists(fn) else  pd.DataFrame(None, columns=_inv_cols)
         reqs = [nl.pcode for nl in nls if df.loc[df.pcode == nl.pcode].empty]
         if reqs:
             var, nls = [], {nl.pcode: nl for nl in nls}
-            df = _fetch_invs(self._hksvc, self._fldr, reqs)
-            # append myself to show this trend
-            for pcode in reqs:
-                wgts = self._wgtsvc.wgts(pcode)
-                nl = nls[pcode]
-                cn = PajCalc.calchina(wgts, nl.pajprice, nl.mps, nl.date)
-                var.append([pcode, nl.styno, '*' + nl.jono, '*__', nl.qty, nl.date, nl.pajprice, nl.mps, cn.china, cn.metalcost, cn.china - cn.metalcost])
-            df.append(pd.DataFrame(var, columns=df.columns))
+            df = _fetch_invs(self._hksvc, self._fldr, reqs, fn)
+            df.to_csv(fn, index=None)
+        # append myself to show this trend
+        for pcode in df.pcode.unique():
+            wgts = self._wgtsvc.wgts(pcode)
+            nl = nls[pcode]
+            cn = PajCalc.calchina(wgts, nl.pajprice, nl.mps, nl.date)
+            var.append([pcode, nl.styno, '*' + nl.jono, nl.qty, 'n/a', nl.date, nl.mps, nl.pajprice, cn.china, cn.metalcost, cn.china - cn.metalcost])
+        df = df.append(pd.DataFrame(var, columns=df.columns))
         ttl = 'Other Cost (China - Metal) Trend of "%s"' % path.basename(self._fldr)
         _HisPltr(df, title=ttl).plot(path.join(self._fldr, '_invhis.pdf'), sht, methods=['changes'])
         try:
@@ -1114,13 +1083,13 @@ class _HisPltr(object):
                 fn_pdf = self.make_fn(path.join(fldr, fn), method, 'pdf')
                 if path.exists(fn_pdf):
                     continue
-                df = self._plot_one_method(df, method, fn_pdf)
+                df = self._plot_df(df, method, fn_pdf)
                 wb = app.books.add()
                 self._write_sht(df, wb.sheets[0], [fn_pdf, ])
                 wb.save(self.make_fn(path.join(fldr, fn), method, 'xlsx'))
                 wb.close()
             else:
-                df = self._plot_one_method(df, method, fn)
+                df = self._plot_df(df, method, fn)
                 if sht:
                     self._write_sht(df, sht, [fn, ])
         if app:
@@ -1130,9 +1099,11 @@ class _HisPltr(object):
     def make_fn(cls, pfx, method, ext):
         return pfx + '_' + method + '.' + ext
 
-    def _plot_one_method(self, df, method, fn):
+    def _plot_df(self, df, method, fn):
         grps = [(n, d.ocost.mean(), len(d)) for n, d in df.groupby('pcode')]
-        var = [y for x in grps for y in range(1, int(x[2]) + 1)]
+        # grps is sorted by pcode, so need to keep the physical order for idx
+        ccnt, rcnt = df.pcode.unique(), {x[0]: x[-1] for x in grps}
+        var = [y + 1 for x in ccnt for y in range(rcnt[x])]
         df = df.assign(idx=var)
         # https://stackoverflow.com/questions/11067027/re-ordering-columns-in-pandas-dataframe-based-on-column-name
         # var = [df.columns[0], 'idx'] + list(df.columns[1:-1])

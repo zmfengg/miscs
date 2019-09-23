@@ -13,7 +13,7 @@ from io import StringIO
 from os import path
 from unittest import TestCase
 
-import numpy as np
+from numpy.random import random
 import pandas as pd
 
 from utilz.miscs import getpath, trimu
@@ -119,42 +119,85 @@ class DataFrameSuite(_Base):
     ''' the data frame suite
     '''
 
-    def testCreate(self):
+    def testCreateFromDraft(self):
         ''' create from array with/without index/name
         '''
+        # Dummy, no data, just columns
         df = pd.DataFrame(None, columns=tuple('abcd'))
         self.assertEqual(0, len(df), 'blank frame with column names')
+
         # without column, range() as default index
-        df = pd.DataFrame(np.random.random((6, 4)))
+        df = pd.DataFrame(random((6, 4)))
         self.assertEqual(6, len(df), 'row count')
         self.assertEqual(4, len(df.iloc[0]), 'column count')
+
         # with columns, range() as default index
-        df = pd.DataFrame(np.random.random((6, 4)), columns=tuple('abcd'))
+        df = pd.DataFrame(random((6, 4)), columns=tuple('abcd'))
         self.assertTrue(0 in df.d.index)
         self.assertTrue(6 not in df.d.index)
         self.assertEqual('d', df.d.name, 'default indexer return Series whose name is the column-name')
+
         # with columns, range(1, 7) as indexer
-        df = pd.DataFrame(np.random.random((6, 4)), index=range(1, 7), columns=tuple('abcd'))
+        df = pd.DataFrame(random((6, 4)), index=range(1, 7), columns=tuple('abcd'))
         self.assertTrue(0 not in df.a.index)
         self.assertTrue(6 in df.a.index)
 
-        # create from some rows from an existing df
-        lst = [df.iloc[x].values for x in (0, 2)]
-        dfx = pd.DataFrame(lst, columns=df.columns)
-        self.assertEqual(2, len(dfx))
-        self.assertEqual(df.a[1], dfx.a[0])
-
         # string as indexer
-        df = pd.DataFrame(np.random.random((2, 2)), index='kate peter'.split(), columns=list('ab'))
+        df = pd.DataFrame(random((2, 2)), index='kate peter'.split(), columns=list('ab'))
         self.assertTrue('kate' in df.a.index)
         self.assertEqual(df.loc['kate', 'a'], df.a[0])
         self.assertEqual(df.loc['kate', 'a'], df.a['kate'])
+    
+    def testCreateFromExisting(self):
+        ''' create from an existing df
+        '''
+        df = pd.DataFrame(random((6, 4)), columns=tuple('abcd'))
+        # create from some rows from an existing df
+        dfx = pd.DataFrame([df.iloc[x] for x in (0, 2)]) # standard
+        lst = [df.iloc[x].values for x in (0, 2)] #stupid
+        dfx = pd.DataFrame(lst, columns=df.columns)
+        self.assertEqual(2, len(dfx))
+        self.assertEqual(df.a[0], dfx.a[0])
+
+        # create from some columns from existing df as columns
+        dfx = pd.concat([df.a, df.b], keys=['na', 'nb'], axis=1, ignore_index=False)
+        self.assertTrue('na' in dfx.columns)
+        self.assertEqual(df.iloc[0].a, dfx.iloc[0].na)
+        # column name ignored
+        dfx = pd.concat([df.a, df.b], keys=['na', 'nb'], axis=1, ignore_index=True)
+        self.assertFalse('na' in dfx.columns)
+        # create from some columns from existing df as rows
+        dfx = pd.concat([df.a, df.b], keys=['na', 'nb'], axis=0, ignore_index=True)
+        self.assertEqual(len(dfx), len(df) * 2, 'appended as row, not column')
+        self.assertEqual(df.iloc[0].b, dfx[len(df)])
+
+        # concate 2 df with same column names
+        dfx = pd.concat([df, df], ignore_index=True)
+        self.assertTrue('a' in dfx.columns, 'index ignored but colname kept')
+        self.assertEqual(2 * len(df), len(dfx), 'merged')
+
+        # concate 2 df with different column names
+        dfx = pd.concat([pd.DataFrame(random((6, 4)), columns=tuple('abcd')), \
+            pd.DataFrame(random((6, 4)))])
+        self.assertEqual(8, len(dfx.columns))
+        # concate 2 df with some same column names
+        dfx = pd.concat([pd.DataFrame(random((6, 4)), columns=tuple('abcd')), \
+            pd.DataFrame(random((6, 4)), columns=tuple('abce'))])
+        self.assertEqual(5, len(dfx.columns))
+
+    def testChangeIdxAndCol(self):
+        ''' change a df's index/colname
+        '''
+        df = pd.DataFrame(random((6, 4)))
+        self.assertTrue(0 in df.columns)
+        df.columns = pd.Index(tuple('abcd'))
+        self.assertTrue('a' in df.columns)
 
     def testIndexer(self):
         ''' access using attribute/loc/iloc/[]
         '''
         # with columns, range() as default index
-        df = pd.DataFrame(np.random.random((6, 4)), columns=tuple('abcd'))
+        df = pd.DataFrame(random((6, 4)), columns=tuple('abcd'))
         self.assertTrue(0 in df.d.index, 'attribute accesser')
         self.assertTrue(6 not in df.d.index)
         self.assertEqual('d', df.d.name, 'attribute accestor return a Series whose name is the column-name')
@@ -162,7 +205,7 @@ class DataFrameSuite(_Base):
         self.assertTrue(isinstance(df.iloc[:2], pd.core.frame.DataFrame), 'iloc with slice, returns a DataFrame instance')
 
         # with columns, range(1, 7) as indexer
-        df = pd.DataFrame(np.random.random((6, 4)), index=range(1, 7), columns=tuple('abcd'))
+        df = pd.DataFrame(random((6, 4)), index=range(1, 7), columns=tuple('abcd'))
         self.assertTrue(0 not in df.a.index)
         self.assertTrue(6 in df.a.index)
         with self.assertRaises(KeyError):
@@ -170,10 +213,17 @@ class DataFrameSuite(_Base):
         self.assertEqual(df.a[1], df.iloc[0].a, 'iloc is always from 0')
 
         # string as indexer
-        df = pd.DataFrame(np.random.random((2, 2)), index='kate peter'.split(), columns=list('ab'))
+        df = pd.DataFrame(random((2, 2)), index='kate peter'.split(), columns=list('ab'))
         self.assertTrue('kate' in df.a.index)
         self.assertEqual(df.loc['kate', 'a'], df.a[0])
         self.assertEqual(df.loc['kate', 'a'], df.a['kate'])
+
+        # index from no-column/duplicate index case
+        # in fact, no columns is numeric column, no column is impossible
+        df = pd.DataFrame(random((6, 4)))
+        df.loc[0, 0] = 0 #
+        df = pd.concat([df, df])
+        self.assertEqual([0.0, 0.0], df.loc[0, 0].values.tolist(), 'after concate without ignoring the index, index duplicated')
 
     def testDataFrame(self):
         sts = self._dates
