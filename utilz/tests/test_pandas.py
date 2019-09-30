@@ -18,7 +18,6 @@ import pandas as pd
 
 from utilz.miscs import getpath, trimu
 
-
 class _Base(TestCase):
     @classmethod
     def setUpClass(cls):
@@ -194,7 +193,7 @@ class DataFrameSuite(_Base):
         self.assertTrue('a' in df.columns)
 
     def testIndexer(self):
-        ''' access using attribute/loc/iloc/[]
+        ''' access dataframe using attribute/loc/iloc/[]
         '''
         # with columns, range() as default index
         df = pd.DataFrame(random((6, 4)), columns=tuple('abcd'))
@@ -217,6 +216,10 @@ class DataFrameSuite(_Base):
         self.assertTrue('kate' in df.a.index)
         self.assertEqual(df.loc['kate', 'a'], df.a[0])
         self.assertEqual(df.loc['kate', 'a'], df.a['kate'])
+        self.assertEqual(df.iloc[0].a, df.a['kate'])
+        idx = df.index
+        self.assertEqual(idx[0], 'kate')
+        self.assertEqual(idx.get_loc('kate'), 0, 'yes, index, name and idx using default indexer and get_loc')
 
         # index from no-column/duplicate index case
         # in fact, no columns is numeric column, no column is impossible
@@ -229,7 +232,7 @@ class DataFrameSuite(_Base):
         sts = self._dates
         for cn in ('birthday', 'lastModified'):
             self.assertTrue(cn in sts.columns)
-        self.assertEqual(len(sts.columns), 4)
+        self.assertEqual(len(sts.columns), 5)
         # when iloc is not slice, the return item is a tuple
         # sr will be a tuple
         sr = sts.iloc[0].birthday
@@ -324,8 +327,33 @@ class DataFrameSuite(_Base):
         df = org.assign(x=None)
         self.assertFalse(df.x.any())
         df = org.loc[org.id > 3]
-        df.id[0] = 'xyx'
-        self.assertEqual('xyx', df.id[0], 'yes, value in the view changed')
-        self.assertNotEqual(df.id[0], org.loc[org.id > 3].id[0], 'but the original is not changed')
+        # df is a view, don't try to set data in a view
+        df.iloc[0].id = 'xyx'
+        self.assertNotEqual('xyx', df.iloc[0].id, 'value in the view not changed')
+        # but how to query then change?, maybe use the returned df's index is a good point
+        # https://stackoverflow.com/questions/17729853/replace-value-for-a-selected-cell-in-pandas-dataframe-without-using-index
+        # 3 ways to change value of a dataFrame
+        org.id[org.id == 3] = 30
+        self.assertFalse(org.loc[org.id == 30].empty)
+        # only these two without warning
+        org.loc[org.id == 30, 'id'] = 3
+        self.assertFalse(org.loc[org.id == 3].empty)
+        org.id.replace(3, 30, inplace=True)
+        self.assertFalse(org.loc[org.id == 30].empty)
+        self.assertTrue(org.loc[org.id == 3].empty)
         df.loc[0, 'id'] = 'xyx'
         self.assertEqual('xyx', df.id[0], 'using loc can change it without warning')
+
+class OdbctplSuite(TestCase):
+    ''' test for odbctemplate
+    '''
+    @classmethod
+    def setUpClass(clz):
+        super().setUpClass()
+        clz._fldr = r'd:\temp\dbfs'
+
+    def testOpen(self):
+        print('x')
+        cnn = connect('Provider=vfpoledb;Data Source=%s;Collating Sequence=general;' % self._fldr)
+
+        print(cnn)
