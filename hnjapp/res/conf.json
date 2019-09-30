@@ -623,7 +623,7 @@
         "cat.digits": 1,
         "sn.digits": 4,
         "ver.digits": 2,
-        "charset": "0123456789ABCDEFGHJKLMNPQRTUVWXY",
+        "charset": "0123456789ABCEFGHJKLMPQRTUWXY",
         "ring.size.count": 20,
         "ring.headers": ["T"]
     },
