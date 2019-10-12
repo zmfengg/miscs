@@ -344,16 +344,14 @@ class DataFrameSuite(_Base):
         df.loc[0, 'id'] = 'xyx'
         self.assertEqual('xyx', df.id[0], 'using loc can change it without warning')
 
-class OdbctplSuite(TestCase):
-    ''' test for odbctemplate
-    '''
-    @classmethod
-    def setUpClass(clz):
-        super().setUpClass()
-        clz._fldr = r'd:\temp\dbfs'
-
-    def testOpen(self):
-        print('x')
-        cnn = connect('Provider=vfpoledb;Data Source=%s;Collating Sequence=general;' % self._fldr)
-
-        print(cnn)
+    def testComputeField(self):
+        ''' sometimes you need to new compute column based on existing columns
+        https://stackoverflow.com/questions/21702342/creating-a-new-column-based-on-if-elif-else-condition
+        '''
+        frm = pd.read_table(path.join(getpath(), 'res', 'pd_tbl.txt'), encoding='gbk')
+        def _f(row):
+            return row.qty >= 50 and row.id < 440
+        frm['flag'] = frm.apply(_f, axis=1)
+        self.assertTrue(frm.loc[frm.id == 275].flag.bool())
+        self.assertFalse(frm.loc[frm.id == 425].flag.bool())
+        #print(frm.head())
