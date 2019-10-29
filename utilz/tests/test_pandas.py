@@ -59,7 +59,7 @@ class _Base(TestCase):
 
 
 class IndexSuite(_Base):
-    ''' index is everywhere, axes of Series/DataFrame ...
+    ''' index is everywhere, axes of Series/DataFrame, just too complex ...
     '''
 
     def testCreate(self):
@@ -225,28 +225,32 @@ class DataFrameSuite(_Base):
         # in fact, no columns is numeric column, no column is impossible
         df = pd.DataFrame(random((6, 4)))
         df.loc[0, 0] = 0 #
-        df = pd.concat([df, df])
+        df = pd.concat([df, df], sort=False)
         self.assertEqual([0.0, 0.0], df.loc[0, 0].values.tolist(), 'after concate without ignoring the index, index duplicated')
 
-    def testDataFrame(self):
-        sts = self._dates
-        for cn in ('birthday', 'lastModified'):
-            self.assertTrue(cn in sts.columns)
-        self.assertEqual(len(sts.columns), 5)
-        # when iloc is not slice, the return item is a tuple
-        # sr will be a tuple
-        sr = sts.iloc[0].birthday
-        self.assertTrue(isinstance(sr, list))
-        self.assertTrue(isinstance(sr[0], pd.datetime))
+        # multiple find in one column
+        # df.btchno is Series instead of string, so find failed. use apply instead
+        # this technique can be used to find complex things
+        # remember to delete the created 'flag' field
+        df = pd.read_table(path.join(getpath(), 'res', 'pd_tbl.txt'), encoding='gbk')
+        with self.assertRaises(Exception):
+            df.loc[[1 for x in ('19', '18') if df.btchno.find(x) >= 0]]
+        df['flag'] = df.pkno.apply(lambda x: sum([1 for y in ('PLR', 'RQP') if x.find(y) >= 0]))
+        self.assertEqual(230, len(df.loc[df.flag > 0]))
+        self.assertTrue('flag' in df.columns)
+        del df['flag']
+        self.assertTrue('flag' not in df.columns)
 
-        # sr will be a Series
-        sr = sts.iloc[:2].id
-        self.assertTrue(isinstance(sr, pd.Series))
-        self.assertListEqual([1, 2], [x for x in sr])
-
-        # instead of using iloc, get by colname then row, save writing time
-        self.assertEqual('PETER', sts.name[0])
-        self.assertEqual(1, sts.id[:2][0])
+        # df.loc[sth].btchno[0] to get the first btchno might failed, use
+        # df.loc[sth].iloc[0]btchno is the correct way
+        x = df.loc[df.pkno == 'SCO00170']
+        self.assertEqual(2, len(x), 'the count of this package is 2')
+        with self.assertRaises(KeyError):
+            self.assertEqual('1705009', x.btchno[0])
+        self.assertEqual('1705009', x.iloc[0].btchno)
+        # if really want to access by df.btchno[0], need to reset the index
+        x = x.reset_index()
+        self.assertEqual('1705009', x.btchno[0])
 
     def testQuery(self):
         ''' common use query
@@ -284,7 +288,7 @@ class DataFrameSuite(_Base):
         top = frm[frm.id > 5000]
 
     def testCSVRW(self):
-        ''' csv's read/write ability
+        ''' csv's read/write ability, use StringIO as mock file
         '''
         d = date(2019, 2, 1)
         df = pd.DataFrame(((1, 'a', Decimal('0.1234'), d), ), columns='id name weight date'.split())
@@ -351,7 +355,48 @@ class DataFrameSuite(_Base):
         frm = pd.read_table(path.join(getpath(), 'res', 'pd_tbl.txt'), encoding='gbk')
         def _f(row):
             return row.qty >= 50 and row.id < 440
+        # Dataframe apply(), the argument is of Series
         frm['flag'] = frm.apply(_f, axis=1)
+        # Series apply(), the argument is of Scalar
+        frm['flag1'] = frm.qty.apply(lambda x: x >= 50)
         self.assertTrue(frm.loc[frm.id == 275].flag.bool())
         self.assertFalse(frm.loc[frm.id == 425].flag.bool())
-        #print(frm.head())
+        self.assertTrue(frm.loc[frm.id == 275].flag.bool())
+        self.assertFalse(frm.loc[frm.id == 470].flag.bool())
+        # instead of creating new field, you can overwrite old field
+        frm.btchno = frm.btchno.apply(lambda s: 'C%s' % s)
+        self.assertEqual(frm.loc[frm.id == 275].btchno[0], 'C1710036')
+        self.assertEqual(frm.loc[frm.id == 275].iloc[0].btchno, 'C1710036')
+    
+    def testGroupBy(self):
+        ''' group the result by some columns and the merge them back
+        '''
+        frm = pd.read_table(path.join(getpath(), 'res', 'pd_tbl.txt'), encoding='gbk')
+        # group by and merge, now try to get batches and sumQty of some pkno
+        g = frm.groupby(['pkno', 'type'])
+        df0 = g['btchno'].apply(''.join).reset_index() # join return series with multi-index
+        df0['btchno'] = df0.btchno.apply(lambda x: x.split(','))
+        df0['qty'] = g['qty'].sum().values #g['qty'].sum() return Series
+        x = df0.loc[(df0.pkno == 'AMM00362') & (df0.type == '补烂')]
+        self.assertTrue(len(x) == 1)
+        self.assertAlmostEqual(x.iloc[0].qty, 1)
+        x = df0.loc[(df0.pkno == 'AMM00362') & (df0.type == '配出')]
+        self.assertAlmostEqual(x.iloc[0].qty, 120)
+
+    def testAppendRows(self):
+        df = pd.DataFrame(columns=list('abc'))
+        lst = [[1, 2, 3], ] * 3
+        lst.insert(0, list('abc')) # the first element should be the title
+        # https://thispointer.com/python-pandas-how-to-add-rows-in-a-dataframe-using-dataframe-append-loc-iloc/
+        df1 = df.append(lst) #directly append list, but failed. 3 more columns appended
+        self.assertEqual(3, len(df1))
+        self.assertEqual(1, df1.a[0])
+        self.assertEqual(3, df1.a[2])
+    
+    def testSorting(self):
+        df = pd.DataFrame([[1, 2, 3], [1, 0, 4], [0, 1, 2], [-1, 1, 2]], columns=list('abc'))
+        df1 = df.sort_values(['a'])
+        self.assertEqual(-1, df1.iloc[0].a)
+        self.assertEqual(1, df1.a[0], 'the index not changed, so a[0] still points to the original first')
+        df1 = df.sort_values(['a', 'b'])
+        self.assertEqual(2, df1.iloc[-1].b)

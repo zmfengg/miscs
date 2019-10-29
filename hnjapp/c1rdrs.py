@@ -26,7 +26,7 @@ from hnjcore.models.cn import (JO, MM, Codetable, Customer, MMgd, MMMa,
                                StonePk, Style)
 from hnjcore.utils.consts import NA
 from utilz import (NamedList, NamedLists, daterange, getfiles, isnumeric,
-                   splitarray, trimu, xwu, tofloat, stsizefmt)
+                   splitarray, trimu, xwu, tofloat, stsizefmt, list2dict)
 
 from .common import _date_short, _logger as logger, config
 
@@ -563,7 +563,7 @@ class C1JCMkr(object):
         ptncx = cpl(r"C(\d)$")
         mmids, runns, jcs = set(), set(), {}
         ttls = ("mmid," + config.get("jocost.cost_sheet_fields")).split(",")
-        nl = NamedList(xwu.list2dict(ttls))
+        nl = NamedList(list2dict(ttls))
         q = Query([
             JO.name.label("jono"),
             Customer.name.label("cstname"),

@@ -25,10 +25,11 @@ from hnjcore import JOElement
 from hnjapp.svcs.db import jesin
 from hnjcore.models.hk import JO, PajAck, PajInv, PajShp, Orderma, Style
 from utilz import xwu
-from utilz.miscs import NamedList, NamedLists, getfiles, na, newline, tofloat, trimu
+from utilz.miscs import NamedList, NamedLists, getfiles, na, newline, tofloat, trimu, splitarray
 
 from .common import _logger as logger
 from .common import config
+
 
 try:
     import matplotlib as mpl
@@ -44,12 +45,13 @@ def _fetch_invs(hksvc, fldr, pcodes, fn_cns=None, fn_wgts=None):
     pcodes = [x for x in pcodes if x[0] != '#']
     if not pcodes:
         return None
-    fn_cns = path.join(fldr, fn_cns or '_cns.csv')
+    if not fn_cns:
+        fn_cns = path.join(fldr, '_cns.csv')
     cns = _inv_cols
     df = pd.read_csv(fn_cns, parse_dates=['invdate']) if path.exists(fn_cns) else pd.DataFrame(None, columns=cns)
     lns = {x for x in pcodes if x[0] != '#'} - set(df.pcode)
     if lns:
-        wgtsvc, lsts = LocalJOWgts(path.join(fldr, fn_wgts or '_wgts.csv'), hksvc), []
+        wgtsvc, lsts = LocalJOWgts(fn_wgts or path.join(fldr, '_cache', '_wgts.csv'), hksvc), []
         def _flush(df, lsts):
             if lsts:
                 df = df.append(pd.DataFrame(lsts, columns=df.columns))
@@ -86,30 +88,30 @@ class AckPriceCheck(object):
     check given folder(not the sub-folders)'s acks. I'll firstly check if
     the folder has been analysed. if yes, no thing will be done
     """
-    _fnsrc, _fndts = "_src.dat", "_fdates.dat"
 
     @property
-    def fnsrc(self):
-        return path.join(self._fldr, self._fnsrc)
+    def _fn_src(self):
+        return self._cache('_src.dat')
 
     @property
-    def fndts(self):
-        return path.join(self._fldr, self._fndts)
+    def _fn_dts(self):
+        return self._cache('_fdates.dat')
     
     def __init__(self, fldr, hksvc):
         self._fldr, self._hksvc = fldr, hksvc
         self._fmtr = _AckFmt()
         self._nl_src = NamedList("jono,date,file,mps,pcode,pajprice,styno,qty")
         self._nl_rst = self._fmtr.nl_rst
-        self._wgtsvc = LocalJOWgts(path.join(self._fldr, '_wgts.csv'), hksvc)
+        self._wgtsvc = LocalJOWgts(self._cache('_wgts.csv'), hksvc)
         self._src_mp = None
+        self._jc = lambda x: None if not x else JOElement(x).name
 
     def _uptodate(self, fns):
-        ''' return True if data in fnsrc is up-to-date
+        ''' return True if data in _fn_src is up-to-date
         '''
         if not fns:
             return True
-        fn = self.fndts
+        fn = self._fn_dts
         flag = path.exists(fn)
         if flag:
             with open(fn, "r") as fh:
@@ -142,10 +144,10 @@ class AckPriceCheck(object):
             jos=None:    a tuple of JO instance that present JOs inside the source files
 
         '''
-        if not srcs:
+        if srcs is None or srcs.empty:
             var = self._get_src_fns()
             srcs = self._read_srcs(var, self._uptodate(var))
-        if not srcs or isinstance(srcs, str):
+        if srcs is None or isinstance(srcs, str):
             return None
         logger.debug("begin persisting")
         fds = {x: datetime.fromtimestamp(
@@ -157,9 +159,9 @@ class AckPriceCheck(object):
             ins.tag, ins.filldate = 0, td
             return ins
 
+        var = set(srcs.file)
         with self._hksvc.sessionctx() as cur:
             try:
-                var = set(x.file for x in srcs.values())
                 dds = Query([PajAck.docno, PajAck.lastmodified]).filter(
                     PajAck.docno.in_(list(var))).distinct()
                 dds = dds.with_session(cur).all()
@@ -168,7 +170,7 @@ class AckPriceCheck(object):
                 dds = {}
             exps, jes = set(), set()
             lst, td = [], datetime.today()
-            for x in srcs.values():
+            for idx, x in srcs.iterrows():
                 if not (x.pajprice and x.date and x.mps):
                     continue
                 var = x.file
@@ -235,28 +237,28 @@ class AckPriceCheck(object):
         if rc:
             rc = rc[0]
         if rc and utd and \
-            path.getmtime(rc) >= path.getmtime(self.fndts):
+            path.getmtime(rc) >= path.getmtime(self._fn_dts):
             logger.info(err)
             logger.info("data up to date, don't need further process")
             return rc
         rc = err = jos = None
         logger.debug("begin to analyse acknowledgements (%s)" % self._fldr)
-        with self._hksvc.sessionctx():
-            # keep session to make sure self.persist() can still access the JOs
-            srcs = self._read_srcs(fns, utd)
-            if isinstance(srcs, str):
-                err = srcs[1:]
-            elif not srcs.empty:
-                logger.debug("%d JOs returned" % len(srcs))
-                self._src_mp = srcs
+        srcs = self._read_srcs(fns, utd)
+        if isinstance(srcs, str):
+            err = srcs[1:]
+        elif not srcs.empty:
+            logger.debug("%d JOs returned" % len(srcs))
+            self._src_mp = srcs
+            with self._hksvc.sessionctx():
+                # keep session to make sure self.persist() can still access the JOs
                 rc = self._process_all()
                 if rc:
                     jos = rc[1]
                     rc = self._write_wb(rc[0], path.join(self._fldr, tar_fn))
-            if err:
-                logger.info("exception(%s) occured" % err[1:])
-            elif rc and persist:
-                self.persist(srcs, jos)
+        if err:
+            logger.info("exception(%s) occured" % err[1:])
+        elif rc and persist:
+            self.persist(srcs, jos)
         return rc
 
     def _read_dat(self, datfn):
@@ -305,7 +307,6 @@ class AckPriceCheck(object):
                     idx += 1
 
     def _read_src(self, fn, fds):
-        _jc = lambda x: None if not x else JOElement(x).name
         bfn, err = path.basename(fn), None
         logger.debug("Reading file(%s)" % bfn)
         fds[bfn] = str(path.getmtime(fn))
@@ -314,7 +315,7 @@ class AckPriceCheck(object):
         if not all(sp):
             err = "Key argument(sp/gp/date) missing in (%s)" % bfn
             logger.debug("sheet(%s) has not enough arguments" % bfn)
-        df = pd.read_excel(fn, 'To Factory -Other_1', header=11, converters={'Job#': _jc}).dropna(subset=['Job#'])
+        df = pd.read_excel(fn, 'To Factory -Other_1', header=11).dropna(subset=['Job#'])
         df = df.assign(mps=MPS("S=%f;G=%f" % tuple(sp[:2])).value, adate=sp[-1])
         return df, err
 
@@ -322,25 +323,19 @@ class AckPriceCheck(object):
         """read necessary data from the ack excel file.
 
         Args:
-
             fns:    a collection of file name
-
             udt:    use dat file instead of the source files
-
         Returns:
-
             When no error occur, returns {jono, nl} where namedlist with below columns:
-
                 "jono,pajprice,file,mps,styno,date,qty,pcode"
-
             When there is error, return err(string)
         """
 
         if not fns:
             return None, None
         df = None
-        if utd and path.exists(self.fnsrc):
-            df = pd.read_csv(self.fnsrc)
+        if utd and path.exists(self._fn_src):
+            df = pd.read_csv(self._fn_src, parse_dates=['date'])
         if df is None or df.empty:
             df, fds = None, {}
             try:
@@ -349,19 +344,31 @@ class AckPriceCheck(object):
                     dx, err = self._read_src(fn, fds)
                     if err:
                         break
-                    df = dx if not df else pd.concat([df, dx], ignore_index=True)
+                    dx['file'] = [path.basename(fn), ] * len(dx)
+                    df = dx if (df is None or df.empty) else pd.concat([df, dx], ignore_index=True)
                 if not err:
-                    df = pd.concat([df[x] for x in 'Job# Style# Quantity Price mps adate'.split()], keys='jono styno qty price mps adate'.split(), axis=1)
-                    df.to_csv(self.fnsrc, index=None)
+                    # name convert and just fetch some columns
+                    ttls = ('file,Job#,Style#,Quantity,Price,mps,adate,Item No'.split(','), 
+                    'file jono styno qty pajprice mps date pcode'.split())
+                    df = pd.concat([df[x] for x in ttls[0]], keys=ttls[1], axis=1)
+                    df.to_csv(self._fn_src, index=None)
                     lst = [','.join(x) for x in fds.items()]
                     lst.insert(0, "file,date")
-                    with open(self.fndts, "w") as fh:
+                    with open(self._fn_dts, "w") as fh:
                         for x in lst:
                             print(x, file=fh)
             except Exception as e:
                 err = "file(%s),err(%s)" % (path.basename(fn), e)
             if err:
                 return "_" + err
+        # merge the duplicateds and make array, 2 cold to be merged: qty and pcode
+        df['pajprice'] = df.pajprice.apply(lambda n: 0 if pd.isnull(n) else n)
+        x = df.groupby('file jono styno pajprice mps date'.split())
+        df = x['qty'].sum().reset_index()
+        # direct assign because the physical order is the same
+        df['pcode'] = x['pcode'].apply(','.join).values
+        df['pcode'] = df.apply(lambda row: row.pcode.split(','), axis=1)
+        df['jono'] = df.jono.apply(self._jc) # force the JO# to string
         return df
 
     def _process_one(self, nl_src, jo_mp, smlookup=False):
@@ -380,20 +387,26 @@ class AckPriceCheck(object):
         """
         pajup = nl_src.pajprice
         nl = self._nl_rst.clone()
-        pdx = jo_mp.loc[jo_mp.jono == nl_src.jono]
+        pdx = jo_mp.loc[jo_mp.jono == nl_src.jono].iloc[0]
         for cn in 'date file jono mps pajprice qty styno'.split():
             nl[cn] = nl_src[cn]
         if not pdx.empty and pdx.poprice > 0:
-            nl.wgts = self._wgtsvc.wgts(pdx.pcode)
-            nl.poprice = x = pdx.poprice
+            nl.poprice = x = float(pdx.poprice) #pdx.poprice sometimes might be Decimal
             nl.profit = x - pajup
             nl.profitt = nl.profit * nl_src.qty
             if pajup:
                 nl.ratio = x / pajup * 100.0
             nl.result = self._fmtr.classify_pft(pajup, x)
+            pcodes = pdx.pcode
         else:
-            nl.wgts = self._wgtsvc.wgts(nl_src.pcode)
             nl.result = self._fmtr.classify_pft(pajup, 0)
+            pcodes = nl_src.pcode
+
+        for pcode in pcodes:
+            wgts = self._wgtsvc.wgts(pcode)
+            if wgts:                    
+                nl.wgts = wgts
+                break
 
         pfx = self._p_frm_rev(nl_src, nl)
         if not pfx:
@@ -418,7 +431,10 @@ class AckPriceCheck(object):
 
     def _p_frm_rev(self, nl_src, nl):
         cn = None
-        for pcode in nl_src.pcode:
+        pcs = nl_src.pcode
+        if not isinstance(pcs, (list, tuple)):
+            pcs = (pcs, )
+        for pcode in pcs:
             cn = self._hksvc.getrevcns(pcode)
             if cn:
                 nl.pcode = pcode
@@ -499,14 +515,23 @@ class AckPriceCheck(object):
         for jo in jos:
             try:
                 jn = jo.name.value
-                pcode = self._src_mp[jn].pcode
+                x = self._src_mp.loc[self._src_mp.jono == jn]
+                if x.empty:
+                    pcode = None
+                else:
+                    x = x.iloc[0]
+                    pcode = x.pcode
                 po = jo.po
-                if isinstance(pcode, pd.Series):
-                    pcode = pcode[0]
-                mp.append((jn, po.price, po.mps, pcode))
+                mp.append((jn, po.uprice, pcode, ))
             except:
                 logger.debug('failed to get po/wgts for JO(%s), maybe BIG5 encoding error' % jo.name.value)
-        return pd.DataFrame(mp, columns='jono uprice mps pcode'.split())
+        return pd.DataFrame(mp, columns='jono poprice pcode'.split())
+    
+    def _cache(self, fn):
+        fldr = path.join(self._fldr, '_cache')
+        if not path.exists(fldr):
+            mkdir(fldr)
+        return path.join(fldr, fn)
 
     def _process_all(self):
         """
@@ -515,28 +540,41 @@ class AckPriceCheck(object):
         src_mp = self._src_mp
         if src_mp is None or src_mp.empty:
             return None
-        fn = path.join(self._fldr, '_jos.csv')
+        fn = self._cache('_jos.csv')
         df = pd.read_csv(fn) if path.exists(fn) else None
+        if df is not None:
+            df['pcode'] = df.pcode.apply(lambda x: x.replace("'", '')[1:-1].split(','))
+            df.jono = df.jono.apply(self._jc)
         reqs = set(src_mp.jono)
         if not (df is None or df.empty):
             reqs = reqs - set(df.jono)
         if reqs:
-            rsts = {}
             with self._hksvc.sessionctx():
-                po = [JOElement(x.jono) for x in reqs]
-                po = self._fetch_jos(self._hksvc.getjos(po)[0])
-                df = pd.concat([df, po])
-        for idx, nl_src in df.iterrows():
+                for var in splitarray([JOElement(x) for x in reqs], 10):
+                    logger.debug('fetching POs(%s)' % var)
+                    var = self._fetch_jos(self._hksvc.getjos(var)[0])
+                    df = pd.concat([df, var], sort=False)
+                    df.to_csv(fn, index=None)
+        rsts = {}
+        for idx, nl_src in self._src_mp.iterrows():
             try:
-                nl = self._process_one(nl_src, po, True)
+                nl = self._process_one(nl_src, df, True)
                 rsts.setdefault(nl.result, []).append(nl)
                 idx += 1
                 if idx % 10 == 0:
-                    logger.info("%d of %d done" % (idx, len(nls)))
+                    logger.debug('analysing %d of %d' % (idx, len(self._src_mp)))
             except:
                 nl_src.pcode = nl_src.pcode[0]
                 rsts.setdefault(self._fmtr.label('labels', 'prg.error'), []).append(nl_src)
-        return rsts, None # TODO:: return jos for what?
+        # map value time translation
+        var = {}
+        for k, v in rsts.items():
+            nl = v[0]
+            if isinstance(nl, NamedList):
+                var[k] = pd.DataFrame([x.data for x in v], columns=nl.colnames)
+            elif isinstance(nl, pd.Series):
+                var[k] = pd.DataFrame(v)
+        return var, None # TODO:: return jos to avoid persist-double-retrieve
 
     def _write_wb(self, rsts, fn):
         app, kxl = xwu.appmgr.acq()
@@ -546,38 +584,44 @@ class AckPriceCheck(object):
         for k, v in rsts.items():
             self._write_sht(k, v, wb)
 
-        _ex = self._fmtr.label('labels', 'prg.error')
+        df = self._fmtr.label('labels', 'prg.error')
         # prg.error contains source result set only, so void it
-        lst = [tmp for k, v in rsts.items() for tmp in v if k != _ex]
-        _ex = lambda val, kwds: [0 for k in kwds if val.find(k) >= 0]
-        _exs = lambda kwds: [k for k in lst if _ex(k.ref, kwds)]
+        df = [v for k, v in rsts.items() if k != df]
+        df = pd.concat(df) if df else pd.DataFrame()
+        def _exs(kwds):
+            if df.empty:
+                return df
+            df['flag'] = df.ref.apply(lambda ref: sum([1 for y in kwds if ref.find(y) >= 0]))
+            kwds = df.loc[df.flag > 0]
+            del df['flag']
+            del kwds['flag']
+            return kwds
         mp = {
             "_except": _exs(self._fmtr.setting('pft.ref.classify')['labels'][1:]),
             "_new_sml": _exs((self._fmtr.label('labels', 'rf.sml'), )),
             "_new": _exs((self._fmtr.label('labels', 'rf.noref'), )),
         }
-        if mp['_except']:
+        if not mp['_except'].empty:
             # when there is exception, prepare one for enqurying zhengyuting
             tmp = _exs([self._fmtr.label('labels', x) for x in ("rf.rev", "rf.his", "rf.sml")])
-            tmp = [k.clone(False) for k in tmp if self._fmtr.classify_ref(k.pajprice, k.expected, False) > 0]
-            for k in tmp:
-                k.ref = k.ref.split('_')[0] # remove the profit result from REF for PAJ
+            tmp['flag'] = tmp.apply(lambda k: self._fmtr.classify_ref(k.pajprice, k.expected, False), axis=1)
+            tmp = tmp.loc[tmp.flag > 0]
+            del tmp['flag']
+            tmp['ref'] = tmp.ref.apply(lambda x: x.split('_')[0]) # remove the profit result from REF for PAJ            
             mp['_paj_enq'] = tmp
         tmp = set()
         # when item in higher level, don't show them in lower one
         for k, v in mp.items():
-            if k == '_paj_enq':
-                lst = v
-            else:
-                lst = []
-                for nl in v:
-                    var = nl.jono
-                    if var not in tmp:
-                        tmp.add(var)
-                        lst.append(nl)
-            if not lst:
+            if v.empty:
                 continue
-            self._write_sht(k, lst, wb)
+            if k == '_paj_enq':
+                df = v
+            else:
+                df = v.loc[~v.jono.isin(tmp)]
+                tmp = tmp.union(set(df.jono))
+            if df.empty:
+                continue
+            self._write_sht(k, df, wb)
         for var in wb.sheets:
             xwu.usedrange(var).row_height = 18
         if fn:
@@ -588,11 +632,11 @@ class AckPriceCheck(object):
         return fn
 
     def _write_sht(self, name, nls, wb):
-        if not nls:
+        if nls is None:
             return
         lst = []
         excl = self._fmtr.excludes(name) or ()
-        hdr = next(iter(nls)).colnames
+        hdr = [x for x in nls.columns]
         if excl:
             hdr = [x for x in hdr if x not in excl]
         if len(nls) > 1:
@@ -601,12 +645,15 @@ class AckPriceCheck(object):
         hdr_ttl = [x[0] if isinstance(x, list) else x for x in hdr_ttl]
         lst.append(hdr_ttl)
         hdr_mp = {x: idx for idx, x in enumerate(hdr)}
-        for nl in nls:
-            nl = nl.clone(False)
-            nl.jono = "'" + nl.jono
-            if 'ratio' in nl.colnames and nl.ratio is not None: # ERROR without ratio or wgts
-                nl.ratio = "%4.2f%%" % (nl.ratio or 0)
-            nl.wgts = ';'.join('%s=%4.2f' % (x.karat, x.wgt) for x in nl.wgts.wgts if x and x.wgt)
+        _flag = lambda cn: cn in nls.columns
+        if _flag('jono') and nls.iloc[0].jono[0] != "'":
+            nls.jono = nls.jono.apply(lambda x: "'" + x)
+        _flag = lambda cn: cn in nls.columns and not isinstance(nls.iloc[0][cn], str)
+        if  _flag('wgts'):
+            nls.wgts = nls.wgts.apply(lambda x: ';'.join('%d=%4.2f' % (x.karat, x.wgt) for x in x.wgts if x and x.wgt))
+        if _flag('ratio'):
+            nls.ratio = nls.ratio.apply(lambda x: "%4.2f%%" % (x or 0))
+        for idx, nl in nls.iterrows():
             lst.append([nl[x] for x in hdr])
         sht = wb.sheets.add(self._fmtr.label('cats', name) or name)
         sht.range(1, 1).value = lst
@@ -638,19 +685,24 @@ class AckPriceCheck(object):
     def _write_his(self, nls, sht):
         ''' write the history of exception pcodes to a sheet and plot
         '''
-        fn = path.join(self._fldr, '_invhis.csv')
+        fn = self._cache('_invhis.csv')
         df = pd.read_csv(fn, parse_dates=['invdate', ]) if path.exists(fn) else  pd.DataFrame(None, columns=_inv_cols)
-        reqs = [nl.pcode for nl in nls if df.loc[df.pcode == nl.pcode].empty]
+        reqs = set([x for x in nls.pcode])
+        if not df.empty:
+            reqs = reqs.difference(set([x for x in df.pcode]))
+        # reqs = [nl.pcode for nl in nls if df.loc[df.pcode == nl.pcode].empty] #df.pcode is an array
         if reqs:
-            var, nls = [], {nl.pcode: nl for nl in nls}
-            df = _fetch_invs(self._hksvc, self._fldr, reqs, fn)
+            df = _fetch_invs(self._hksvc, self._fldr, reqs, fn, self._cache('_wgts.csv'))
             df.to_csv(fn, index=None)
         # append myself to show this trend
-        for pcode in df.pcode.unique():
+        var = []
+        # df['jono'] = df.jono.apply(self._jc)
+        df['jono'] = df.jono.apply(lambda x: "'%s" % x)
+        for pcode in df.pcode:
             wgts = self._wgtsvc.wgts(pcode)
-            nl = nls[pcode]
+            nl = nls.loc[nls.pcode == pcode].iloc[0]
             cn = PajCalc.calchina(wgts, nl.pajprice, nl.mps, nl.date)
-            var.append([pcode, nl.styno, '*' + nl.jono, nl.qty, 'n/a', nl.date, nl.mps, nl.pajprice, cn.china, cn.metalcost, cn.china - cn.metalcost])
+            var.append([pcode, nl.styno, '*' + nl.jono[1:], nl.qty, 'n/a', nl.date, nl.mps, nl.pajprice, cn.china, cn.metalcost, cn.china - cn.metalcost])
         df = df.append(pd.DataFrame(var, columns=df.columns))
         ttl = 'Other Cost (China - Metal) Trend of "%s"' % path.basename(self._fldr)
         _HisPltr(df, title=ttl).plot(path.join(self._fldr, '_invhis.pdf'), sht, methods=['changes'])
@@ -866,15 +918,21 @@ class _AckFmt(object):
         Args:
 
             cat:    the cat name
-            nls:    NamedLists to be sorted
+            nls:    NamedLists to be sorted, since 20191022, it becomes dataframe
         '''
-        if not nls or len(nls) < 2:
+        if nls is None or len(nls) < 2:
             return nls
         sdef = self.setting("cat.sorting")
         cns = self._parse(sdef.get(cat) or sdef.get('_default'), sdef)
-        cnsx = next(iter(nls)).colnames
-        cns = [x for x in cns if x in cnsx]
-        return sorted(nls, key=lambda nl: ",".join([str(nl[x]) for x in cns]))
+        if isinstance(nls, pd.DataFrame):
+            cns = [x for x in cns if x in nls.columns]
+            if cns:
+                return nls.sort_values(cns)
+            return nls
+        else:
+            cnsx = next(iter(nls)).colnames
+            cns = [x for x in cns if x in cnsx]
+            return sorted(nls, key=lambda nl: ",".join([str(nl[x]) for x in cns]))
 
     def rd(self, d0):
         ''' round the argument by 2
@@ -1224,7 +1282,7 @@ class LocalJOWgts(object):
             sr = pd.DataFrame((wgts, ), columns=self._df.columns)
             self._df = self._df.append(sr)
             self._modcnt += 1
-            if self._modcnt % 10 == 0:
+            if self._modcnt % 1 == 0: #network is very bad, save one by one
                 self._flush()
         return None if sr.empty else self._mk_wgt(sr.iloc[0])
 
