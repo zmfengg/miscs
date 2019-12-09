@@ -450,6 +450,9 @@ def triml(s0, removewsps=False):
             s0 = removews(s0)
     return s0
 
+def sign(val):
+    return 0 if not val else 1 if val > 0 else -1
+
 def easydialog(dlg):
     """
     open a tk dialog and return sth. easily

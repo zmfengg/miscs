@@ -694,8 +694,6 @@ class HisMgr(object):
 
     def _persist_file(self, fn):
         """ persist the given file, if already persisted, do nothing """
-        if fn.find('CC1_201908_F') > 0:
-            print('x')
         flag = self._is_persisted(fn)
         if flag == 1:
             logger.debug("file(%s) has already been persisted",
