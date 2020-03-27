@@ -26,7 +26,7 @@ _sh = _se = None
 
 __all__ = [
     "NamedList", "NamedLists", 'config', "appathsep", "daterange", "deepget",
-    "easydialog", "easymsgbox", "getfiles", "getvalue", "iswritable", "isnumeric",
+    "easydialog", "easymsgbox", "emptyor", "getfiles", "getvalue", "iswritable", "isnumeric",
     "imagesize", "list2dict", "lvst_dist", "monthadd", "na", "NA", "removews",
     "Config", "Salt", "shellopen", "Number2Word", "Literalize", "splitarray", "tofloat", "triml", "trimu", "updateopts"
 ]
@@ -459,6 +459,7 @@ def easydialog(dlg):
     use dlg.show() works, but sometimes there is a background windows there
     so, use for better looking
     """
+    print('Pls. reponse to the open dialog')
     rt = tk.Tk()
     rt.withdraw()
     dlg.master = rt
@@ -479,6 +480,7 @@ def easymsgbox(box, *args):
     or
     rc = easymsgbox(mb.askyesno, "attention", "need to delete sth?")
     """
+    print('Pls. reponse to the open messageBox')
     rt = tk.Tk()
     rt.withdraw()
     rc = box(*args, master=rt)
@@ -507,6 +509,14 @@ def lvst_dist(s, t):
         p, d = d, p
     return p[n] - 1
 
+def emptyor(var, df):
+    """ when var is empty, return the default value
+    Args:
+        var:    the variance for detection
+        df:     the value when (var) is empty
+    """
+    return df if var is None or not var else var
+    
 class NamedList(object):
     """
     the wrapper of the list/tuple that make it operatable by .name or [name] or [i]

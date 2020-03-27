@@ -30,8 +30,7 @@ def _tofloat(val, precious=4):
     except:
         return -1
 
-
-def addwgt(prdwgt, wi, isparts=False, autoswap=True):
+def addwgt(prdwgt, wi, isparts=False, autoswap=False):
     """ add wgt to target prdwgt """
     if not wi:
         return
@@ -328,6 +327,16 @@ class PrdWgt(namedtuple("PrdWgt", "main,aux,part,netwgt")):
     def metal_jc(self):
         """ the metal weight for jocost, that is the weight of all metals """
         return sum(x.wgt if x.wgt > 0 else -x.wgt / 100 for x in self.wgts if x)
+
+    def follows(self, mKarat):
+        '''
+        stupid method, if main karat differs from mKarat, swap aux and main
+        simple and stupid
+        '''
+        wi = self.main
+        if karatsvc.getfamily(wi.karat).karat != karatsvc.getfamily(mKarat).karat and self.aux is not None:
+            return PrdWgt(self.aux, self.main, self.part, self.netwgt)
+        return self
 
 
 # constants

@@ -185,7 +185,7 @@ class JOImgOcr(object):
         img = imread(list_fn)
         img = cvtColor(img, COLOR_BGR2GRAY)
         try:
-            img = self._sharpen(img, "jo_detect")
+            # img = self._sharpen(img, "jo_detect") // TODO::sharpen is needed?
             # crop it to reduce error?
             # self._findtpl(img, "x", self._tpl_h_w, "method")            
             list_fn = path.join(gettempdir(), path.basename(list_fn))
@@ -329,7 +329,10 @@ class JOImgOcr(object):
             if not tarfn:
                 return None
             tarfn, is_smp = tarfn
-            jn = self._parsejo(tess.image_to_string(tarfn, lang="hnx" if is_smp else "eng"))#maybe a --psm 7 should be appended
+            if date.today() < date(2019, 10, 1):
+                jn = self._parsejo(tess.image_to_string(tarfn, lang="hnx" if is_smp else "eng"))#maybe a --psm 7 should be appended
+            else:
+                jn = self._parsejo(tess.image_to_string(tarfn, "eng")) #since 2019 or later, no more handwriting sample JOs, so all using default engine
             if not jn and is_smp:
                 tarfn = self._crop(jofn, tarfn=tarfn, sharp_mode="verybad")[0]
                 jn = self._parsejo(tess.image_to_string(tarfn, lang="eng"))
@@ -350,7 +353,7 @@ class JOImgOcr(object):
         tarfn, showui, sharp_mode = tuple((kwds.get(x, None) for x in "tarfn,showui,sharp_mode".split(",")))
         if not self._imgtpls:
             imgsrc = path.join(thispath, "res")
-            self._imgtpls = [self._sharpen(imread(path.join(imgsrc, fn)), "jo_detect") for fn in ("JOTpl.jpg", "SmpTpl1.jpg", "SmpTpl.jpg")]
+            self._imgtpls = [self._sharpen(imread(path.join(imgsrc, fn)), "jo_detect") for fn in ("JOTpl.jpg", "SmpTpl1.jpg", "SmpTpl.jpg") if path.exists(path.join(imgsrc, fn))]
             self._tpl_b = imread(path.join(imgsrc, "B.jpg"))
             self._tpl_h_w = [x.shape[:-1] for x in self._imgtpls]
             self._tpl_jolst = self._sharpen(imread(path.join(imgsrc, "TplJOList.jpg")), "jo_detect")

@@ -1,0 +1,832 @@
+{
+    "stylephoto.h": {
+        "root": "\\\\172.16.8.91\\Jpegs\\style",
+        "level": 3
+    },
+    "stylephoto.i": {
+        "root": "\\\\172.16.8.91\\Quotation\\style",
+        "level": 3
+    },
+    "stylephoto.default": "h",
+    "stylephoto.good_img.min_dim":[
+        1000,
+        1000
+    ],
+    "stylephoto.good_img.from": [2016, 1, 1],
+    "stylephoto.max_draft_size": 40000,
+    "style.categories":[
+
+        {
+            "category": "BRACELET",
+            "patterns":[
+                "^B[A-Z]?\\d{3,6}"
+            ],
+            "keywords":[
+                "手鏈",
+                "手链"
+            ]
+        },
+        {
+            "category": "BANGLE",
+            "patterns":[
+                "^B[A-Z]?\\d{3,6}"
+            ],
+            "keywords":[
+                "鐲",
+                "厄",
+                "镯"
+            ]
+        },
+        {
+            "category": "EARRING",
+            "patterns":[
+                "^E[A-Z]?\\d{3,6}"
+            ],
+            "keywords":[
+                "耳"
+            ]
+        },
+        {
+            "category": "NECKLACE",
+            "patterns":[
+                "^N[A-Z]?\\d{3,6}"
+            ],
+            "keywords":[
+                "項",
+                "頸",
+                "项",
+                "颈"
+            ]
+        },
+        {
+            "category": "PENDANT",
+            "patterns":[
+                "^P[A-Z]?\\d{3,6}"
+            ],
+            "keywords":[
+                "吊"
+            ]
+        },
+        {
+            "category": "RING",
+            "patterns":[
+                "^R[A-Z]?\\d{3,6}",
+                "^S[A-Z]?\\d{3,6}",
+                "^T[A-Z]?\\d{3,6}"
+            ],
+            "keywords":[
+                "戒",
+                "介"
+            ]
+        }
+    ],
+    "jo.description.chain":[
+        "鏈",
+        "鍊",
+        "\""
+    ],
+    "jono.prefix_to_karat": {
+        "4": 925,
+        "5": 925,
+        "M": 8,
+        "B": 9,
+        "G": 10,
+        "Y": 14,
+        "P": 18
+    },
+    "vermail.verb": "電",
+    "vermail.defs":[
+        {
+            "name": "VB",
+            "color": "BLACK",
+            "priority": 50,
+            "big5": ["黑"]
+        },
+        {
+            "name": "VY",
+            "color": "YELLOW",
+            "priority": 10,
+            "big5": [
+                "王",
+                "黃"
+            ]
+        },
+        {
+            "name": "VW",
+            "color": "WHITE",
+            "priority": 5,
+            "big5": [
+                "白",
+                "銠"
+            ]
+        },
+        {
+            "name": "VR",
+            "color": "ROSE",
+            "priority": 15,
+            "big5": [
+                "玫",
+                "瑰"
+            ]
+        },
+        {
+            "name": "VBR",
+            "color": "COFFEE",
+            "priority": 55,
+            "big5": [
+                "啡"
+            ]
+        },
+        {
+            "name": "VGR",
+            "color": "GREEN",
+            "priority": 60,
+            "big5": [
+                "綠"
+            ]
+        },
+        {
+            "name": "VBL",
+            "color": "BLUE",
+            "priority": 51,
+            "big5":[
+                "藍"
+            ]
+        },
+        {
+            "name": "VK",
+            "color": "VK",
+            "priority": 100,
+            "big5":[
+                "咪"
+            ],
+            "_remark_": "Infact, V18K in HNJ's case"
+        },
+        {
+            "name": "V18K",
+            "color": "V18K",
+            "priority": 105,
+            "big5":[
+                "18咪"
+            ]
+        },
+        {
+            "name": "VPT900",
+            "color": "VPT900",
+            "priority": 95,
+            "big5":[
+                "PT900咪"
+            ]
+        }
+    ],
+    "vermail.stones":{
+        "DD": "VW",
+        "CZ": "VW",
+        "DF": "VBL"
+    },
+    "locket.shapes":{
+        "EL": "八角形",
+        "EL ": "小八角形",
+        "FL": "梅花形",
+        "HL": "心形",
+        "OL": "旦形",
+        "OL ": "蛋形",
+        "PL": "梨形",
+        "SL": "方形",
+        "TL": "菱形",
+        "RRL": "元形旋轉",
+        "RL": "元形",
+        "RL ": "圓形"
+    },
+    "locket.shapes.eng":{
+        "EL": "OCTAGON",
+        "FL": "PLUM",
+        "HL": "HEART",
+        "OL": "OVAL",
+        "PL": "PEAR",
+        "SL": "SQUARE",
+        "TL": "DIAMOND",
+        "RRL": "RROUND",
+        "RL ": "ROUND"
+    },
+    "jo.stone.abbr": [
+        ["RD", "DD", "R"],
+        ["TD", "DD", "T"],
+        ["RZ", "CZ", "R"]
+    ],
+    "date.shortform": "%Y/%m/%d",
+    "pattern.styno": "[^\\s]?([A-Z]{1,2}\\d{3,6})\\s*$",
+    "pattern.jono": "[^\\s]?([45MBGYPW]\\d{3,6})\\s*$",
+    "pattern.jo.pkno": "([A-Z]{2})-([A-Z@])-([A-Z\\d]{1,4})-([A-Z\\d])",
+    "pattern.jo.microns":[
+        "咪\\s*(\\d*\\.?\\d{0,2})",
+        "電(\\d*[\\.\\d{0,2}]?)咪",
+        "電([一二叁肆伍])咪"
+    ],
+    "pattern.mit": "^\\.?M\\.?[iI]\\.?T\\.?",
+    "pattern.locket.pics": "(\\d)頁",
+    "pattern.locket.size": "\\d+\\.?\\d*",
+    "pattern.numeric": "([+-]?\\d+(\\.\\d*)?|\\.\\d+)([eE][+-]?\\d+)?",
+    "snno.translation":{
+        "6號瓜子耳": "HB2551B",
+        "六號瓜子耳": "HB2551B",
+        "8號瓜子耳": "HB2551",
+        "八號瓜子耳": "HB2551",
+        "中號光金瓜子耳": "HB441D",
+        "中號光銀光子耳": "HB441D",
+        "中號光銀瓜子耳": "HB441D",
+        "大2號瓜子耳": "HB441B",
+        "大2號光金瓜子耳": "HB441C",
+        "大耳迫(銀)": "HB207",
+        "大號實心瓜子耳": "PT8016BL",
+        "大號瓜子耳": "HB441A",
+        "耳勾": "HB013",
+        "耳夾": "HB195",
+        "耳迫": "HB924",
+        "夾針A": "HB1353A",
+        "夾針B": "HB1353B",
+        "夾針C": "HB1353C",
+        "龍蝦扣": "HB400",
+        "龍蝦扣3X8": "HB038,HB012",
+        "龍蝦扣4X9": "HB327",
+        "雙鴨利": "HB078",
+        "小號實心瓜子耳": "PT5012BL",
+        "魚勾扣": "HB011,HB037",
+        "魚鉤扣":  "HB011,HB037",
+        "長夾針": "HB1078",
+        "中號實心瓜子耳": "PT8012BL",
+        "中號瓜子耳": "HB339"
+    },
+    "locketszfinder.sn.component": ["BT233", "BT329", "BT380", "BT1191", "BT2256", "BT5550", "BT7187", "E11854", "E12339", "E13143", "E13364", "E1703", "E5336", "E5775", "E6249", "HB1094", "HB1118", "HB1124", "HB1293", "HB1334", "HB1336", "HB1339", "HB1378", "HB1416", "HB1524", "HB1586", "HB1644", "HB1661", "HB1729", "HB1799", "HB1969", "HB2009", "HB2082", "HB2092", "HB2409", "HB2455", "HB260", "HB2561", "HB2650", "HB2703", "HB2863", "HB3086", "HB925", "HB934", "HB944", "HN003", "HN008", "HN010", "_ZPA4MP"],
+    "locketszfinder.sn.by_styno": ["E5775", "BT6139", "N2704", "N2766", "P3315", "P12444", "P12578", "P13802", "P14532", "P14613", "P14829", "P15090", "P15287", "P16345", "P17090", "P17613", "P17617", "P17618", "P17779", "P17883", "P18320", "P19719", "P20523", "P20575", "P20924", "P21268", "P21410", "P21438", "P21709", "P21729", "P21734", "P23264", "P23516", "P23700", "P23796", "P24253", "P24717", "P25275", "P25712", "P25818", "P26011", "P26167", "P26285", "P38650", "P40286", "P41018", "P5248", "P9080", "P9521", "P18250", "P24930", "P25464", "P26240", "P13802", "P14613"],
+    "locketszfinder.sn.charm": ["HB1499", "HB1728", "HB2255", "HB2422", "HB2555", "HB2745", "HB2764", "HB395", "HB1145", "P26559", "P26584", "P26585", "P26583", "P26582", "P26593", "P26597", "P26609", "P26599", "P26616"],
+    "parts.wgt.self":{
+        "_df_karat": "925",
+        "HB441A": 0.18,
+        "HB1586C": 0.18,
+        "HB441B": 0.12,
+        "HB441C": 0.11,
+        "HB339": 0.1,
+        "HB441D": 0.09,
+        "HB2551": 0.11,
+        "HB2551B": 0.08,
+        "HB014": 0.13,
+        "HB207": 0.23,
+        "HB514": 0.27,
+        "HB013": 0.27,
+        "HB924": 0.09,
+        "HB1353A": 0.11,
+        "HB1353B": 0.11,
+        "HB1353C": 0.11,
+        "HB078": 0.42,
+        "HB1078": 0.14,
+        "HB909C": 0.14,
+        "HB156": 0.11,
+        "HB539": 0.08,
+        "HB011": 0.55,
+        "HB037": 0.55,
+        "HB400": 1.18,
+        "HB327": 0.42,
+        "HB038": 0.32,
+        "HB012": 0.32,
+        "HB195": 0.25,
+        "HB195@18MM": 0.34,
+        "HB195@16MM": 0.37,
+        "HB195@14MM": 0.25
+    },
+    "parts.wgt.sc":{
+        "_df_karat": "925",
+        "光身金波鍊2.5MM": 7.39,
+        "PY龍蝦扣": 0.32,
+        "MR9 18\"源豐": 1.574,
+        "BOX 1.2MM 18\" ": 3.5,
+        "BABY BOX 0.75MM 18\"": 1.8,
+        "MR9 18\" (NC)": 1.224,
+        "MR9 13\"+2\"十字鍊": 1.579,
+        "3908 DI 20\"": 13.763,
+        "MR9 20\" 源豐": 1.7,
+        "1.3MM側身鍊 20\"": 2.2,
+        "1.3MM側身鍊 18\"": 1.89,
+        "側1.3MM-18\"": 1.89,
+        "1.3MM側身鍊 14\"": 1.47,
+        "側1.3MM-14\"": 1.47,
+        "MR9 20\"X2": 3.252,
+        "1.6MM軟蛇 15\"": 3.484,
+        "1.8MM劍片鍊 15\"": 2.882,
+        "MR8 20\"X2 NC": 1.936,
+        "MR9 20\" KA": 1.8,
+        "卜竹鍊2.5MM 15\"": 5.32,
+        "0.9MM軟蛇 18\"": 2.7,
+        "0.8MM軟蛇 18\"": 1.95,
+        "1.6MM軟蛇 18\"": 4.7,
+        "切角波鍊N5341": 4.69,
+        "MR9 24\" 源豐": 2.098,
+        "1MM側身鍊18\"連扣(成品)": 1.38,
+        "側1.0-18\"": 1.38,
+        "側1mm-18\"": 1.38,
+        "1MM側身鍊14\"連扣(成品)": 1.07,
+        "側1MM-14\"": 1.097,
+        "MR9 18\"開口圈頚鍊": 1.4,
+        "MR9 7.5\"開口圈手鍊": 0.6,
+        "十字錬 0.3MM  18\"連扣(成品)": 1.35,
+        "十字錬 0.35MM 18\"連扣(成品)": 1.8,
+        "0.35mm十字鏈18\"+生圈+尾圈": 1.692,
+        "十字錬 0.5MM 3\"": 0.42,
+        "8MM閃波双孔": 0.56,
+        "十字錬 0.35MM N5616 18\"": 1.36,
+        "十字錬 0.3MM 14\"連扣(成品)": 1.05,
+        "十字錬 0.35MM 14\"連扣(成品)": 1.4,
+        "十字錬 0.8MM P36524": 15.4,
+        "十字錬 0.5MM N5989": 3,
+        "十字錬 0.35MM N5990": 1.42,
+        "十字錬 0.5MM 2\"": 0.37,
+        "十字錬 1MMX3.84X4.7 8\"": 6.4,
+        "麻花十字鍊 6.5X10X1.4 19\"": 21,
+        "旦形珍珠鍊 5X7 19.5CM": 5.6,
+        "3MM雙孔珠 1.4": 0.06,
+        "4MM雙孔珠 1.8": 0.1,
+        "6MM珠耳環托 1PR": 0.45,
+        "MR9 18\"": 1.55,
+        "P34591 17\" 車螺旋形十字鍊": 9.8,
+        "十字錬 0.35MM 48\"+3\"": 3.57,
+        "光身4MM元波手鍊 7.5\" ELH": 6.12,
+        "N3161珍珠鍊 1.5MM": 1.68,
+        "N3161元蛇 0.9MM": 0.45,
+        "N3525珍珠鍊 1.5MM 24\"": 2.73,
+        "N6352十字鍊 0.35MM 17\"": 1.42,
+        "N6337雙扣十字鍊": 1.7,
+        "N6347十字鍊 0.35MM": 1.61,
+        "N6347十字鍊 0.5MM 2\"": 0.35,
+        "E14632元蛇 0.9MM": 1.08,
+        "P40058十字鍊 0.35MM 32\"": 5.6,
+        "P40058十字鍊 0.35MM 2\"": 0.27,
+        "P39984十字鍊 0.35MM 鬚": 2.075,
+        "P39984十字鍊 0.5MM 2\"": 0.35,
+        "E22801十字鍊 0.35MM": 0.5,
+        "十字鍊 0.5MM 7\"": 1.225,
+        "N6381 1.5MM珍珠鍊47CM": 1.76,
+        "N4442 十字鍊 0.8MM": 5.68,
+        "P40057十字鍊 0.35MM 32\"": 5.6,
+        "P40057十字鍊 0.35MM 2\"": 0.27,
+        "N5081CT129 38\"": "5.066@10K",
+        "N5616CT129  18\"": "2.4@9K",
+        "N6008 CT129  15\"": "1.97@10K",
+        "N6009 CT129  13\"": "1.72@10K",
+        "N6008 ROLO 15\"": "1.8@10K",
+        "N6009 ROLO  13\"": "1.6@10K",
+        "R2 BABY ROLO 1.2MM 18\"+圈+2\"+圈": 1.55,
+        "R2 BABY ROLO 1.2MM 16\"+圈+2\"+圈": 1.31,
+        "MR9 18\" 10K": "0.816@10K",
+        "圈扣圈錬2\"": "0.3@10K",
+        "E17118 CC028  3\"": "0.3@9K",
+        "CC028  17\" 淨鍊": "1.7@9K",
+        "CT129  38\"": "5.25@14K",
+        "CC028 18\"": "1.8@9K",
+        "CC028 16.5\"": "1.65@9K",
+        "CC028 6\"": "0.6@9K",
+        "CT129 2\" 天豐": "0.25@9K",
+        "CC028 16.5\" 天豐": "1.47@9K",
+        "CC028 18\" 天豐": "1.65@9K",
+        "1.2MM側身鍊綑裝 天豐": "1.95@9K",
+        "MR7 20\"": "0.544@10K",
+        "MR7W 18\"": "0.471@10K",
+        "MR6 20\"": "0.392@10K",
+        "6RX8-14K": "0.624@14K",
+        "6RX8-14W": "0.628@14K",
+        "6RL#7315 14K": "0.55@14K",
+        "6RL#7255 14KW": "0.61@14K",
+        "6RX8 10K": "0.568@10K",
+        "6RX8 10W": "0.563@10K",
+        "6RL#7045 10K": "0.54@10K",
+        "6RL#7255 10KW": "0.56@10K",
+        "MR5 18\" 10K": "0.478@10K",
+        "BABY BOX 18\" L&G": "0.89@10K",
+        "GC18DC 16\"": "0.42@9K",
+        "GC18DC 18\"": "0.46@9K",
+        "GC18DC-18\"": "0.46@9K",
+        "WC18DC 16\"": "0.46@9K",
+        "WC18DC 18\"": "0.52@9K",
+        "CT129圈扣圈錬2\"": "0.3@10K",
+        "GR5 18\" L&G": "0.42@9K",
+        "GR5 16\"+圈+2\"+圈": "0.40@9K",
+        "MR5 18\"+2\" L&G": "0.52@10K",
+        "0.65MM側身鍊18\" 天豐": "1@14K",
+        "GR5 18\" 天豐": "0.41@9K",
+        "N6342 MR8 20.5\" 天豐": "1.08@10K",
+        "0.7MM側身鍊 天豐": "0.09@9K"
+    },
+    "bc.colnames": "lymd,lcod,styn,mmon,mmo2,runn,detl,quan,gwgt,gmas,jobn,ston,descn,desc,rem1,rem2,rem3,rem4,rem5,rem6,rem7,rem8",
+    "bc.colnames.alias": "date,location,styno,mp_year,mp_month,runn,cstname,qty,wgt,karat,jono,stone,descn,description,rem1,rem2,rem3,rem4,rem5,rem6,rem7,rem8",
+    "bc.description.wochain.customers":[
+        "ESO",
+        "ET",
+        "EJE",
+        "ELH"
+    ],
+    "bc.description.stone.maxcnt": 2,
+    "bc.description.stone.categories":{
+        "RAINBOW":[
+            "AC",
+            "AM",
+            "BA",
+            "BT",
+            "CT",
+            "FT",
+            "GA",
+            "GM",
+            "IT",
+            "LQ",
+            "MT",
+            "PA",
+            "PD",
+            "RQ",
+            "RW",
+            "ST",
+            "TP",
+            "WT"
+        ],
+        "DIAMOND":[
+            "BD",
+            "DD",
+            "DF",
+            "FD",
+            "MI",
+            "XD",
+            "YD"
+        ]
+    },
+    "bc.sns":[
+        ["R", "DD", "RD"],
+        ["T", "DD", "TD"]
+    ],
+    "bc.stone.bywgt":[
+        "DD",
+        "DF"
+    ],
+    "c1calc.stone_dialect":{
+        "AZ": "玉",
+        "ON": "安力士"
+    },
+    "c1calc.fixed_stone":{
+        "JADE": "玉",
+        "PEARL": "珠"
+    },
+    "c1shp.stone.alias":[
+        ["蓝玛瑙", "R", "AG"],
+        ["紫晶", "R", "AM"],
+        ["天青", "R", "AQ"],
+        ["紫CZ", "R", "AZ"],
+        ["蓝晶", "R", "BT"],
+        ["托帕石", "R", "BT"],
+        ["绿CZ", "R", "CG"],
+        ["黄晶", "R", "CT"],
+        ["CZ", "R", "CZ"],
+        ["旦CZ", "O", "CZ"],
+        ["深蓝CZ", "P", "CZ"],
+        ["梯钻", "T", "DD"],
+        ["元占", "R", "DD"],
+        ["元钻", "R", "DD"],
+        ["钻石", "R", "DD"],
+        ["蓝钻", "R", "DF"],
+        ["透辉石", "R", "DI"],
+        ["玻璃制仿宝石", "R", "GC"],
+        ["人造绿宝", "R", "GD"],
+        ["加力", "R", "GN"],
+        ["石榴石", "R", "GN"],
+        ["方绿玉", "S", "JD"],
+        ["绿玉", "R", "JD"],
+        ["圆绿玉", "R", "JD"],
+        ["安力士", "S", "ON"],
+        ["绿晶", "R", "PD"],
+        ["元珠", "R", "PL"],
+        ["圆珠", "R", "PL"],
+        ["电氣石", "R", "PT"],
+        ["米珠", "F", "PW"],
+        ["面包珠", "R", "PW"],
+        ["薯仔珠", "G", "PW"],
+        ["红宝", "R", "RB"],
+        ["人造红宝", "R", "RC"],
+        ["黑蓝宝", "R", "SA"],
+        ["蓝宝", "R", "SA"],
+        ["宝蓝CZ", "R", "SC"],
+        ["蓝CZ", "R", "SC"],
+        ["人造蓝宝", "R", "SC"],
+        ["白晶", "R", "WT"],
+        ["黑CZ", "R", "ZE"],
+        ["克CZ", "R", "ZE"],
+        ["__C3", "_SHAPE_", "_STONE_"],
+        ["马眼蓝晶", "M", "BT"],
+        ["旦形蓝晶", "O", "BT"],
+        ["单反", "R", "DD"]
+    ],
+    "pajshp.stone.shape.alias":{
+        "HT": "H",
+        "MQ": "M",
+        "OV": "O",
+        "PR": "P",
+        "RA": "E",
+        "RD": "R",
+        "SQPP": "S",
+        "近圆": "R",
+        "近圆球": "R",
+        "近圆球形": "R",
+        "近圆形": "R",
+        "配模(平底CAB面)": "F"
+    },
+    "pajshp.stone.stone.alias":{
+        "WHITE AGATE": "AG",
+        "AFRICA AMETHYST": "AM",
+        "GEN. AQUAMARINE": "AQ",
+        "AQUAMARINE": "AQ",
+        "SYNTHETIC DARK AMETHYST A": "BA",
+        "BLUE TOPAZ": "BT",
+        "LONDON BLUE TOPAZ": "BT",
+        "CITRINE": "CT",
+        "WHITE CZ": "CZ",
+        "3A WHITE CZ": "CZ",
+        "DIA": "DD",
+        "DIAMOND": "DD",
+        "CREATED EMERALD": "EC",
+        "CHINESE WHITE CRYSTAL": "GC",
+        "SILVER SIDE CLEAR GLASS": "GC",
+        "CZECH CRYSTAL": "GC",
+        "GARNET": "GN",
+        "QUARTZ": "GQ",
+        "IOLITE": "IO",
+        "LAPIS LAZULI": "LP",
+        "WHITE MOON STONE": "MS",
+        "PINK AMETHYST": "PA",
+        "SYN. PINK CORUNDUM": "PC",
+        "SYN PINK CORUNDUM": "PC",
+        "SYNTHETIC PINK CORUNDUM": "PC",
+        "SYNTHETIC PINK CORUNDUM（": "PC",
+        "PERIDOT": "PD",
+        "PERIDTO": "PD",
+        "G WHIT PL": "PL",
+        "G WT PL": "PL",
+        "G WHT PL": "PL",
+        "WHT PL": "PL",
+        "CZECH LIGHT PEACH": "PQ",
+        "FRESH WATER PEARL": "PW",
+        "SYNTHETIC RED CORUNDUM": "RC",
+        "GEN. RHODOLITE": "RH",
+        "ROSE QUARTZ": "RQ",
+        "DARK ROSE QUARTZ": "RQ",
+        "G SAPPHIRE": "SA",
+        "BLACK SAPPHIRE": "SA",
+        "SYNTHETIC BLUE CORUNDUM": "SC",
+        "SYN BLUE CORD": "SC",
+        "SYNIHETIC BLUE CORUNDUM": "SC",
+        "STABILIZED TURQOISE": "TZ",
+        "STABILIZED CONSTRUCTED": "TZ",
+        "PK CZ": "UP",
+        "PINK CZ": "UP",
+        "WHITE TOPAZ": "WT",
+        "4A WHITE TOPAZ": "WT",
+        "MEDIUM PURPLE RED CZ": "ZA",
+        "#30 BLUE CZ": "ZB",
+        "#38 BLUE CZ": "ZB",
+        "YELLOW CZ": "ZC",
+        "BLACK SPINEL": "ZS",
+        "TANZ CZ": "ZT"
+    },
+    "default.file.cx_aio": "\\\\172.16.8.46\\pb\\dptfile\\quotation\\2017外发工单工费明细\\CostForPatrick\\AIO_C3.xlsx;\\\\172.16.8.46\\pb\\dptfile\\quotation\\2017外发工单工费明细\\CostForPatrick\\AIO_C1.xlsx",
+    "jocost.cost_sheet_fields": "lastmmdate,jobno,cstname,styno,running,mstone,description,joqty,karat,goldwgt,goldcost,extgoldcost,extgoldcost2,stonecost,laborcost,extlaborcost,extcost,totalcost,unitcost,extgoldwgt,extgoldwgt2,cflag,rmb2hk",
+    "jocost.cost_fields": "goldcost,extgoldcost,stonecost,laborcost,extlaborcost,extcost,extgoldcost2",
+    "jocost.mtlwgt_to_cost_fields": "goldwgt,goldcost;extgoldwgt,extgoldcost;extgoldwgt2,extgoldcost2",
+    "default.file.c1cc.tpl": "\\\\172.16.8.46\\pb\\DptFile\\pajForms\\C1价格计算器.xltx",
+    "stio.in.rdr.colmap": {
+        "id": "序号",
+        "btchno": "水号",
+        "pkno": "包头",
+        "date": "日期,",
+        "type": "类别",
+        "karat": "成色",
+        "qty": "数量,",
+        "wgt": "重量,",
+        "qtyunit": "数量单位",
+        "unit": "重量单位",
+        "remark": "备注"
+    },
+    "stio.out.rdr.colmap": {
+        "id": "序号",
+        "btchno": "水号",
+        "pkno": "包头",
+        "jono": "工单",
+        "qty": "数量",
+        "wgt": "重量",
+        "type": "记录,",
+        "remark": "备注"
+    },
+    "prodspec.case": "LOWER",
+    "prodspec.naming":{
+        "cat.digits": 1,
+        "sn.digits": 4,
+        "ver.digits": 2,
+        "charset": "0123456789ABCEFGHJKLMPQRTUWXY",
+        "ring.size.count": 20,
+        "ring.headers": ["T"]
+    },
+    "prodspec.meta_tables": {
+        "MetaData": {
+            "type": "m_pt",
+            "craft": "m_mcr",
+            "qclevel": "m_ql",
+            "finishing.method": "m_fm",
+            "finishing.spec": "m_fs",
+            "karat": "m_kt",
+            "feature.catid": "m_fe",
+            "parts.type": "m_ptt",
+            "stone.setting": "m_ss"
+        },
+        "sts":{
+            "stone.shape": "m_stshp",
+            "stone.name": "m_sta"
+        }
+    },
+    "prodspec.template": "\\\\172.16.8.46\\pb\\DptFile\\pajForms\\PrdSpec.xltm",
+    "prodspec.stsnscvt.level": 3,
+    "prodspec.metal.mark":{
+        "8K": "333",
+        "8KW": "333",
+        "8KR": "333",
+        "9K": "375",
+        "9KW": "375",
+        "9KR": "375",
+        "10K": "417",
+        "10KW": "417",
+        "10KR": "417",
+        "14K": "585",
+        "14KW": "585",
+        "14KR": "585",
+        "18K": "750",
+        "18KW": "750",
+        "18KR": "750",
+        "925": "925"
+    },
+    "prodspec.customer.vgmark":{
+        "ZL": "Ag"
+    },
+    "prodspec.customer.mark":{
+        "ZL": "*(52)",
+        "FAI": "*(GHA)",
+        "EVS": "*(HoI)",
+        "FNS": "*(SC)",
+        "CJS": "*(BL)",
+        "FTT": "*(OTI)",
+        "AS-S": "*(ASS)",
+        "CTM": "*(MOZ)",
+        "AGQ": "QG",
+        "NBW": "WB"
+    },
+    "prodspec.fromjo.setting_map":{
+        "_length_": 2,
+        "腊爪": "W.PAW",
+        "手爪": "H.PAW",
+        "腊迫": "W.CHNL",
+        "手迫": "H.CHNL",
+        "安力": "H.PAW",
+        "玉": "H.PAW",
+        "珠": "GLUE",
+        "半包": "W.CHNL",
+        "包(": "W.CHNL",
+        "手微": "H.MPAW",
+        "碟(有石)": "DS",
+        "碟(无石)": "WELD"
+    },
+    "prodspec.fromjo.stshape_map":{
+        "A": "TRIANGLE",
+        "B": "BAGUETTE",
+        "C": "CAB",
+        "D": "CAB-ROUND",
+        "E": "OCTOGON",
+        "F": "FANCY",
+        "H": "HEART",
+        "J": "CUSHION",
+        "L": "BALL",
+        "M": "MARQUISE",
+        "O": "OV",
+        "P": "PEAR",
+        "R": "ROUND",
+        "S": "SQUARE",
+        "T": "TAPPER",
+        "@": "FANCY"
+    },
+    "stysn.tag": {
+        "snno": "S",
+        "keyword": "K",
+        "parent": "P",
+        "text": "T"
+    },
+    "stysn.kw.replace":{
+        "HEAR": "HEART",
+        "MIRACLE PLATE": "DSET",
+        "REVOLV": "REVOLVE",
+        "TORTOISE": "TUTLE",
+        "PEOPLE": "HUMAN",
+        "FAMILY": "HUMAN"
+    },
+    "pajcc.consts":{
+        "lossrate.silver": 1.10,
+        "lossrate.other": 1.06,
+        "paj.ref.markup": 1.25,
+        "paj.ref.mps": "S=30;G=1500",
+        "discounts":[
+            {
+                "frm": "2017/04/01",
+                "thru": "2019/07/18",
+                "silver": 0.9,
+                "other": 0.85
+            },
+            {
+                "frm": "2019/07/18",
+                "silver": 0.85,
+                "other": 0.82
+            }
+        ]
+    },
+    "pajcc.ack.chk":{
+        "reader.def":{
+            "jono": "Job,",
+            "pcode": "item,",
+            "styno": "Style,",
+            "qty": "Quant,Qty",
+            "pajprice": "Price"
+        },
+        "cats":{
+            "_except": "_PAJPriceExcpt",
+            "_new_sml": "_NewItem_SAMILIAR",
+            "_new": "_NewItem",
+            "_paj_enq": "_Quo_Reconfirm",
+            "pft.normal": "PFT.Normal",
+            "pft.low": "PFT.Low"
+        },
+        "cat.excl":{
+            "_new": "expected,diff,ref,rev",
+            "pft.normal": "mps,expected,diff,wgts,rev",
+            "pft.low": "${pft.normal}",
+            "pft.error": "diff,poprice,profit,profitt,ratio",
+            "_paj_enq": "poprice,profit,profitt,ratio,result"
+        },
+        "cat.sorting":{
+            "_default": ["ratio"],
+            "_except": ["file", "jono"],
+            "_new": "${_except}",
+            "_new_sml": "${_new}",
+            "_paj_enq": "${_except}"
+        },
+        "labels":{
+            "pft.error": "PFT.Error",
+            "pft.normal": "PFT.Normal",
+            "pft.low": "PFT.Low",
+            "rf.rev": "RFR_",
+            "rf.his": "RFH_",
+            "rf.ref": "REF_",
+            "rf.sml": "RFS_",
+            "rf.noref": "REF_NOREF",
+            "prg.error": "PRG_ERROR"
+        },
+        "cat.cns":{
+            "file": ["File", 4],
+            "pcode": ["PCode", 3],
+            "ref": ["Ref.", 3],
+            "rev": ["Rev.", 6],
+            "jono": "JO#",
+            "styno": "Sty#",
+            "qty": "Qty.",
+            "pajprice": "Paj.",
+            "expected": "Exp.",
+            "diff": "P-E",
+            "poprice": "PO.",
+            "profit": "Pft.",
+            "profitt": "Pfts.",
+            "ratio": "PRt.",
+            "wgts": ["Wgt.", 8],
+            "mps": ["MPS", 3],
+            "date": "Ack.Date",
+            "result": "Pft.Rmk"
+        },
+        "misc":{
+            "date.fmt": "%Y%m%d",
+            "pft.min.ratio": 1.2
+        },
+        "pft.ref.classify":{
+            "absolute": [0.2, 1],
+            "relative": [0.03, 0.2],
+            "labels": ["OK", "Acceptable", "Critical"],
+            "_orig_abs_rel": [0.5, 0.05]
+        },
+        "plot.his.args":{
+            "title": "PAJ's Other Cost (China - Metal) Trend",
+            "page_size": [210, 297],
+            "lines_per_ax": 5,
+            "max_diff_per_ax": 10,
+            "ax_labels": ["Sequence", "Other Cost"],
+            "marks": ["o", "+", "^"],
+            "col_cnt": 2,
+            "grids": 2,
+            "font.size": 8,
+            "_grids_": "0=off; 1=major, 2=major+minor"
+        }
+    }
+}

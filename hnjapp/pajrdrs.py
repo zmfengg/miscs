@@ -353,6 +353,7 @@ class PajShpHdlr(object):
             cls._read_order(fmd, td0, bomwgtsrng, locals())
         else:
             cls._read_sample(locals())
+        # the wgt's karat may not follow the JO's, follow it
         return items
 
     @staticmethod
@@ -371,6 +372,7 @@ class PajShpHdlr(object):
             if not bomsrc:
                 mwgt, bomsrc = tr.get("mtlwgt", 0), False
                 mwgt = PrdWgt(WgtInfo(_getdefkarat(jono), mwgt, 4))
+            mwgt = mwgt.follows(_getdefkarat(jono))
             invno = tr.invno or "N/A"
             if th.getcol('orderno'):
                 odno = tr.orderno
@@ -419,6 +421,7 @@ class PajShpHdlr(object):
             prdwgt = PajShpHdlr._getbomwgt(bomwgts, bomwgtsrng, p17)
             if not prdwgt:
                 prdwgt = PrdWgt(WgtInfo(0, 0))
+            prdwgt = prdwgt.follows(_getdefkarat(tr.jono))
             si = PajShpItem(bfn, odno,
                             JOElement(tr.jono).value, tr.qty, p17, tr.invno,
                             ivd, prdwgt, sts.get(p17, None), ivd, fmd, td0)

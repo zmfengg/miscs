@@ -315,7 +315,8 @@ class AckPriceCheck(object):
         if not all(sp):
             err = "Key argument(sp/gp/date) missing in (%s)" % bfn
             logger.debug("sheet(%s) has not enough arguments" % bfn)
-        df = pd.read_excel(fn, 'To Factory -Other_1', header=11).dropna(subset=['Job#'])
+        # TODO:: PAJ's form keep changing, so try to detect the row header, find Job#
+        df = pd.read_excel(fn, 'To Factory -Other_1', header=9).dropna(subset=['Job#'])
         df = df.assign(mps=MPS("S=%f;G=%f" % tuple(sp[:2])).value, adate=sp[-1])
         return df, err
 

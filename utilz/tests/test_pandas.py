@@ -184,6 +184,14 @@ class DataFrameSuite(_Base):
             pd.DataFrame(random((6, 4)), columns=tuple('abce'))])
         self.assertEqual(5, len(dfx.columns))
 
+    def testMakeDict(self):
+        ''' create dict from 2 columns
+        '''
+        lst = [('A', 1), ('B', 2)]
+        df = pd.DataFrame(lst, columns=('name', 'id'))
+        dct = dict(zip(df.name, df.id))
+        self.assertEqual(1, dct['A'])
+
     def testChangeIdxAndCol(self):
         ''' change a df's index/colname
         '''

@@ -7,23 +7,30 @@
 for python's language/basic facility test, a practice farm
 '''
 
+import dbm
 import gettext
 import re
+import tempfile
 from argparse import ArgumentParser
 from cProfile import Profile
+from datetime import datetime
 from itertools import islice
+import logging
 from logging import Logger
 from numbers import Number
+from os import path, remove
 from pstats import Stats
 from unittest import TestCase, skip
-import tempfile
-from os import remove, path
-import dbm
 
 from bidict import ValueDuplicationError
 from bidict import bidict as bd
+from sqlalchemy import create_engine
+from sqlalchemy.ext.declarative.api import declarative_base
+from sqlalchemy.sql.schema import Column, Index, ForeignKey
+from sqlalchemy.sql.sqltypes import TIMESTAMP, VARCHAR, Integer, SmallInteger, DECIMAL, DateTime, Float
+from sqlalchemy import text
 
-from utilz import getfiles, imagesize
+from utilz import ResourceCtx, SessionMgr, getfiles, imagesize
 from utilz.win32 import clearTempFiles
 
 _logger = Logger(__name__)
@@ -34,6 +41,23 @@ try:
     from PIL import Image
 except ImportError:
     pass
+
+String = VARCHAR
+
+_base = declarative_base()
+
+def logcfg(fn=None):
+    '''
+    config the loggers
+    '''
+    if not fn:
+        fn = tempfile.TemporaryFile(prefix='test_tech').name + '.log'
+    logging.basicConfig(
+        level=logging.INFO,
+        filename=fn)
+    logging.getLogger("sqlalchemy").setLevel(logging.DEBUG)
+    logging.getLogger().addHandler(logging.StreamHandler())
+    logging.info("log with file(%s)" % fn)
 
 
 @skip("TODO::")
@@ -620,9 +644,124 @@ class ManyInterfaces(object):
         # return super().__getattr__(self, name)
         raise AttributeError('attribute %s not defined in __getattr__()' % name)
 
+class PajItem(_base):
+    ''' A Paj's product, use for pajrdrs.PajUPTracker and pajrdrs.PajBomHdlr '''
+    __tablename__ = "pajitem"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    __table_args__ = (Index('idx_pajinv_pcode', 'pcode', unique=True),)
+    pcode = Column(VARCHAR(20))
+    docno = Column(VARCHAR(20))
+    createdate = Column(TIMESTAMP)
+    tag = Column(SmallInteger)
+
+class StoneOutMaster(_base):
+    __tablename__ = 'stone_out_master'
+
+    id = Column(Integer, primary_key=True, autoincrement=False)
+    name = Column(Integer, nullable=False, name="bill_id")
+    isout = Column(SmallInteger, nullable=False, name="is_out")
+    joid = Column(Integer, nullable=False, name="jsid")
+    qty = Column(DECIMAL, nullable=False)
+    filldate = Column(DateTime, nullable=False, name="fill_date")
+    packed = Column(SmallInteger, nullable=False, index=True)
+    subcnt = Column(SmallInteger, nullable=False)
+    workerid = Column(SmallInteger, server_default=text("0"), name="worker_id")
+    lastuserid = Column(SmallInteger, server_default=text("0"))
+    lastupdate = Column(DateTime)
+
+class StoneOut(_base):
+    __tablename__ = 'stone_out'
+
+    id = Column(
+        ForeignKey('stone_out_master.id'),
+        primary_key=True,
+        nullable=False,
+        autoincrement=False)
+    idx = Column(SmallInteger, primary_key=True, nullable=False)
+    btchid = Column(Integer, nullable=False, index=True)
+    workerid = Column(SmallInteger, nullable=False, name="worker_id")
+    qty = Column(Integer, nullable=False, name="quantity")
+    wgt = Column(Float, nullable=False, name="weight")
+    checkerid = Column(SmallInteger, nullable=False, name="checker_id")
+    checkdate = Column(DateTime, nullable=False, name="check_date")
+    joqty = Column(SmallInteger, name="qty")
+    printid = Column(Integer)
+    lastuserid = Column(SmallInteger, server_default=text("0"))
+    lastupdate = Column(DateTime)
+
 class SqlAlchemyURL(TestCase):
     '''
     url for create engine
     https://docs.sqlalchemy.org/en/13/core/engines.html
     '''
-    pass
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        fn = tempfile.TemporaryFile('w+t', prefix='cache').name + '.db'
+        eng = create_engine("sqlite+pysqlite:///%s" % fn)  #, echo=True)
+        PajItem.metadata.create_all(eng)
+        cls._sm = SessionMgr(eng)
+        logcfg()
+        logging.getLogger().info('dbFile was %s' % fn)
+
+    def testTrMgr(self):
+        '''
+            the add/flush/commit action failed on sybase, don't know if it works well under sqlite. If yes, sth. is wrong with the sybsae dialag.
+            After test, rollback/add/add_all/flush/commit works
+        '''
+        with ResourceCtx(self._sm) as sess:
+            sess.rollback()
+            sess.query(PajItem.id == 2).delete()
+            sess.commit()
+            for idx in range(20):
+                pi = PajItem()
+                pi.docno = 'A1234'
+                pi.pcode = '%04d' % idx
+                pi.tag = 0
+                pi.createdate = datetime.today()
+                sess.add(pi)
+            lst = []
+            for idx in range(20, 50):
+                pi = PajItem()
+                pi.docno = 'BX1010'
+                pi.pcode = 'PC%05d' % idx
+                pi.tag = 1
+                pi.createdate = datetime.today()
+                lst.append(pi)
+            sess.add_all(lst)
+            sess.commit()
+
+    def testStoneAdds(self):
+        '''
+        now test the SOM/SO add/commit actions, still works well. So, what's the problem.
+        One more thing, when the With....statement was executed, there is no rollback() by SQLAlchemy engine, but in the case of sybase, there is
+        a rollback() at the beginning. The behavior differs as below:
+            DBMS    Begin   Rollback
+            Sqlite  Yes     No
+            Sybase  No      Yes
+        '''
+        lst = []
+        lst1 = []
+        with ResourceCtx(self._sm) as sess:
+            for idx in range(1000000, 1000050):
+                som = StoneOutMaster()
+                som.id = som.name = idx
+                som.lastupdate = som.filldate = datetime.today()
+                som.isout = 200
+                som.joid = 1010101
+                som.lastuserid = 1
+                som.packed = som.qty = som.subcnt = som.workerid = 0
+                lst.append(som)
+                for x in range(10):
+                    so = StoneOut()
+                    so.id = idx
+                    so.idx = x
+                    so.workerid = so.joqty = so.printid = so.checkerid = 0
+                    so.lastupdate = so.checkdate = datetime.today()
+                    so.btchid = 1020304
+                    so.qty = 10101
+                    so.wgt = 102.34
+                    lst1.append(so)
+            sess.add_all(lst)
+            sess.add_all(lst1)
+            sess.commit()

@@ -28,7 +28,7 @@ from hnjcore.utils.consts import NA
 from utilz import (NamedList, NamedLists, daterange, getfiles, isnumeric,
                    splitarray, trimu, xwu, tofloat, stsizefmt, list2dict)
 
-from .common import _date_short, _logger as logger, config
+from .common import _date_short, _logger as logger, config, _getdefkarat
 
 _ptnbtno = cpl(r"(\d+)([A-Z]{3})(\d+)")
 
@@ -238,7 +238,8 @@ class C1InvRdr(object):
 
     @classmethod
     def _select_sheet(cls, wb):
-        mp, cnsc1 = {}, u"工单号 镶工 胚底 备注".split()
+        # mp, cnsc1 = {}, u"工单号 镶工 胚底 备注".split()
+        mp, cnsc1 = {}, u"工单号 镶工 胚底".split()
         for sht in wb.sheets:
             sn = sht.name
             nl = sn.find("月")
@@ -284,6 +285,8 @@ class C1InvRdr(object):
         for idx, nl in enumerate(nls):
             s0 = nl.jono
             if s0:
+                if s0 == '466167':
+                    print('x')
                 # print("reading jo(%s)" % s0)
                 je = JOElement(s0)
                 if je.isvalid():
@@ -327,9 +330,7 @@ class C1InvRdr(object):
             kt = sum((x.wgt for x in c1.stones)) / 5 if c1.stones else 0
             if c1.mtlwgt:
                 wgt = sum((x.wgt for x in c1.mtlwgt.wgts if x)) + kt
-                s0.append(
-                    c1._replace(
-                        mtlwgt=c1.mtlwgt._replace(netwgt=round(wgt, 2))))
+                s0.append(c1._replace(mtlwgt=c1.mtlwgt._replace(netwgt=round(wgt, 2))))
                 nl = (wgt - netwgt_c1[c1.jono][1] / c1.qty, netwgt_c1[c1.jono][0] / c1.qty)
                 if abs(nl[0] - nl[1]) > 0.01:
                     logger.debug("JO#(%s)'s netwgt contains error, it should be %4.2f but was %4.2f" % (c1.jono, nl[0], nl[1]))
@@ -392,7 +393,8 @@ class C1InvRdr(object):
             if pwgt and pwgt_check and not self._is_pendant(c1.styno):
                 wgt += pwgt
                 pwgt = 0
-            c1 = c1._replace(mtlwgt=addwgt(c1.mtlwgt, WgtInfo(kt, wgt / joqty, 4)))
+            mtlwgt = addwgt(c1.mtlwgt, WgtInfo(kt, wgt / joqty, 4)).follows(_getdefkarat(c1.jono))
+            c1 = c1._replace(mtlwgt=mtlwgt)
             if pwgt:
                 c1 = self._adjust_pwgt(c1, kt, pwgt / joqty)
         return c1 if hc else None
@@ -631,7 +633,7 @@ class C1JCMkr(object):
             nl.goldwgt = None # set the [] to None to avoid excel filling deadloop
             return
         #unitwgt to total wgt
-        for idx, wi in enumerate(var.mtlwgt.wgts):
+        for idx, wi in enumerate(var.mtlwgt.follows(nl.karat).wgts):
             if not (wi and wi.wgt):
                 continue
             nl[gccols[idx][0]] = wi._replace(wgt=round(wi.wgt * nl["joqty"], 2))
@@ -651,6 +653,7 @@ class C1JCMkr(object):
         for x in kwds.get("jcs").values():
             nl.setdata(x)
             self._calc_dtos(gccols, stcosts, **kwds)
+            # override the karat field for the JO#, an example is 466167
             var = self._getrefid(nl.running, refs)
             if not var:
                 logger.critical((
@@ -1109,30 +1112,54 @@ class C1STHdlr(object):
 
     def _persist(self, **kwds):
         err = True
+        uCnt = 0
+        #it's quite strange that even if I by monitor one by one, some committed records can not be found in the db, so generate SQL instead
+        # reason found: when there is locked batches, the transaction should have been rollbacked, but the ORM still don't throw the exception!
+        cmds = []
         with self._cnsvc.sessionctx() as cur:
             # new batches
             nbt, nsos, btmp = (kwds.get(x) for x in 'nbtmp nsos btmp'.split())
+            lst = []
             for x in nbt.items():
                 x[1].qty = int(x[1].qty) if x[1].qty else 0
-                cur.add(x[1])
-            cur.flush()
+                lst.append(x[1])
+                uCnt += 1
+            if uCnt > 0:
+                cur.add_all(lst)
+                cur.flush()
+                cur.commit()
+            uCnt = 0
+            fmtDt = lambda x: "'" + x.strftime('%Y-%m-%d %H:%M') + "'"
+            std = fmtDt(datetime.today())
             for x in nsos.values():
                 som = x["som"]
                 som.subcnt = len(x["sos"])
-                cur.add(som)
-            cur.flush()
-            for x in (y for x in nsos.values() for y in x["sos"]):
-                if isinstance(x.btchid, str):
-                    x.btchid = nbt[x.btchid].id
-                cur.add(x)
-            cur.flush()
+                theSQL = 'insert into stone_out_master(id, bill_id, is_out, jsid, qty, fill_date, packed, subcnt, worker_id, lastuserid, lastupdate) values(%d, %d, %d, %d, %d, %s, %d, %d, %d, %d, %s)'
+                theSQL = theSQL % (som.id, som.name, som.isout, som.joid, 0, std, 0, som.subcnt, som.workerid, 1, std)
+                # cur.add(som)
+                cmds.append(theSQL)
+                for so in x['sos']:
+                    if isinstance(so.btchid, str):
+                        so.btchid = nbt[so.btchid].id
+                    # cur.add(so)
+                    theSQL = 'insert into stone_out(id, idx, btchid, worker_id, quantity, weight, checker_id, check_date, qty, printid, lastuserid, lastupdate) values (%d, %d, %d, %d, %d, %f, %d, %s, %d, %d, %d, %s)'
+                    theSQL = theSQL % (so.id, so.idx, so.btchid, 0, so.qty, so.wgt, 0, fmtDt(so.checkdate), 0, 0, 1, std)
+                    cmds.append(theSQL)
+                uCnt += 1
+            if cmds:
+                for theSQL in cmds:
+                    cur.execute(theSQL)
+                cur.commit()
             self._persist_bck(cur, kwds.get("nbck"), nbt)
+            uCnt = 0
             ctag = int(datetime.today().strftime("%m%d"))
             for x in kwds["ncbt"]:
                 btno = btmp[x] if x in btmp else nbt[x]
                 btno.tag = ctag
                 cur.add(btno)
-            cur.flush()
+                uCnt += 1
+            if uCnt > 0:
+                cur.flush()
             cur.commit()
             err = False
         return not err
@@ -1142,6 +1169,7 @@ class C1STHdlr(object):
         ''' persist the stone_bck items '''
         if not nbck:
             return
+        uCnt = 0
         lst = [x.btchid for x in nbck if not isinstance(x.btchid, str)]
         if lst:
             try:
@@ -1179,7 +1207,9 @@ class C1STHdlr(object):
             idx += 1
             lst[x.btchid], x.idx = idx, idx
             cur.add(x)
-        cur.flush()
+            uCnt += 1
+        if uCnt > 0:
+            cur.flush()
 
     def readst(self, fn, persist=True):
         """
