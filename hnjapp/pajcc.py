@@ -126,7 +126,6 @@ class WgtInfo(namedtuple("WgtInfo", "karat,wgt")):
     def __str__(self):
         return "0" if not self.wgt else "%d=%4.2f" % (self.karat, self.wgt)
 
-
 # mps string and the corresponding silver/gold value
 class MPS(object):
     """
@@ -333,10 +332,19 @@ class PrdWgt(namedtuple("PrdWgt", "main,aux,part,netwgt")):
         stupid method, if main karat differs from mKarat, swap aux and main
         simple and stupid
         '''
-        wi = self.main
-        if karatsvc.getfamily(wi.karat).karat != karatsvc.getfamily(mKarat).karat and self.aux is not None:
-            return PrdWgt(self.aux, self.main, self.part, self.netwgt)
+        kt = karatsvc.getfamily(mKarat)
+        if kt:
+            wi = self.main
+            if karatsvc.getfamily(wi.karat).karat != kt.karat and self.aux is not None:
+                return PrdWgt(self.aux, self.main, self.part, self.netwgt)
         return self
+
+    @property
+    def empty(self):
+        '''
+        is all WgtInfo None or empty
+        '''
+        return sum([1 if x and x.wgt else 0 for x in self.wgts]) == 0
 
 
 # constants

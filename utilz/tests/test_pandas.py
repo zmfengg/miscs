@@ -269,25 +269,11 @@ class DataFrameSuite(_Base):
         df = sts.loc[sts.id.isin(lst)]
         df = sts.query('id not in @lst')
         df = sts.loc[~sts.id.isin((1, 2))] # not in
-
-    def testBoolean(self):
-        ''' test the union/intersection funciton
-        '''
-        df = pd.read_excel(r'd:\temp\syn.xlsx')
-        lst = []
-        for loc in df.location.unique():
-            lst.append(df.loc[df.location == loc].pcode.unique())
-        df, dfs = lst[0], set()
-        for df1 in lst[1:]:
-            df2 = pd.np.intersect1d(df, df1)
-            if len(df2) == 0:
-                dfs.update([x for x in df])
-                df = df1
-            else:
-                df = df2
-        dfs.update([x for x in df])
-        print(dfs)
-
+        # https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.Series.all.html
+        sr = pd.Series((None, pd.np.nan, 1, 2))
+        self.assertTrue(sr.all(skipna=False)) # None is not na
+        self.assertTrue(sr.all(skipna=True)) # quite strange
+        self.assertEqual(2, sum(sr.isna()), 'the correct method is to use isna() + sum')
 
     def testReadTable(self):
         ''' read table/csv differs only for the tab delimiter
@@ -323,7 +309,7 @@ class DataFrameSuite(_Base):
             self.assertFalse(df.all(), 'no non-empty data')
         sr = df.iloc[0]
         self.assertFalse(sr.any(), 'no non-empty data')
-        self.assertFalse(sr.all(), 'all() function is wrong')
+        self.assertTrue(sr.all(), 'all() function is wrong')
 
     def testModify(self):
         ''' append column assign() from existing column
@@ -382,7 +368,7 @@ class DataFrameSuite(_Base):
         frm = pd.read_table(path.join(getpath(), 'res', 'pd_tbl.txt'), encoding='gbk')
         # group by and merge, now try to get batches and sumQty of some pkno
         g = frm.groupby(['pkno', 'type'])
-        df0 = g['btchno'].apply(''.join).reset_index() # join return series with multi-index
+        df0 = g['btchno'].apply(','.join).reset_index() # join return series with multi-index
         df0['btchno'] = df0.btchno.apply(lambda x: x.split(','))
         df0['qty'] = g['qty'].sum().values #g['qty'].sum() return Series
         x = df0.loc[(df0.pkno == 'AMM00362') & (df0.type == '补烂')]
@@ -397,10 +383,20 @@ class DataFrameSuite(_Base):
         lst.insert(0, list('abc')) # the first element should be the title
         # https://thispointer.com/python-pandas-how-to-add-rows-in-a-dataframe-using-dataframe-append-loc-iloc/
         df1 = df.append(lst) #directly append list, but failed. 3 more columns appended
+        self.assertEqual(4, len(df1))
+        # 3 columns(0, 1, 2) were appended instead of 3 rows
+        self.assertTrue(0 in df1.columns)
+        self.assertFalse(0 in df.columns)
+        self.assertEqual(1, df1[0][1])
+        self.assertEqual(3, df1[2][3])
+
+        # the actual append action should be sth. like below
+        lst = [[1, 2, 3], ] * 3
+        df1 = pd.DataFrame(lst, columns=df.columns)
+        df1 = pd.concat((df, df1))
         self.assertEqual(3, len(df1))
-        self.assertEqual(1, df1.a[0])
-        self.assertEqual(3, df1.a[2])
-    
+        self.assertEqual(1, df1['a'][0])
+
     def testSorting(self):
         df = pd.DataFrame([[1, 2, 3], [1, 0, 4], [0, 1, 2], [-1, 1, 2]], columns=list('abc'))
         df1 = df.sort_values(['a'])

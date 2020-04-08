@@ -170,6 +170,14 @@
                 "density": 1.263
             },
             {
+                "karat": 417,
+                "name": "417",
+                "fineness": 0.417,
+                "category": "SILVER",
+                "color": "WHITE",
+                "density": 1.263
+            },
+            {
                 "karat": 9925,
                 "name": "BG",
                 "fineness": 0.356,
