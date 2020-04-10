@@ -13,7 +13,7 @@ from datetime import date
 from imghdr import what
 from inspect import currentframe, getfile
 from math import ceil
-from numbers import Integral
+from numbers import Integral, Number
 from os import listdir, path, remove
 from random import random
 from re import sub
@@ -21,14 +21,20 @@ from struct import unpack
 from sys import getfilesystemencoding, version_info
 from copy import copy, deepcopy
 from ._miscclz import Config, Salt, Number2Word, Literalize, Segments, NumericRange
+try:
+    import dbf
+except:
+    dbf = None
 
 _sh = _se = None
 
 __all__ = [
-    "NamedList", "NamedLists", 'config', "appathsep", "daterange", "deepget",
-    "easydialog", "easymsgbox", "emptyor", "getfiles", "getvalue", "iswritable", "isnumeric",
-    "imagesize", "list2dict", "lvst_dist", "monthadd", "na", "NA", "removews",
-    "Config", "Salt", "shellopen", "Number2Word", "Literalize", "splitarray", "tofloat", "triml", "trimu", "updateopts"
+    'NamedList', 'NamedLists', 'config', 'appathsep', 'daterange', 'deepget',
+    'df2dbf', 'easydialog', 'easymsgbox', 'emptyor', 'getfiles', 'getvalue', 
+    'iswritable', 'isnumeric', 'imagesize', 'list2dict', 'lvst_dist',
+    'monthadd', 'na', 'NA', 'removews', 'Config', 'Salt', 'shellopen',
+    'Number2Word', 'Literalize', 'splitarray', 'tofloat', 'triml', 'trimu',
+    'updateopts'
 ]
 
 NA = "N/A"
@@ -451,7 +457,61 @@ def triml(s0, removewsps=False):
     return s0
 
 def sign(val):
+    '''
+    python does not have a sign() function, this is it
+    '''
     return 0 if not val else 1 if val > 0 else -1
+
+def df2dbf(df, fn, **kwds):
+    '''
+    convert a pandas dataframe to dbf
+    Args:
+        df(DataFrame):          the dataframe
+        fn:                     the file to store the dbf
+        specs(optional Map):     if provided, a map with field definition, for example, 'id': 'C(20)'
+    '''
+    if not dbf:
+        print('pls install pdf module before using this function')
+        return None
+    fns = [x for x in df.columns]
+    row = df.iloc[0]
+    flds = ""
+    rowCnt = len(df)
+    specs = kwds.get('specs', {})
+    for cn in fns:
+        if flds != "":
+            flds += '; '
+        var = specs.get(cn)
+        if var:
+            if var.find(cn) < 0:
+                var = cn + ' ' + var
+            flds += var
+            continue
+        var = row[cn]
+        flds += cn.replace(' ', '') + ' '
+        if isinstance(var, Number):
+            if isinstance(var, int):
+                # sometimes a float column might have int value, so be safe
+                ln = 'n(12, 2)'
+            else:
+                ln = 'n(12, 4)'
+            flds += ln
+        elif isinstance(var, str):
+            if rowCnt < 10000:
+                ln = max(1, max(df[cn].apply(len)))
+            else:
+                ln = 250
+            flds += 'c(%d)' % ln
+        elif isinstance(var, date):
+            flds += 'd'
+        else:
+            flds += 'c(250)'
+    tbl = dbf.Table(fn, field_specs=flds)
+    with tbl.open(dbf.READ_WRITE):
+        lsts = df.values.tolist()
+        for lst in lsts:
+            tbl.append(tuple(lst))
+    return fn
 
 def easydialog(dlg):
     """

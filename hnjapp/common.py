@@ -11,9 +11,14 @@ import logging
 from os import path
 from re import compile as compile_r
 from csv import DictReader
+from socket import gethostname, gethostbyname
 
 from hnjcore import JOElement
 from utilz import Config, karatsvc, trimu, stsizefmt, NamedList
+try:
+    import dbf
+except:
+    dbf = None
 
 _logger = logging.getLogger("hnjapp")
 thispath = path.abspath(path.dirname(inspect.getfile(inspect.currentframe())))
@@ -451,3 +456,49 @@ class P17Decoder():
                        self._getpart(x, self._getdigits(p17,
                                                         self._cats_[x][1]))))
         return ss[0][1] if len(ns) <= 1 else dict(ss)
+
+def styno2unit(styno):
+    '''
+    an easy sty# to unit method, not accurate, for HK's legacy system
+    '''
+    return 'PR' if styno.find('E') >= 0 else 'PC'
+
+def cmpdbfs(ut, dbf0, dbf1, skips):
+    '''
+    check if 2 given dbf files are of the same, use by unittest
+    Args:
+        ut(TestCase):   an TestCase instance
+        dbf0(string):   the expected dbf file
+        dbf1(string):   the dbf file to compare with the expected
+        skips(Dict):    the colnames to skip, if provided, should be a dict
+    '''
+    lst0, lst1 = [_read_dbf(x, skips) for x in (dbf0, dbf1)]
+    ut.assertEqual(len(lst0), len(lst1), 'the count of records')
+    # sort the result to avoid index error
+    lst0, lst1 = [sorted(x) for x in (lst0, lst1)]
+    for idx, lst in enumerate(lst0):
+        ut.assertListEqual(lst, lst1[idx], 'comparing %s' % lst)
+
+def _read_dbf(fn, skips):
+    tbl, data, var = dbf.Table(fn), [], None
+    if not skips:
+        skips = ()
+    with tbl.open():
+        cns = sorted(tbl.field_names)
+        tbl.skip()
+        while not tbl.eof:
+            lst = [tbl.current_record[x] for x in cns if x not in skips]
+            # set those Null to 0 to avoid comparing error
+            var = [x.strip() if isinstance(x, str) else x for x in lst]
+            var = [0 if x is None else x for x in var]
+            data.append(var)
+            tbl.skip()
+    return data
+
+def is_in_cn():
+    """
+    simple method to check if the host is now in china, just get the ip address
+    HK's ip is sth. like 192. while chinese is 172.
+    """
+    ip = gethostbyname(gethostname())
+    return ip.find('172') == 0

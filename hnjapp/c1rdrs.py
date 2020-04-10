@@ -65,9 +65,11 @@ def _fmtbtno(btno):
                 pts.append(_nf(i[0], i[1]))
             btno = trimu("".join(pts))
         else:
-            mt = _ptnbtno.search(btno)
-            if mt:
-                btno = btno[mt.start(1):mt.end(2)] + ("%03d" % int(mt.group(3)))
+            #'10AUG311A01' or alike
+            if not (len(btno) > 8 and btno[-3] == 'A'):
+                mt = _ptnbtno.search(btno)
+                if mt:
+                    btno = btno[mt.start(1):mt.end(2)] + ("%03d" % int(mt.group(3)))
     return ("-" if flag else "") + btno
 
 

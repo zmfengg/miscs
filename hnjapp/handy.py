@@ -7,7 +7,7 @@
 handy utils for daily life
 '''
 
-from datetime import datetime
+from datetime import datetime, date
 from itertools import chain
 from numbers import Number
 from os import listdir, makedirs, path, remove, rename, sep, utime, walk
@@ -32,35 +32,19 @@ from utilz import (
     NamedLists, ResourceCtx, getfiles, splitarray, triml, trimu, xwu)
 from utilz.exp import AbsResolver, Exp
 from utilz.odbctpl import getXBase
+from utilz.miscs import df2dbf
 from utilz.xwu import (NamedRanges, appmgr, find, freeze, maketable, offset,
-                       usedrange)
+                       usedrange, df2sheet)
 
 from .common import _getdefkarat
 from .common import _logger as logger
-from .common import karatsvc
+from .common import karatsvc, styno2unit
 from .svcs.db import HKSvc
 
 try:
     import pandas as pd
 except:
     pandas = None
-
-
-
-def _df2sht(df, sht):
-    '''
-    dataframe to tuple of tuple, for excel value assignment
-    '''
-    lsts = [df.columns.to_list()]
-    for *_, row in df.iterrows():
-        lsts.append(row.tolist())
-    sht.cells[0, 0].value = lsts
-    rng = sht.range(sht.cells[0, 0], sht.cells(len(lsts), len(lsts[0])))
-    rng.row_height = 18
-    freeze(sht.cells[1, 1])
-    maketable(rng)
-    sht.autofit('c')
-    return lsts
 
 class CadDeployer(object):
     """
@@ -911,16 +895,28 @@ class MMStTk(object):
             wb = app.books.add()
             sht = wb.sheets[0]
             sht.name = 'StkData'
-            _df2sht(df, sht)
+            df2sheet(df, sht)
             wb.save(fn)
             wb.close()
         finally:
             appmgr.ret(tk)
         return fn
 
-class HKMeltdown(object):
-    '''
-    handle the HK meltdown issue
+class Meltdown(object):
+    r'''
+    handle the HK meltdown issues, which including:
+        1. convert the list to JO with metal weights
+        2. lookup the acost and catalog from fj_stock
+        3. after HK confirmation, sheets('DataTrf_FJ') and sheet('DataTrf_SN')
+            comes, makeStnDbf and makeFJDbf for legacy program
+
+    Step 1&2 need to be done in china because the weight data hosted in china, 
+    Need to copy fj_stock.* from HK to d:/joblog/_fj_data.
+    Step 3 don't need any database connection
+
+    There is also a class Meltdown in hk module, which is in charge of converting
+    the worksheet('DataTrf_FJ') by HK to fj_temp.dbf
+
     Args:
         fn(string): the source excel with sheet('00_List') as source
         sm_cn(func): a function that will create sessionMgr to China db
@@ -932,6 +928,136 @@ class HKMeltdown(object):
         self._x_cn = sm_cn
         self._x_hk = sm_hk
         self._wgt_flds = 2 # only write wgt0/wgt1 to result
+
+    @property
+    def _date_fmt(self):
+        return '%Y%m%d'
+
+    def makeStnDbf(self, *fldr):
+        '''
+        convert sheet('DataTrf_SN') to stn_temp.dbf for legacy system
+        '''
+        df = pd.read_excel(self._fn_stk, 'DataTrf_SN')
+        lsts = df.iloc[:8][df.columns[0]]
+        args, idx = {}, None
+        for idx, var in enumerate(lsts):
+            if var.find('Date :') >= 0:
+                var = [int(x) for x in var.split(':')[-1].strip().split('/')]
+                var = date(2000 + var[-1], var[1], var[0])
+                args['doymd'] = var.strftime(self._date_fmt)
+            elif var.find('Batch#:') >= 0:
+                args['refno'] = var.split(':')[-1].strip()
+            elif var.find('From ') >= 0:
+                var = var.split()
+                args['fmloc'] = var[1]
+                args['toloc'] = var[3]
+            else:
+                break
+        # other default values for the df
+        args['rfymd'] = date.today().strftime(self._date_fmt)
+        args['ttype'] = 'IN'
+
+        for var in 'upric tpric ucost'.split():
+            args[var] = 0
+        for var in 'remk1 remk2'.split():
+            args[var] = ''
+        args['work'] = ' '
+
+        var = [x for x in df.iloc[idx]]
+        mp = {
+            'Document#': 'docno',
+            'package': 'pkgid',
+            'Package#': 'scode',
+            'Description': 'descn',
+            'Unit': 'unit1',
+            'Qty/Wgt': 'quant',
+            'Aucos': 'acost'
+        }
+        var = [mp.get(x, x).lower() for x in var]
+
+        df = df.iloc[idx+1:]
+        df.columns = var
+        df = df.dropna(subset=['scode'])
+        df['lcode'] = df['scode'].apply(lambda x: x)
+        mp = len(df)
+        for idx, var in args.items():
+            df[idx] = [var, ] * mp
+        # append the fields
+        if fldr:
+            fldr = fldr[0]
+        else:
+            fldr = self._fileName('stn_temp')
+        var = 'refno rfymd docno doymd ttype fmloc toloc pkgid scode lcode descn remk1 remk2 unit1 quant upric tpric ucost acost work'.split()
+        var = [x for x in var if x in df.columns]
+        df = df[var]
+        if path.isdir(fldr):
+            fn = path.join(fldr, 'stn_temp.dbf')
+        else:
+            fn = fldr
+        return df2dbf(df, fn)
+
+    def makeFjDbf(self, *fldr):
+        '''
+        convert sheet('DataTrf_FJ') to fj_temp.dbf for legacy system
+        '''
+        df = pd.read_excel(self._fn_stk, 'DataTrf_FJ')
+        lsts = df.iloc[:8][df.columns[0]]
+        args, idx = {}, None
+        for idx, var in enumerate(lsts):
+            if var.find('Date :') >= 0:
+                var = [int(x) for x in var.split(':')[-1].strip().split('/')]
+                var = date(2000 + var[-1], var[1], var[0])
+                args['docdt'] = var
+                args['doymd'] = var.strftime(self._date_fmt)
+            elif var.find('Batch#:') >= 0:
+                args['refno'] = var.split(':')[-1].strip()
+            elif var.find('From ') >= 0:
+                var = var.split()
+                args['fmloc'] = var[1]
+                args['toloc'] = var[3]
+            else:
+                break
+        # other default values for the df
+        args['rfymd'] = date.today().strftime(self._date_fmt)
+        args['ttype'] = 'OU'
+        for var in 'ucost upric oacos'.split():
+            args[var] = 0
+        for var in 'remrk remk1 remk2'.split():
+            args[var] = ''
+        args['work'] = ' '
+
+        var = [x for x in df.iloc[idx]]
+        mp = {
+            'Catag': 'catag',
+            'Document#': 'docno',
+            'NCODE': 'lcode',
+            'Total Cost': 'ttcos',
+            'AUCOS': 'acost'
+        }
+        var = [mp.get(x, x).lower() for x in var]
+
+        df = df.iloc[idx+1:]
+        df.columns = var
+        df = df.dropna(subset=['lcode'])
+        mp = len(df)
+        for idx, var in args.items():
+            df[idx] = [var, ] * mp
+        df['styno'] = df['lcode'].apply(lambda x: x.split('/')[0])
+        df['runno'] = df['lcode'].apply(lambda x: x.split('/')[1])
+        df['unit1'] = df['styno'].apply(styno2unit)
+        # append the fields
+        if fldr:
+            fldr = fldr[0]
+        else:
+            fldr = self._fileName('fj_temp')
+        var = 'catag docno docdt doymd refno rfymd ttype fmloc toloc styno runno lcode descn quant upric unit1 ucost acost oacos remrk remk1 remk2 work'.split()
+        var = [x for x in var if x in df.columns]
+        df = df[var]
+        if path.isdir(fldr):
+            fn = path.join(fldr, 'fj_temp.dbf')
+        else:
+            fn = fldr
+        return df2dbf(df, fn)
 
     @property
     def _cnn_cn(self):
@@ -976,11 +1102,15 @@ class HKMeltdown(object):
                 fn = path.join(self._fileName('cache'), _bn(self._fn_stk, '_lst2jn.csv', '_'))
             elif tn == 'fjdat':
                 fn = path.join(self._fileName('cache'), _bn(self._fn_stk, '_fjdat.csv', '_'))
+            elif tn == 'stn_temp':
+                fn = r'f:\APPLICAT\ASIA_STN\util\stn_temp.dbf'
+            elif tn == 'fj_temp':
+                fn =  r'f:\APPLICAT\ASIA_FJ\data\util\fj_temp.dbf'
         return fn
 
-    def run(self):
+    def makeFJ(self):
         '''
-        create the FJ sheet based on a raw list, should be run under PY environment because most data source is PY based.
+        create the sheet('FJ')(for HK) based on a raw list, should be run under PY environment because most data source is PY based.
         list should be placed in sheet("00_List"), result file will be saved as a csv file in the same folder
         If not all aucos is found, update _fj_data\fj_stock files from HK
         '''
@@ -1139,7 +1269,7 @@ class HKMeltdown(object):
                 df = pd.read_csv(self._fileName('lst2jn'), converters={'runno': self._runnoCvt})
             else:
                 s0 = "','".join(set(df_src.rpno))
-                theSql = "select ma.docno, sm.styno, sm.running as runno, sm.description, d.qty as quant, ma.inoutno as refno, convert(varchar(20), docdate, 112) as doymd from invoicema ma join invoicedtl d on ma.invid = d.invid join stockobjectma sm on d.srid = sm.srid where docno in ('%s') and locationidfrm = 2"
+                theSql = "select ma.docno, sm.styno, sm.running as runno, sm.description as descn, d.qty as quant, ma.inoutno as refno, convert(varchar(20), docdate, 112) as doymd from invoicema ma join invoicedtl d on ma.invid = d.invid join stockobjectma sm on d.srid = sm.srid where docno in ('%s') and locationidfrm = 2"
                 cnn = self._cnn_hk
                 df = pd.read_sql_query(theSql % s0, cnn)
                 df.to_csv(self._fileName('lst2jn'), index=False)
@@ -1196,7 +1326,7 @@ class HKMeltdown(object):
         sht = xwu.findsheet(wb, fn)
         updCnt = 0
         if not sht:
-            _df2sht(df, wb.sheets.add(fn))
+            df2sheet(df, wb.sheets.add(fn))
             updCnt += 1
         wgts = {}
         fn = 'MtlWgt'
@@ -1212,7 +1342,7 @@ class HKMeltdown(object):
                     wgts[cat] = round(wgts.get(cat, 0) + kt.fineness * row.quant * wgt, 2)
             wgts = sorted(list(wgts.items()), key=lambda x: x[0])
             sht = wb.sheets.add(fn)
-            _df2sht(pd.DataFrame(wgts, columns='Metal Wgt'.split()), sht)
+            df2sheet(pd.DataFrame(wgts, columns='Metal Wgt'.split()), sht)
             updCnt += 1
         if updCnt > 0:
             wb.save()

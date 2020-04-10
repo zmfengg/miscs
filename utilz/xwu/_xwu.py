@@ -28,7 +28,7 @@ except:
     Image = None
 
 __all__ = [
-    "NamedRanges", "addr2rc", "apirange", "app", "appmgr", "appswitch", "col", "contains", "detectborder", "escapetitle", "esctext", "find", "findsheet", "freeze", "fromtemplate", "hidden", "insertphoto", "maketable", "name_sheet", "nextcell", "nextrc", "offset", "rc2addr", "safeopen", "usedrange"
+    "NamedRanges", "addr2rc", "apirange", "app", "appmgr", "appswitch", "col", "contains", "detectborder", "df2sheet", "escapetitle", "esctext", "find", "findsheet", "freeze", "fromtemplate", "hidden", "insertphoto", "maketable", "name_sheet", "nextcell", "nextrc", "offset", "rc2addr", "safeopen", "usedrange"
 ]
 _validappsws = set(
     "visible,enableevents,displayalerts,asktoupdatelinks,screenupdating".split(
@@ -224,6 +224,20 @@ def maketable(rng, name=None):
     except:
         return None
 
+def df2sheet(df, sht):
+    '''
+    dataframe to sheet, in good format, handy code for convenience
+    '''
+    lsts = df.values.tolist()
+    lsts.insert(0, df.columns.to_list())
+    sht.cells[0, 0].value = lsts
+    rng = sht.range(sht.cells[0, 0], sht.cells(len(lsts), len(lsts[0])))
+    rng.row_height = 18
+    freeze(sht.cells[1, 1])
+    usedrange(sht).api.ClearFormats()
+    maketable(rng)
+    sht.autofit('c')
+    return sht
 
 def contains(sht, vals):
     """ check if the sheet contains all the value in the vals tuple
