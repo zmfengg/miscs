@@ -445,9 +445,15 @@ class C3InvRdr(C1InvRdr):
             if '0' <= ch <= '9':
                 sfx = stname[idx:]
                 break
+            elif ch in ('#', ':'):
+                continue
             pfx += ch
         sfx = stsizefmt(sfx, True) if sfx else ' '
-        snn = self._st_mp.get(pfx, ('_R', '_' + pfx))
+        if pfx not in self._st_mp:
+            snn = ('_R', '_' + pfx)
+            print("Stone(%s) not found in conf.json, section='c1shp.stone.alias'" % pfx)
+        else:
+            snn = self._st_mp[pfx]
         return snn[0], snn[1], sfx
 
 

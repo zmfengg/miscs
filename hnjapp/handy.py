@@ -796,18 +796,18 @@ class MMStTk(object):
         cmds = []
         keys = (set(mp_df.keys()), set(mp_dfc.keys()))
         diff = keys[1].difference(keys[0])
-        theSql = "update stockobjectma set qtyleft = %f where stockcode = '%s'"
+        theSql = "update stockobjectma set qtyleft = %4.1f where stockcode = '%s' and qtyleft <> %4.1f"
         if diff:
             lsts = []
             for x in diff:
                 lsts.append((x, 'N/A', mp_dfc[x]))
-                cmds.append(theSql % (mp_dfc[x], x))
+                cmds.append(theSql % (mp_dfc[x], x, mp_dfc[x]))
             df = pd.concat((df, pd.DataFrame(lsts, columns=df.columns)))
         for idx, row in df.iterrows():
             cqty = float(mp_dfc.get(row.stockcode, 0))
             if abs(float(row.qty) - cqty) > 0.1:
                 df.loc[idx, 'qty'] = cqty
-                cmds.append(theSql % (cqty, row.stockcode))
+                cmds.append(theSql % (cqty, row.stockcode, cqty))
         if cmds:
             with open(self._fileName('mm_calc_sql'), 'w+t') as fh:
                 cmds.insert(0, 'use cstbld')
@@ -817,17 +817,37 @@ class MMStTk(object):
                 for x in cmds:
                     print(x, file=fh)
             print("pls. execute file(%s) to sync stockobjectma's qtyleft" % self._fileName('mm_calc_sql'))
+        df_after = self._getStockCalc(True)
+        if df_after is not None:
+            lsts = []
+            for *_, row in df_after.iterrows():
+                x = df.loc[df.stockcode == row.stockcode]
+                if not x.empty:
+                    x = x.iloc[0].qty
+                    df.loc[df.stockcode == row.stockcode, 'qty'] = x - row.qty
+                else:
+                    lsts.append((row.stockcode, 'N/A', -row.qty))
+            if lsts:
+                df = pd.concat((df, pd.DataFrame(lsts, columns=df.columns)))
         return df
 
-    def _getStockCalc(self):
+    def _getStockCalc(self, after=False):
+        ''' return the re-calculated stock qtyleft
+        Args:
+            after(Boolean): True to return those after Apirl, 1st, false to return all
+        '''
         fn = self._fileName('mm_calc')
-        if path.exists(fn):
+        if not after and path.exists(fn):
             df = pd.read_csv(fn)
         else:
-            theSql = 'select * from (select so.stockcode, sum(case when inv.locationidfrm = 2 then -d.qty else d.qty end) as qty from invoicema inv join invoicedtl d on inv.invid = d.invid join stockobjectma so on d.srid = so.srid where (inv.locationidto <> 9 and (inv.locationidfrm = 2 or inv.locationidto = 2)) group by so.stockcode) v where qty <> 0'
+            theSql = 'select so.stockcode, sum(case when inv.locationidfrm = 2 then -d.qty else d.qty end) as qty from invoicema inv join invoicedtl d on inv.invid = d.invid join stockobjectma so on d.srid = so.srid where %s (inv.locationidto <> 9 and (inv.locationidfrm = 2 or inv.locationidto = 2)) group by so.stockcode'
+            s0 = " inv.docdate >= '%s/04/01' and " % self._year if after else ''
+            theSql %= s0
+            theSql = 'select * from (%s) v where qty <> 0' % theSql
             with self._cnnHK as cnn:
                 df = pd.read_sql_query(theSql, cnn)
-            df.to_csv(fn, index=False)
+            if not after:
+                df.to_csv(fn, index=False)
             print('%d recalculated stock records from database' % len(df))
         return df
 

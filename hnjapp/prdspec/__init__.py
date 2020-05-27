@@ -9,5 +9,6 @@ Product Spec handler, including Acessor/Normalizer
 '''
 
 from ._fromjo import FromJO, JOFormHandler
+from ._nmctrl import NameGtr, NameSvc, NameGtr
 
-__all__ = ['FromJO', 'JOFormHandler']
+__all__ = ['FromJO', 'JOFormHandler', 'NameGtr', 'NameSvc', 'NameGtr']

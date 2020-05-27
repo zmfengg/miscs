@@ -47,11 +47,11 @@ class FormHandler(object):
     Args:
         wb: the workbook to process on
 
-        hdlr: if exists, the settings will be inited from hdlr instead of loading from wb
+        hdlr(FormHandler): if exists, the settings will be inited from hdlr instead of loading from wb
 
         `sheet_name=None: name of the target form(sheet)
 
-        `field_nls`=None: a NamedLists with 3 columns: name,address,direction, direction should be one of u/d/l/r. if this is omitted, the wb must contains a sheet('MetaData') and inside the sheet, a table named 'm_fmp' must be there and the table at least contains 3 columns as above 
+        `field_nls`=None: a NamedLists with 3 columns: name,address,direction, direction should be one of u/d/l/r. if this is omitted, the wb must contains a sheet('MetaData') and inside the sheet, a table named 'm_fmp' must be there and the table at least contains 3 columns as above
 
         cn_seqid='seqid': id name of the table-like data. This is must-have, used for testing table size because the field_nls specify only the column name, no table size
 
@@ -60,7 +60,7 @@ class FormHandler(object):
         nrls=None: a NrlsInvoker instance, used in both read and write
     '''
 
-    def __init__(self, wb, hdlr=None, **kwds):        
+    def __init__(self, wb, hdlr=None, **kwds):
         self._wb, self._sheet, self._nrls = wb, None, None
         self._nrm = kwds.get('_nrm', triml)
         '''
@@ -194,7 +194,7 @@ class FormHandler(object):
                 # translate it to namedlist if it's not
                 if isinstance(v, (tuple, list, NamedLists)):
                     lst = [x for x in v]
-                    if not isinstance(lst[0], NamedList):
+                    if lst and not isinstance(lst[0], NamedList):
                         lst = [x for x in NamedLists(lst)]
                     nd.value = lst
                 else:
@@ -489,7 +489,7 @@ class Node(object):
             nls = [nl for nl in nls]
         elif isinstance(nls, (tuple, list)) and not isinstance(nls[0], NamedList):
             nls = [nl for nl in NamedLists(nls)]
-        
+
         # fast write works only for large data
         if len(nls) * len(nls[0].colnames) > 5:
             self._write_block(nls)

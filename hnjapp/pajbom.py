@@ -27,18 +27,24 @@ from utilz.xwu import appmgr as _appmgr, esctext
 from .common import _logger as logger, P17Decoder
 from .localstore import PajBom, PajItem
 from .pajcc import PrdWgt, WgtInfo, addwgt
+try:
+    import pandas as pd
+except:
+    pd = None
 
 
 class PajBomHdlr(object):
     """ class to read BOMs from PAJ
-    @param part_chk_ver: the Part checker version,
+    Args:
+    part_chk_ver(bool): the Part checker version,
         default is None or 0,
             That is, when there is (chain with length) and (lock exists),
             圈 will be treated as part of the chain
         1 stands for loose,
             That is, when there is chain with length,
             圈 will be treated as part of the chain
-    @param cache: A sessionMgr pointing to a cache db
+    cache(sessionMgr): A sessionMgr pointing to a cache db
+    set_file(string):   file of the pcode set, which indicates pcode->pcodes map
     """
     _ptn_oz = cpl(r"\(\$\d*/OZ\)")
     _one_hit_mp = {
@@ -81,6 +87,7 @@ class PajBomHdlr(object):
     def __init__(self, **kwargs):
         self._part_chk_ver = getvalue(kwargs, "part_chk_ver")
         self._dao = getvalue(kwargs, "cache,cache_db,sessmgr")
+        self._fn_set = getvalue(kwargs, "set_file") or r'\\172.16.8.46\pb\DptFile\pajForms\Miscs\C款套件码字典.xls'
         if self._dao:
             self._dao = _PajBomDAO(self._dao)
 
@@ -177,7 +184,6 @@ class PajBomHdlr(object):
             finally:
                 if kxl and app:
                     _appmgr.ret(kxl)
-        self._adjust_wgts(pmap)
         return pmap
 
     def readbom_manual(self, wb, pcodeset, **kwds):
@@ -193,7 +199,6 @@ class PajBomHdlr(object):
         main_offset, min_rowcnt = kwds.get("main_offset", 3), kwds.get("min_rowcnt", 7)
         bcwgts = kwds.get("bc_wgts") or {}
         self._read_book(wb, pmap)
-        self._adjust_wgts(pmap)
         if NA in pcodeset:
             # the caller does not provided any pcode, try to build based on returned bom's semi-chain item(if there is).
             lsts = {x["pcode"] for x in pmap.values() if x["mtlwgt"].part and x["mtlwgt"].part.wgt < 0}
@@ -297,6 +302,64 @@ class PajBomHdlr(object):
         """
         return chns and bi["_id"] in chns or lks and lks.get(bi["_id"]) or has_semi_chn and [1 for v in self._pts_kws if bi["name"].find(v) >= 0]
 
+    def _append_set(self, pmap):
+        ''' append set code if there is
+        '''
+        if not path.exists(self._fn_set):
+            return
+        if pd:
+            df = pd.read_excel(self._fn_set)
+            cns = {'套饰码': 'scode',
+                '17#': 'pcode'}
+            cns = [cns.get(x, x) for x in df.columns]
+            df.columns = cns
+            df = df.groupby(['scode'])
+            nls = df.apply(lambda row: (row.scode, tuple(sorted(set(row.pcode)))))
+            setMp = dict(zip(nls.index, [x[1] for x in nls]))
+        else:
+            app, tk = xwu.appmgr.acq()
+            try:
+                wb = xwu.safeopen(app, self._fn_set)
+                sht = xwu.findsheet(wb, 'sheet1')
+                nls = xwu.NamedRanges(sht.cells[0, 0], {'scode': '套饰码', 'pcode': '17#'})
+                setMp = {}
+                for nl in nls:
+                    lst = setMp.setdefault(nl.scode, [])
+                    lst.append(nl.pcode)
+                setMp = {x[0]: sorted(x[1]) for x in setMp.items()}
+            finally:
+                if tk:
+                    xwu.appmgr.ret(tk)
+        if setMp:
+            df = {}
+            for cns in setMp.items():
+                if len(cns[1]) != sum(1 if x in pmap else 0 for x in cns[1]):
+                    continue
+                pw = None
+                nls = tuple(pmap[x]['mtlwgt'] for x in cns[1])
+                # check if parts has same kt if there is
+                ptKt = True
+                for nl in [x.part for x in nls]:
+                    ptKt = not nl or not nl.wgt
+                    if not ptKt:
+                        ptKt = not pw or pw == nl.karat
+                        pw = nl.karat
+                    if not ptKt:
+                        break
+                pw = None
+                for nl in nls:
+                    if pw:
+                        for idx, wi in enumerate(nl.wgts):
+                            if not wi or not wi.wgt:
+                                continue
+                            pw = addwgt(pw, wi, ptKt and idx == 2)
+                    else:
+                        nw = round(sum([x.netwgt for x in nls]), 2)
+                        pw = PrdWgt(nl.main, nl.aux, nl.part, nw) if ptKt else addwgt(PrdWgt(nl.main, nl.aux, None, nw), nl.part)
+                # because this bom is mock, only keep mtlwgt in the result map
+                df[cns[0]] = {'mtlwgt': pw}
+            pmap.update(df)
+
     def _adjust_wgts(self, pmap):
         if not pmap:
             return
@@ -317,7 +380,7 @@ class PajBomHdlr(object):
             if self._ispendant(pcode):
                 for y in prop["parts"][::]:
                     var = y["name"]
-                    if triml(var).find("chain") >= 0:
+                    if triml(var).find("chain") >= 0 or var.find('吊牌') >= 0:
                         ch_lks.setdefault("chain", {})[y["_id"]] = y
                     elif self._ptn_chn_lck.search(var):
                         ch_lks.setdefault("lock", {})[y["_id"]] = y
@@ -390,7 +453,7 @@ class PajBomHdlr(object):
         check if the chains contains semi-chain, that is, 成品链
         """
         for y in chns.values():
-            if tofloat(y["length"]):
+            if tofloat(y["length"]) or y['name'].find('吊牌') >= 0:
                 return True
         return False
 
@@ -418,6 +481,9 @@ class PajBomHdlr(object):
             self._append_bd(bg_sht, shts[0][0])
         for sht, rdr in {shts[0]: self._read_mstr, shts[1]: self._read_pts}.items():
             rdr(sht, pmap, cvt2tbl)
+        self._adjust_wgts(pmap)
+        self._append_set(pmap)
+        return pmap
 
     @classmethod
     def _get_data(cls, sht_rng, nmp):

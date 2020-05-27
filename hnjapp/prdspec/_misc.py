@@ -10,7 +10,7 @@ the CZsize/From JO and ...
 from os import path
 from utilz import stsizefmt, NamedLists, trimu
 from ._nrlib import thispath
-from ._utilz import config
+from hnjapp.svcs.db import SvcBase
 
 class _SNS2Wgt(object):
     ''' given stone, shape and size, return weight

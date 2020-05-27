@@ -686,5 +686,16 @@
             "ASIA": "JP,CN,KR,HK,TW,SG",
             "SWISS": "CH,ES"
         }
+    },
+    "UnitCvtSvc":{
+        "CT": ["WEIGHT", 0.2],
+        "GM": ["WEIGHT", 1],
+        "TL": ["WEIGHT", 37.8],
+        "INCH": ["LENGTH", 25.4],
+        "MM": ["LENGTH", 1],
+        "CM": ["LENGTH", 10],
+        "DM": ["LENGTH", 100],
+        "M": ["LENGTH", 1000],
+        "KM": ["LENGTH", 1000000]
     }
 }

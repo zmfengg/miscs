@@ -356,8 +356,8 @@ class PajShpHdlr(object):
         # the wgt's karat may not follow the JO's, follow it
         return items
 
-    @staticmethod
-    def _read_order(fmd, td0, bomwgtsrng, kwds):
+    @classmethod
+    def _read_order(cls, fmd, td0, bomwgtsrng, kwds):
         th, items, bfn, bomwgts = [kwds.get(x) for x in 'th items bfn bomwgts'.split()]
         for tr in kwds['nls']:
             if not tr.pcode:
@@ -403,8 +403,8 @@ class PajShpHdlr(object):
                                 ivd, mwgt, stwgt, ivd, fmd, td0)
                 items[thekey] = si
 
-    @staticmethod
-    def _read_sample(kwds):
+    @classmethod
+    def _read_sample(cls, kwds):
         # new sample case, extract weight data from the quo sheet, but deprecated
         # get from bom instead
         items, fmd, td0, bfn, bomwgts, bomwgtsrng = [kwds.get(x) for x in 'items fmd td0 bfn bomwgts bomwgtsrng'.split()]
@@ -686,7 +686,7 @@ class _BomSheetBldr(object):
                 p_2_jns.setdefault(x[1], []).append((
                     x[0],
                     jns[x[0]],
-                ))            
+                ))
         pmp = self._read_bc_wgts(wb, p_2_jns)
         if extended:
             # leave a sign to the caller

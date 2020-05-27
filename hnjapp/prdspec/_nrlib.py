@@ -192,7 +192,7 @@ class _TBaseNrl(TBaseNrl):
     def __init__(self, **kwds):
         super().__init__(**kwds)
 
-    @abstractmethod    
+    @abstractmethod
     def _nrl_row(self, name, row, nl, logs):
         ...
 
@@ -311,7 +311,7 @@ class PartsNrl(_TBaseNrl):
     def __init__(self, **kwds):
         super().__init__(**kwds)
         self._nrl_mp = None
-    
+
     def _nrl_row(self, name, row, nl, logs):
         pass
 
@@ -553,7 +553,7 @@ class _HintsHdlr(object):
             return
         self._meta_mp = {}
         nrm = self.nrm
-        for sn, mp in config.get('prodspec.meta_tables').items():
+        for sn, mp in config.get('prdspec.meta_tables').items():
             sht = self._wb.sheets(sn)
             for meta_type, tblname in mp.items():
                 addr = apirange(sht.api.listObjects(tblname).Range)
@@ -566,7 +566,7 @@ class _HintsHdlr(object):
         '''
         find a best match meta data item based on the cand string.
         Args:
-            meta_type(string): sth. like 'producttype'/'finishingmethod', which was defined in conf.json under key 'prodspec.meta_tables'
+            meta_type(string): sth. like 'producttype'/'finishingmethod', which was defined in conf.json under key 'prdspec.meta_tables'
             cand(string): the candidate string that need matching
         Returns:
             A tuple as:

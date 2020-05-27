@@ -96,7 +96,7 @@ class AckPriceCheck(object):
     @property
     def _fn_dts(self):
         return self._cache('_fdates.dat')
-    
+
     def __init__(self, fldr, hksvc):
         self._fldr, self._hksvc = fldr, hksvc
         self._fmtr = _AckFmt()
@@ -170,7 +170,7 @@ class AckPriceCheck(object):
                 dds = {}
             exps, jes = set(), set()
             lst, td = [], datetime.today()
-            for idx, x in srcs.iterrows():
+            for *_, x in srcs.iterrows():
                 if not (x.pajprice and x.date and x.mps):
                     continue
                 var = x.file
@@ -349,7 +349,7 @@ class AckPriceCheck(object):
                     df = dx if (df is None or df.empty) else pd.concat([df, dx], ignore_index=True)
                 if not err:
                     # name convert and just fetch some columns
-                    ttls = ('file,Job#,Style#,Quantity,Price,mps,adate,Item No'.split(','), 
+                    ttls = ('file,Job#,Style#,Quantity,Price,mps,adate,Item No'.split(','),
                     'file jono styno qty pajprice mps date pcode'.split())
                     df = pd.concat([df[x] for x in ttls[0]], keys=ttls[1], axis=1)
                     df.to_csv(self._fn_src, index=None)
@@ -405,7 +405,7 @@ class AckPriceCheck(object):
 
         for pcode in pcodes:
             wgts = self._wgtsvc.wgts(pcode)
-            if wgts:                    
+            if wgts:
                 nl.wgts = wgts
                 break
 
@@ -527,7 +527,7 @@ class AckPriceCheck(object):
             except:
                 logger.debug('failed to get po/wgts for JO(%s), maybe BIG5 encoding error' % jo.name.value)
         return pd.DataFrame(mp, columns='jono poprice pcode'.split())
-    
+
     def _cache(self, fn):
         fldr = path.join(self._fldr, '_cache')
         if not path.exists(fldr):
@@ -546,6 +546,7 @@ class AckPriceCheck(object):
         if df is not None:
             df['pcode'] = df.pcode.apply(lambda x: x.replace("'", '')[1:-1].split(','))
             df.jono = df.jono.apply(self._jc)
+            self._wgtsvc.setP2jn(df)
         reqs = set(src_mp.jono)
         if not (df is None or df.empty):
             reqs = reqs - set(df.jono)
@@ -576,6 +577,7 @@ class AckPriceCheck(object):
             elif isinstance(nl, pd.Series):
                 var[k] = pd.DataFrame(v)
         return var, None # TODO:: return jos to avoid persist-double-retrieve
+
 
     def _write_wb(self, rsts, fn):
         app, kxl = xwu.appmgr.acq()
@@ -608,7 +610,7 @@ class AckPriceCheck(object):
             tmp['flag'] = tmp.apply(lambda k: self._fmtr.classify_ref(k.pajprice, k.expected, False), axis=1)
             tmp = tmp.loc[tmp.flag > 0]
             del tmp['flag']
-            tmp['ref'] = tmp.ref.apply(lambda x: x.split('_')[0]) # remove the profit result from REF for PAJ            
+            tmp['ref'] = tmp.ref.apply(lambda x: x.split('_')[0]) # remove the profit result from REF for PAJ
             mp['_paj_enq'] = tmp
         tmp = set()
         # when item in higher level, don't show them in lower one
@@ -632,29 +634,30 @@ class AckPriceCheck(object):
         xwu.appmgr.ret(kxl)
         return fn
 
-    def _write_sht(self, name, nls, wb):
-        if nls is None:
+    def _write_sht(self, name, df, wb):
+        if df is None:
             return
         lst = []
         excl = self._fmtr.excludes(name) or ()
-        hdr = [x for x in nls.columns]
+        hdr = [x for x in df.columns]
         if excl:
             hdr = [x for x in hdr if x not in excl]
-        if len(nls) > 1:
-            nls = self._fmtr.sort(name, nls)
+        if len(df) > 1:
+            df = self._fmtr.sort(name, df)
+
+        _flag = lambda cn: cn in df.columns
+        if _flag('jono'):
+            df.jono = df.jono.apply(lambda x: "'" + x if x[0] != "'" else x)
+        if  _flag('wgts'):
+            df.wgts = df.wgts.apply(lambda x: x if isinstance(x, str) else (';'.join('%d=%4.2f' % (x.karat, x.wgt) for x in x.wgts if x and x.wgt)))
+        if _flag('ratio'):
+            df.ratio = df.ratio.apply(lambda x: x if isinstance(x, str) else "%4.2f%%" % (x or 0))
+
         hdr_ttl = [self._fmtr.label('cat.cns', x) for x in hdr]
         hdr_ttl = [x[0] if isinstance(x, list) else x for x in hdr_ttl]
         lst.append(hdr_ttl)
         hdr_mp = {x: idx for idx, x in enumerate(hdr)}
-        _flag = lambda cn: cn in nls.columns
-        if _flag('jono') and nls.iloc[0].jono[0] != "'":
-            nls.jono = nls.jono.apply(lambda x: "'" + x)
-        _flag = lambda cn: cn in nls.columns and not isinstance(nls.iloc[0][cn], str)
-        if  _flag('wgts'):
-            nls.wgts = nls.wgts.apply(lambda x: ';'.join('%d=%4.2f' % (x.karat, x.wgt) for x in x.wgts if x and x.wgt))
-        if _flag('ratio'):
-            nls.ratio = nls.ratio.apply(lambda x: "%4.2f%%" % (x or 0))
-        for idx, nl in nls.iterrows():
+        for idx, nl in df.iterrows():
             lst.append([nl[x] for x in hdr])
         sht = wb.sheets.add(self._fmtr.label('cats', name) or name)
         sht.range(1, 1).value = lst
@@ -681,7 +684,7 @@ class AckPriceCheck(object):
             rng.formatconditions.add(FormatConditionType.xlExpression, FormatConditionOperator.xlEqual, fidx)
             rng.formatconditions(rng.formatconditions.count).interior.colorindex = 40
             sht.cells[1, 0].select()
-            self._write_his(nls, wb.sheets.add())
+            self._write_his(df, wb.sheets.add())
 
     def _write_his(self, nls, sht):
         ''' write the history of exception pcodes to a sheet and plot
@@ -1268,6 +1271,11 @@ class LocalJOWgts(object):
         self._modcnt, self._fn = 0, csv_fn
         self._df = pd.read_csv(csv_fn, keep_default_na=False) if path.exists(csv_fn) else pd.DataFrame(None, columns='pcode k0 w0 k1 w1 k2 w2'.split())
         self._hksvc = hksvc
+        self._p2jn_mp = None
+
+    def setP2jn(self, df):
+        pj = zip(df.pcode, df.jono)
+        self._p2jn_mp = {y: x[1] for x in pj for y in x[0]}
 
     def wgts(self, pcode):
         ''' return weights of JO#
@@ -1294,6 +1302,11 @@ class LocalJOWgts(object):
     def _jo_of(self, pcode):
         ''' the latest JO of given pcode, for better weight value
         '''
+        if self._p2jn_mp:
+            jn = self._p2jn_mp.get(pcode)
+            if jn:
+                jo = self._hksvc.getjos((jn, ))
+                return jo[0][0]
         with self._hksvc.sessionctx() as cur:
             lst = cur.query(JO).join(PajShp).filter(PajShp.pcode == pcode).order_by(desc(PajShp.invdate)).limit(1).one()
             return lst or None

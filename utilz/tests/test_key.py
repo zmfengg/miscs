@@ -28,7 +28,7 @@ from sqlalchemy.orm import relationship
 from xlwings.constants import LookAt
 
 from utilz import getvalue, imagesize, iswritable, karatsvc, stsizefmt, xwu
-from utilz._jewelry import RingSizeSvc
+from utilz._jewelry import RingSizeSvc, UnitCvtSvc
 from utilz.miscs import (Config, NamedList, NamedLists, Salt, appathsep,
                           daterange, getfiles, list2dict, lvst_dist, monthadd,
                           shellopen, Number2Word, Literalize)
@@ -248,6 +248,25 @@ class KeySuite(TestCase):
             rgsvc.convert("EU", "A", "US") is None, "EU#A does not exist")
         self.assertAlmostEqual(47.0, rgsvc.getcirc("US", "4 1/4"),
                                "the circumference of US#4 1/4 is 47.0mm")
+
+
+    def testUnitCvt(self):
+        '''
+        unit conversion service test
+        '''
+        svc = UnitCvtSvc()
+        self.assertAlmostEqual(1, svc.convert(1, 'gm', 'gm'), 4, 'same unit conversion')
+        self.assertAlmostEqual(0.2, svc.convert(1, 'CT', 'gm'), 4, 'ct to gm')
+        self.assertAlmostEqual(5, svc.convert(1, 'gm', 'ct'), 4, 'gm to ct')
+        with self.assertRaises(TypeError):
+            svc.convert(1, 'gm', 'mm')
+        with self.assertRaises(OverflowError):
+            svc.convert(1, 'xx', 'yy')
+        # now add xx/yy to the service and call convert again, the error gone
+        svc.add('xx', 'IMG', 1.5)
+        svc.add('yy', 'IMG', 3.0)
+        self.assertAlmostEqual(2, svc.convert(1, 'yy', 'xx'), 4)
+
 
     def testNumber2Words(self):
         '''

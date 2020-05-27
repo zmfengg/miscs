@@ -618,16 +618,16 @@
         "type": "记录,",
         "remark": "备注"
     },
-    "prodspec.case": "LOWER",
-    "prodspec.naming":{
+    "prdspec.case": "LOWER",
+    "prdspec.naming":{
         "cat.digits": 1,
         "sn.digits": 4,
         "ver.digits": 2,
         "charset": "0123456789ABCEFGHJKLMPQRTUWXY",
-        "ring.size.count": 20,
-        "ring.headers": ["T"]
+        "subver.capacity": 20,
+        "subver.headers": ["T"]
     },
-    "prodspec.meta_tables": {
+    "prdspec.meta_tables": {
         "MetaData": {
             "type": "m_pt",
             "craft": "m_mcr",
@@ -644,9 +644,9 @@
             "stone.name": "m_sta"
         }
     },
-    "prodspec.template": "\\\\172.16.8.46\\pb\\DptFile\\pajForms\\PrdSpec.xltm",
-    "prodspec.stsnscvt.level": 3,
-    "prodspec.metal.mark":{
+    "prdspec.template": "\\\\172.16.8.46\\pb\\DptFile\\pajForms\\PrdSpec.xltm",
+    "prdspec.stsnscvt.level": 3,
+    "prdspec.metal.mark":{
         "8K": "333",
         "8KW": "333",
         "8KR": "333",
@@ -664,10 +664,10 @@
         "18KR": "750",
         "925": "925"
     },
-    "prodspec.customer.vgmark":{
+    "prdspec.customer.vgmark":{
         "ZL": "Ag"
     },
-    "prodspec.customer.mark":{
+    "prdspec.customer.mark":{
         "ZL": "*(52)",
         "FAI": "*(GHA)",
         "EVS": "*(HoI)",
@@ -679,7 +679,7 @@
         "AGQ": "QG",
         "NBW": "WB"
     },
-    "prodspec.fromjo.setting_map":{
+    "prdspec.fromjo.setting_map":{
         "_length_": 2,
         "腊爪": "W.PAW",
         "手爪": "H.PAW",
@@ -694,7 +694,7 @@
         "碟(有石)": "DS",
         "碟(无石)": "WELD"
     },
-    "prodspec.fromjo.stshape_map":{
+    "prdspec.fromjo.stshape_map":{
         "A": "TRIANGLE",
         "B": "BAGUETTE",
         "C": "CAB",

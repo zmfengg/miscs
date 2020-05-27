@@ -499,7 +499,10 @@
         ["安力士", "S", "ON"],
         ["绿晶", "R", "PD"],
         ["元珠", "R", "PL"],
+        ["元紫晶", "R", "AM"],
         ["圆珠", "R", "PL"],
+        ["珍珠", "R", "PL"],
+        ["珠", "R", "PL"],
         ["电氣石", "R", "PT"],
         ["米珠", "F", "PW"],
         ["面包珠", "R", "PW"],
@@ -517,7 +520,9 @@
         ["__C3", "_SHAPE_", "_STONE_"],
         ["马眼蓝晶", "M", "BT"],
         ["旦形蓝晶", "O", "BT"],
-        ["单反", "R", "DD"]
+        ["单反", "R", "DD"],
+        ["青金", "R", "LP"],
+        ["咕臣青金", "J", "LP"]
     ],
     "pajshp.stone.shape.alias":{
         "HT": "H",
@@ -618,16 +623,34 @@
         "type": "记录,",
         "remark": "备注"
     },
-    "prodspec.case": "LOWER",
-    "prodspec.naming":{
+    "prdspec.case": "LOWER",
+    "prdspec.naming":{
         "cat.digits": 1,
         "sn.digits": 4,
         "ver.digits": 2,
         "charset": "0123456789ABCEFGHJKLMPQRTUWXY",
-        "ring.size.count": 20,
-        "ring.headers": ["T"]
+        "subver.capacity": 20,
+        "subver.headers": ["T"]
     },
-    "prodspec.meta_tables": {
+    "prdspec.type2cat":
+    {
+        "BANGLE": "G",
+        "SET": "X",
+        "BROOCH": "M",
+        "TIEPIN": "M",
+        "CUFF LINK": "M",
+        "ANKLE": "M",
+        "BRACELET": "B",
+        "EARRING": "E",
+        "PENDANT": "P",
+        "RING": "T",
+        "NECKLACE": "N"
+    },
+    "prdspec.parts.tags":{
+        "XP": 100,
+        "MP": 200
+    },
+    "prdspec.meta_tables": {
         "MetaData": {
             "type": "m_pt",
             "craft": "m_mcr",
@@ -644,9 +667,9 @@
             "stone.name": "m_sta"
         }
     },
-    "prodspec.template": "\\\\172.16.8.46\\pb\\DptFile\\pajForms\\PrdSpec.xltm",
-    "prodspec.stsnscvt.level": 3,
-    "prodspec.metal.mark":{
+    "prdspec.template": "\\\\172.16.8.46\\pb\\DptFile\\pajForms\\PrdSpec\\PrdSpec.xltm",
+    "prdspec.stsnscvt.level": 3,
+    "prdspec.metal.mark":{
         "8K": "333",
         "8KW": "333",
         "8KR": "333",
@@ -664,10 +687,10 @@
         "18KR": "750",
         "925": "925"
     },
-    "prodspec.customer.vgmark":{
+    "prdspec.customer.vgmark":{
         "ZL": "Ag"
     },
-    "prodspec.customer.mark":{
+    "prdspec.customer.mark":{
         "ZL": "*(52)",
         "FAI": "*(GHA)",
         "EVS": "*(HoI)",
@@ -679,7 +702,7 @@
         "AGQ": "QG",
         "NBW": "WB"
     },
-    "prodspec.fromjo.setting_map":{
+    "prdspec.fromjo.setting_map":{
         "_length_": 2,
         "腊爪": "W.PAW",
         "手爪": "H.PAW",
@@ -694,7 +717,7 @@
         "碟(有石)": "DS",
         "碟(无石)": "WELD"
     },
-    "prodspec.fromjo.stshape_map":{
+    "prdspec.fromjo.stshape_map":{
         "A": "TRIANGLE",
         "B": "BAGUETTE",
         "C": "CAB",
@@ -711,6 +734,30 @@
         "S": "SQUARE",
         "T": "TAPPER",
         "@": "FANCY"
+    },
+    "prdspec.stypidef.defs":{
+        "_DFT_STRING": ["STRING","%s", "The Default Definition for String", 100],
+        "_DFT_NUMERIC": ["NUMERIC(18, 4)","%s", "The Default Definition for Numeric", 100],
+        "_DFT_DATETIME": ["DATETIME","%s", "The Default Definition for Datetime", 100],
+        "CATEGORY": ["STRING","%s", "Category of the style(for example, PENDANT)", 200],
+        "CRAFT": ["STRING","%s", "Manufacturing craft of the style(for example, CASTING)", 200],
+        "HALLMARK": ["STRING","%s", "Hallmark of the style(for example, CROWN-K", 200],
+        "XSTYN": ["STRING","%s", "The Old STY#(HP's STY#, for example, B1234)"],
+        "SN": ["STRING","%s", "SN# for the main(no parts)"],
+        "REMARKS": ["STRING","%s", "Remarks about this product"],
+        "SHAPE": ["STRING","%s", "Key shape of that product, for example, Heart"],
+        "KEYWORDS": ["STRING","%s", "The feature of that style, for example, Tubling;Luck"],
+        "PACKING": ["STRING","%s", "Packing requirement, for example, 银卡,吊咀卡,耳环卡,银卡及吊咀卡"],
+        "VENDORS": ["STRING","%s", "Vendor info of this product if it's by a subcontractor"],
+        "WARNING": ["STRING","%s", "Warnings like NICK FREE"],
+        "GRPOF": ["STRING","%s", "A Group of existing STY#. Data should contains valid STY#(STY# here not refer to XSTYN)"],
+        "TEXT": ["STRING","%s", "Text info on a product(if there is)"]
+    },
+    "prdspec.matspec.enc":{
+        "stone": "description shape size",
+        "metal": "category color fineness",
+        "parts": "karat description",
+        "finishing": "method spec"
     },
     "stysn.tag": {
         "snno": "S",

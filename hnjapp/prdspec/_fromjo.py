@@ -33,7 +33,7 @@ class JOFormHandler(FormHandler):
         if not nrls:
             nrls = _NRInvoker(self, True, BaseNrl.LEVEL_ADVICE)
         return super().read(names=names, nrls=nrls)
-    
+
     @staticmethod
     def read_field_map(wb):
         ''' read the column mapping fields out from the product form's meta sheet
@@ -102,7 +102,7 @@ class FromJO(object):
         app, tk = appmgr.acq()
         sws = appswitch(app, {'EnableEvents': False})
         if not tpl_file:
-            tpl_file = config.get("prodspec.template")
+            tpl_file = config.get("prdspec.template")
         hdlr = JOFormHandler(fromtemplate(tpl_file, app))
         rmp = FromJO(hdlr, kwds.get('hksvc'), kwds.get('cnsvc'), kwds.get('cache_sm')).retrieve(jns)
         noimg = kwds.get('noimg')
@@ -156,7 +156,7 @@ class FromJO(object):
                     sf = self._styfndr
                     lst = LKSizeFinder(sf, stynos=(styno, )).find()
                     if lst:
-                        mp[_nrm('size')] = ','.join(lst[styno])
+                        mp[_nrm('size')] = ','.join([x[0] for x in lst])
                     lst = sf.find_by_feature(styno)
                     if lst:
                         mp[_nrm('_family')] = lst
@@ -241,7 +241,7 @@ class FromJO(object):
                 nl.size = nl.size or 'XX' + "SZ"
             var = nl.shape or st[2]
             if var:
-                var = config.get("prodspec.fromjo.stshape_map").get(var)
+                var = config.get("prdspec.fromjo.stshape_map").get(var)
                 if var:
                     nl.shape = var
             if st == 'CZ' and nl.wgt and nl.wgt >= 1 or nl.wgt and nl.qty and abs(nl.wgt - nl.qty) < 0.001: # CZ or fake weight from HK
@@ -250,7 +250,7 @@ class FromJO(object):
                 nl.wgt = round(nl.wgt or 0, 3)
             nl.wgtunit = 'CT'
             if not nl.wgt:
-                lvl, uwgt = config.get("prodspec.stsnscvt.level"), None
+                lvl, uwgt = config.get("prdspec.stsnscvt.level"), None
                 if len(st) > 5 and self._cnsvc and lvl > 0:
                     uwgt = self._cnsvc.getavgpkwgt(st, nl.size)
                 elif lvl > 1:
@@ -261,7 +261,7 @@ class FromJO(object):
                     nl.unitwgt = uwgt
             var = nl.setting
             nl.main = 'Y' if var.find('主') >= 0 else 'N'
-            stmp = config.get("prodspec.fromjo.setting_map")
+            stmp = config.get("prdspec.fromjo.setting_map")
             nl.setting = stmp.get(var[:2]) or stmp.get(var) or var
         if len(nls) > 1:
             mp[tn] = sorted(nls, key=lambda nl: (nl.main, nl.size or '0', -ord(nl.name[0])), reverse=True)
@@ -568,13 +568,13 @@ class _FromJO_BL(object):
         bits['tc'], cn = len(kts), self._jodtl['cstname']
         hms = bits['hm']
         for var in kts:
-            hm = config.get('prodspec.metal.mark').get(var.name)
+            hm = config.get('prdspec.metal.mark').get(var.name)
             if hm:
                 if var.karat == 925:
                     bits['925'] = True
                 if var.category != 'GOLD' and any((bits[x] for x in ('vy', 'vr'))):
                     # non gold, vgold, mark
-                    x = config.get("prodspec.customer.vgmark").get(cn)
+                    x = config.get("prdspec.customer.vgmark").get(cn)
                     if x:
                         hms.append(x)
                 hms.append(hm)
@@ -585,7 +585,7 @@ class _FromJO_BL(object):
                 if var.find(x[1]) >= 0:
                     bits['k' + x[0]] = True
                     break
-        hm = config.get('prodspec.customer.mark').get(cn)
+        hm = config.get('prdspec.customer.mark').get(cn)
         if hm:
             hms.append(hm)
         var = self._mp.get(self._nrm('stone'))

@@ -126,12 +126,13 @@ class _SMSns(object):
         """
         errlst.append(self.new_err(*args))
         type_name = args[2]
-        #check if the weight is too critical. (append 20190312 but when it's a QC sample, don't do it. QCSample flag is inside args[5] if there is
-        if type_name == "wc_wgt" and len(args) < 6:
+        # check if the weight is too critical. (append 20190312 but when it's a QC sample, don't do it. QCSample flag is inside args[5] if there is
+        # append in 2020/04/28, any items include QCSample should also be assert because there might be error there
+        if type_name == "wc_wgt": # and len(args) < 6:
             jwgt, shpwgt = args[4]
-            if not cmpwgt(jwgt, shpwgt, 50):
+            if not (jwgt and cmpwgt(jwgt, shpwgt, 50)): # when both jwgt/shpwgt are zero, cmpwgt(jwgt, shpwgt, 50) will be OK, so jwgt needed
                 type_name = [x for x in args]
-                type_name[2:] = "ec_wgt", "重量偏离指定值50%以上", None
+                type_name[2:] = "ec_wgt", "重量偏离指定值50%以上或工单未有重量", None
                 errlst.append(self.new_err(*type_name))
 
     def _gettype(self, name):
@@ -960,9 +961,11 @@ class _SMLogWtr(object):
                 jomp = self._enc_default
             vvs = jomp(mp)
             if vvs is None:
-                #weight error of new sample won't be shown
-                if mp["type"] == "wc_wgt":
-                    continue
+                # weight error of new sample won't be shown
+                # append 2020/04/28, wgt error of sample should also be shown
+                if False:
+                    if mp["type"] == "wc_wgt":
+                        continue
                 vvs = []
             # write a title row for each warning category
             if mp["type"] != jn:
@@ -980,11 +983,10 @@ class _SMLogWtr(object):
                     mp.get(x))[1] for x in ttl
             ] + vvs
         sht.autofit("c")
-        if True:
-            if hdr:
-                hdrs.append(hdr.expand("table"))
-            for hdr in reversed(hdrs):
-                xwu.maketable(hdr)
+        if hdr:
+            hdrs.append(hdr.expand("table"))
+        for hdr in reversed(hdrs):
+            xwu.maketable(hdr)
         return sht
 
     @classmethod
@@ -1213,7 +1215,6 @@ class ShpImptr():
             if nl.qtyleft < 0:
                 self._sns.eap(errs, nl.jono, nl.jono, "ec_qty", "数量不足")
             if not nl.wgt or nl.wgt < 0:
-                ttl = ("重量错误", "存在重量不合规记录")
                 if nl.wgt < 0:
                     self._sns.eap(errs, nl.jono, nl.jono, "ec_wgt_not_sure",
                                   "重量不确定，请人工复核")

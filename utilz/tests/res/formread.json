@@ -108,9 +108,14 @@
         "stone": [
             ["setting", "shape", "name", "main", "size", "qty", "unitwgt", "wgtunit", "wgt", "matid", "remarks"],
             ["H.PAW", "ROUND", "DIAMOND", "N", "000SZ", 50.0, 0.005, "CT", 0.25, "DDR02427", "J/I2/I3"],
-            ["W.PAW", "ROUND", "SAPPHIRE", "N", 1.5, 50.0, 0.007, "CT", 0.35, "DDR00034", "BLUE A"], ["W.PAW", "SQUARE", "BLUE GLASS", "N", 1.5, 50.0, 0.009, "CT", 0.45, "SAXY", "BLUE B"], ["W.PAW", "TAPER", "WHITE JADE", "N", 1.5, 50.0, 0.011, "CT", 0.55, "SAXY", "BLUE C"], ["W.PAW", "PEAR", "CHAMPAGNE QUARTZ", "N", 1.5, 50.0, 0.013, "CT", 0.65, "SAXY", "BLUE d"], ["W.PAW", "MARQUISE", "OPAL", "N", 1.5, 50.0, 0.015, "CT", 0.75, "SAXY", "BLUE E"], 
+            ["W.PAW", "ROUND", "SAPPHIRE", "N", 1.5, 50.0, 0.007, "CT", 0.35, "DDR00034", "BLUE A"],
+            ["W.PAW", "SQUARE", "BLUE GLASS", "N", 1.5, 50.0, 0.009, "CT", 0.45, "SAXY", "BLUE B"],
+            ["W.PAW", "TAPER", "WHITE JADE", "N", 1.5, 50.0, 0.011, "CT", 0.55, "SAXY", "BLUE C"],
+            ["W.PAW", "PEAR", "CHAMPAGNE QUARTZ", "N", 1.5, 50.0, 0.013, "CT", 0.65, "SAXY", "BLUE d"],
+            ["W.PAW", "MARQUISE", "OPAL", "N", 1.5, 50.0, 0.015, "CT", 0.75, "SAXY", "BLUE E"], 
             ["W.PAW", "HEART", "PERIDOT", "Y", 3.5, 1.0, 0.85, "CT", 0.85, "SAXY", "BLUE F"],
-            ["W.PAW", "OCTAGON", "CUBIC ZIRCONIA", "N", 1.5, 1.0, 0.95, "CT", 0.95, "SAXY", "BLUE G"], ["W.PAW", "CUSHION", "RUBY", "N", 1.5, 2.0, 0.525, "CT", 1.05, "SAXY", "BLUE H"],
+            ["W.PAW", "OCTAGON", "CUBIC ZIRCONIA", "N", 1.5, 1.0, 0.95, "CT", 0.95, "SAXY", "BLUE G"],
+            ["W.PAW", "CUSHION", "RUBY", "N", 1.5, 2.0, 0.525, "CT", 1.05, "SAXY", "BLUE H"],
             ["W.PAW", "OVAL", "CITRINE", "Y", "6X4", 1.0, 1.23, "CT", 1.23, "CTRXXYY", "LONDON BLUE"]
         ],
         "feature": [

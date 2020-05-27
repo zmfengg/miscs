@@ -15,7 +15,7 @@ from threading import RLock
 from .miscs import splitarray, trimu
 from .common import thispath
 
-__all__ = ["Karat", "KaratSvc", "RingSizeSvc", "stsizefmt"]
+__all__ = ["Karat", "KaratSvc", "RingSizeSvc", "stsizefmt", "UnitCvtSvc"]
 
 
 class _SzFmt(object):
@@ -25,6 +25,8 @@ class _SzFmt(object):
         ''' @refer to stsizefmt function '''
         if not sz:
             return None
+        if isinstance(sz, Number):
+            sz = str(sz)
         if sz.find("~") > 0:
             sz = sz.replace("~", "-")
 
@@ -341,3 +343,71 @@ class RingSizeSvc(object):
         if not sz1:
             return None
         return float(sz1)
+
+class UnitCvtSvc(object):
+    '''
+    do unit conversion, mainly for weight
+    '''
+
+    def __init__(self):
+        super().__init__()
+        self._cats = self._cvtrs = None
+
+
+    def _load_data(self):
+        with open(path.join(thispath, "res", "settings.json")) as fh:
+            mp0 = json.load(fh)["UnitCvtSvc"]
+            # use override stagery
+            if self._cats is None:
+                self._cats = {}
+                self._cvtrs = {}
+            mp = self._cvtrs
+            n2c = self._cats
+            for n, cnp in mp0.items():
+                n = self._nrl(n)
+                cnp[0] = self._nrl(cnp[0])
+                mp[self._key(cnp[0], n)] = cnp[1]
+                if cnp[1] == 1:
+                    mp[self._key(cnp[0], '__ORIGINE')] = n
+                n2c[n] = cnp[0]
+
+    def _key(self, category, name):
+        return category + '.' + name
+
+    def _nrl(self, n):
+        return trimu(n)
+
+    def add(self, name, category, weight):
+        '''
+        add def
+        Args:
+            name(String): name of the unit
+            category(String): the category of that name
+            weight(float): the weight to standard value
+        '''
+        if self._cats is None:
+            self._load_data()
+        name = self._nrl(name)
+        category = self._nrl(category)
+        self._cats[name] = category
+        self._cvtrs[self._key(category, name)] = weight
+
+
+    def convert(self, val, uFrm, uThru):
+        '''
+        convert given value from uFrm to uThru
+        Args:
+            uFrm: the unit from
+            uThru: the unit to
+        '''
+        if self._cvtrs is None:
+            self._load_data()
+        fnt = [self._nrl(x) for x in (uFrm, uThru)]
+        if fnt[0] == fnt[1]:
+            return val
+        cats = [self._cats.get(x) for x in fnt]
+        if not all(cats):
+            raise OverflowError('unit(%s) not defined by config file' % ",".join(fnt[i] for i in range(len(cats)) if not cats[i]))
+        if cats[0] != cats[1]:
+            raise TypeError('category of %s is %s, not %s of %s' % (uFrm, cats[0], cats[1], uThru))
+        return val * self._cvtrs['%s.%s' % (cats[0], fnt[0])] / self._cvtrs['%s.%s' % (cats[0], fnt[1])]
