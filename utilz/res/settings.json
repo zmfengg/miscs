@@ -691,6 +691,7 @@
         "CT": ["WEIGHT", 0.2],
         "GM": ["WEIGHT", 1],
         "TL": ["WEIGHT", 37.8],
+        "OZ": ["WEIGHT", 31.1031],
         "INCH": ["LENGTH", 25.4],
         "MM": ["LENGTH", 1],
         "CM": ["LENGTH", 10],

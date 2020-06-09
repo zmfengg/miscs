@@ -7,6 +7,10 @@
         "root": "\\\\172.16.8.91\\Quotation\\style",
         "level": 3
     },
+    "stylephoto.new": {
+        "root": "\\\\172.16.8.91\\Jpegs\\styleX",
+        "level": 3
+    },
     "stylephoto.default": "h",
     "stylephoto.good_img.min_dim":[
         1000,

@@ -19,7 +19,7 @@ from sqlalchemy.orm import Query
 
 from hnjapp.localstore import Codetable
 from hnjapp.svcs.db import SvcBase
-from utilz import NA, karatsvc, xwu
+from utilz import NA, karatsvc, xwu, NamedLists
 from utilz._jewelry import stsizefmt, UnitCvtSvc
 from utilz.miscs import Literalize, Segments, triml, trimu
 
@@ -136,7 +136,7 @@ class NameSvc(SvcBase):
         I'll take care of such case
         Args:
             cat(String): the cat or cat+sn + cat+sn+ver
-            nt(optional): one of name/version/size.
+            version(optional): new version or sub-version::
                 name: create a new style# with initial version
                 version: create a new style# with the same Cat+SN as cat and new version
                 size: RING only, create new Style# with the same Cat+SN+VER, but new size
@@ -163,6 +163,10 @@ class NameSvc(SvcBase):
                     if version:
                         name = self._gtr.partOf(cat, NameGtr.NT_CAT_SN)
                         name = self._styDao.getmax(name)
+                        if name:
+                            name = self._gtr.next(name, version)
+                            # versioning does not need confirm, so just return
+                            break
                     else:
                         name = self._gtr.next(cat, version)
                 if not name:
@@ -582,13 +586,17 @@ class NameGtr(object):
 class FormSvc(SvcBase):
     '''
     class to read/write excel form from/to db
+    Args:
+        xstyno_as_parent(bool): use the old sty# as parent searching condition when
+        new name is needed and the parent field is blank
     '''
     def __init__(self, trmgr, **kwds):
         super().__init__(trmgr)
         self._nameSvc = NameSvc(trmgr, styDao=self)
-        self._stypSvc = StypSvc(trmgr)
         self._type2cat_mp = None
         self._partTags = {}
+        self._stypSvc = StypSvc(trmgr)
+        self._xstyno_as_parent = kwds.get('xstyno_as_parent', True)
         mp = config.get('prdspec.parts.tags')
         self._partTags = {x[0]: x[1] for x in mp.items()}
 
@@ -621,21 +629,13 @@ class FormSvc(SvcBase):
             with self.sessionctx() as cur:
                 rmp = self._map2ent(mp)
                 sty = rmp['style']
-                # TODO:: maybe normalize the dim/size or the reader should have done it
-                # TODO:: qclevel should be converted from string to integer by the codetable
-                # TODO:: calculate increment for this style
                 styno = mp.get('styno')
                 if not styno or styno[0] == '_':
-                    parent = mp.get('parent')
-                    if self._isempty(parent):
-                        parent = None
-                    styno = self._nameSvc.get(parent or self._type2cat(mp['type']))
+                    styno = self._new_styno(mp, rmp)
                 sty.name = styno
                 matIdx = 0
                 for key, lst in rmp.items():
-                    if not lst:
-                        continue
-                    if key == 'style':
+                    if not lst or key == 'style':
                         continue
                     # maybe delete then insert is a good idea because there is many sub-records
                     else:
@@ -665,6 +665,32 @@ class FormSvc(SvcBase):
         return sty
 
 
+    def _new_styno(self, mp, rmp):
+        parent = mp.get('parent')
+        # when parent# is invalid, treate it as an old style#, get one
+        if self._xstyno_as_parent and self._isempty(parent):
+            parent = [x for x in rmp['property'] if x.prop.pdef.name == 'XSTYN']
+            if parent:
+                parent = self._stypSvc.fromStypi(parent[0].prop)
+                # now parent[-1] holds field
+                q = Query(Style).join(Styp).join(Stypi).join(Stypidef).filter(and_(Stypidef.name == 'XSTYN', parent[-1] == parent[1]))
+                with self.sessionctx() as cur:
+                    parent = q.with_session(cur).limit(1).all()
+                    if parent:
+                        parent = parent[0].name
+        return self._nameSvc.get(parent or self._type2cat(mp['type']))
+
+
+    def render(self, styno, hideFlds=None, tplFn=None):
+        '''
+        dump data of the given style to an excel file
+        Args:
+            hideFlds(Set(String)): A set of fields that you don't want to show in the excel
+            tplFn(String): full path to the template against the default template
+        '''
+        wb = _FormRender(self.sessmgr()).render(styno, hideFlds, tplFn)
+        return wb
+
     def _map2ent(self, mp):
         ''' map to database entity
         '''
@@ -688,7 +714,7 @@ class FormSvc(SvcBase):
                     if tn == 'metal':
                         tmp = {'type': 'METAL', 'name': kt, 'code': kt, 'wgtunit': 'GM'}
                     elif tn == 'finishing':
-                        tmp = {'type': 'FINISHING', 'name': kt, 'code': kt, 'wgtunit': 'MM2'} # mm^2
+                        tmp = {'type': 'FINISHING', 'name': kt, 'code': kt, 'wgtunit': 'MM2', 'method': nl.method, 'spec': nl.spec} # mm^2
                     elif tn == 'parts':
                         tmp = {'type': 'PARTS', 'name': kt, 'code': kt, 'description': nl.remarks, 'wgtunit': 'GM'}
                         val = nl.karat
@@ -700,13 +726,13 @@ class FormSvc(SvcBase):
                 mats[kt] = mat
             return mat
 
-        rmp['style'] = sty = StypSvc.default_values(Style())
+        rmp['style'] = sty = _Util.default_values(Style())
         for fn in 'docno createdate lastmodified description netwgt increment dim size qclevel'.split():
             setattr(sty, fn, xwu.esctext(mp.get(fn)))
         tn = 'metal'
         rmp[tn] = lst = []
         for nl in mp[tn]:
-            ent = StypSvc.default_values(Stymat())
+            ent = _Util.default_values(Stymat())
             ent.mat = _getmat(tn, nl)
             ent.qty = 1
             ent.wgt = nl.wgt or 0
@@ -715,7 +741,7 @@ class FormSvc(SvcBase):
         tn = 'finishing'
         rmp[tn] = lst = []
         for nl in mp[tn]:
-            ent = StypSvc.default_values(Stymat())
+            ent = _Util.default_values(Stymat())
             ent.mat = _getmat(tn, nl)
             ent.qty = 1
             ent.wgt = 0.001 # should this be area? in VX case
@@ -724,7 +750,7 @@ class FormSvc(SvcBase):
         tn = 'parts'
         rmp[tn] = lst = []
         for nl in mp[tn]:
-            ent = StypSvc.default_values(Stymat())
+            ent = _Util.default_values(Stymat())
             ent.mat = _getmat(tn, nl)
             ent.qty = nl.qty
             ent.wgt = nl.wgt or 0
@@ -735,13 +761,13 @@ class FormSvc(SvcBase):
         tn = 'stone'
         rmp[tn] = lst = []
         for nl in mp[tn]:
-            ent = StypSvc.default_values(Stymat())
+            ent = _Util.default_values(Stymat())
             ent.mat = _getmat(tn, nl)
             ent.qty = nl.qty
             ent.wgt = nl.wgt or 0
             ent.remarks = nl.remarks
             lst.append(ent)
-            stone = StypSvc.default_values(Stystset())
+            stone = _Util.default_values(Stystset())
             stone.stymat = ent
             stone.setting = nl.setting
             lst.append(stone)
@@ -760,10 +786,11 @@ class FormSvc(SvcBase):
                     pass
                 tmp.setdefault(nl['catid'], []).append(nl['value']) # in fact, only string type can have multiple same-name items
         rmp['property'] = lst = []
+        stypSvc = StypSvc(self.sessmgr())
         for key, vals in tmp.items():
             # TODO:: lst should have type convertion
-            styp = self._stypSvc.default_values(Styp())
-            styp.prop = self._stypSvc.toStypi(key, ';'.join(vals))
+            styp = _Util.default_values(Styp())
+            styp.prop = stypSvc.toStypi(key, ';'.join(vals))
             lst.append(styp)
         return rmp
 
@@ -772,22 +799,19 @@ class FormSvc(SvcBase):
         ''' convert a map into Mat entity, create or from db
         '''
         mat = None
+        _uSvc = _Util()
         with self.sessionctx() as cur:
             mat = cur.query(Mat).filter(Mat.name == mp['name']).one_or_none()
             if not mat:
-                mat = StypSvc.default_values(Mat())
+                mat = _Util.default_values(Mat())
                 mat.name = mat.code = mp['name']
                 mat.type = mp['type']
                 mat.description = mp.get('description', mp['name'])
-                mat.spec = self._stypSvc.enc_mat_spec(mp)
+                mat.spec = _uSvc.enc_mat_spec(mp)
                 mat.unit = mp.get('wgtunit', NA)
                 cur.add(mat)
                 cur.flush()
         return mat
-
-    def _dec_mat_spec(self, mat):
-        # TODO::
-        pass
 
 
     def _isempty(self, val):
@@ -831,7 +855,7 @@ class StyleSvc(SvcBase):
         self._partTags = {x[0]: x[1] for x in mp.items()}
         self._ucSvc = UnitCvtSvc()
 
-    def calcIncr(self, styno, lossrates='G=1.06;S=1.07', oz2gm=31.1031):
+    def calcIncr(self, styno, lossrates='G=1.06;S=1.07', oz2gm=None):
         '''
         calculate the increment of the given sty#
         Args:
@@ -845,9 +869,9 @@ class StyleSvc(SvcBase):
             pps = q.with_session(cur).all()
             if not pps:
                 return None
-            lrmp = [(x[0], float(x[1])) for x in ((x.split('=') for x in lossrates.split(';')))]
+            lrmp = [(x[0], float(x[1])) for x in (x.split('=') for x in lossrates.split(';'))]
             lrmp = dict(lrmp)
-            spSvc = StypSvc(self.sessmgr())
+            uSvc = _Util()
             incr = {}
             for pp in pps:
                 tpl = triml(pp.type)
@@ -855,15 +879,17 @@ class StyleSvc(SvcBase):
                 if tpl == 'metal':
                     kt = karatsvc.getkarat(pp.name)
                 else:
-                    mp = spSvc.dec_mat_spec(tpl, pp.spec)
+                    mp = uSvc.dec_mat_spec(tpl, pp.spec)
                     kt = mp.get('karat', None)
                 if kt:
                     rx = (1 if tpl != 'metal' else lrmp.get(kt.category[0], 1.06))
-                    rx *= float(pp.wgt) * kt.fineness / oz2gm
+                    wgt = float(pp.wgt) * kt.fineness
+                    wgt = wgt / oz2gm if oz2gm else self._ucSvc.convert(wgt, 'gm', 'oz')
+                    rx *= wgt
                     incr[kt.category] = incr.get(kt.category, 0) + round(rx, 6)
         return incr
 
-    def calcNWgt(self, styno, metalOnly=False):
+    def calcWgt(self, styno, metalOnly=False):
         '''
         calculate the netwgt of the given style
         '''
@@ -881,79 +907,29 @@ class StyleSvc(SvcBase):
                 rc += float(pp.wgt) * self._ucSvc.convert(1, pp.unit, 'GM')
         return round(rc, 2)
 
+class _Util(object):
 
-class StypSvc(SvcBase):
-    '''
-    class to handle the style property list <-> db transferring
-    '''
-
-    def __init__(self, trmgr):
-        super().__init__(trmgr)
-        self._dfts = None
-        self._get_deft_def('')  # load the default maps, or create them on-demand
+    def __init__(self):
+        super().__init__()
         self._mat_enc_fld = None
+    
 
-
-    def toStypi(self, key, val, create_on_demand=False):
+    @classmethod
+    def default_values(cls, ent):
         '''
-        transfer given kye/value to db
+        fill the defaults of a styx item
         '''
-        updCnt = 0
-        with self.sessionctx() as cur:
-            pdef = cur.query(Stypidef).filter(Stypidef.name == key).one_or_none()
-            if not pdef:
-                if create_on_demand:
-                    pdef = self._new_def(key, val)
-                    cur.add(pdef)
-                    cur.flush() # to get the Id
-                    updCnt += 1
-                    _logger.debug('definition for property(%s) was created on-demand' % key)
-                else:
-                    pdef = self._get_deft_def(val)
-                    _logger.debug('using default definition for property(%s)' % key)
-            tn, val, tors = self._enc_stypi(pdef, val)
-            deft_def = self._is_deft_def(pdef)
-            q = Query(Stypi).filter(Stypi.pdef == pdef)
-            if tn == 'C':
-                # using default, the key should be encoded into valuec, by ';' as separator
-                if deft_def:
-                    val = '%s;%s' % (key, val)
-                q = q.filter(Stypi.valuec == val)
-            else:
-                # float point query, don't use ==, use range instead
-                if deft_def:
-                    # using default, the key was kept inside valuec
-                    q = q.filter(and_(Stypi.valuec == key, Stypi.valuen > tors[0], Stypi.valuen < tors[1]))
-                else:
-                    q = q.filter(and_(Stypi.valuen > tors[0], Stypi.valuen < tors[1]))
-            rc = q.with_session(cur).one_or_none()
-            if not rc:
-                rc = self.default_values(Stypi())
-                rc.pdef = pdef
-                rc.valuec = ''
-                rc.valuen = 0
-                if tn == 'C':
-                    rc.valuec = val
-                else:
-                    rc.valuen = val
-                    if deft_def:
-                        rc.valuec = key
-                cur.add(rc)
-                updCnt += 1
-            if updCnt:
-                cur.flush()
-            return rc
-
-
-    def fromStypi(self, stypi):
-        '''
-        transfer a Styp instance to key/value pair
-        Args:
-            stypi(Stypi): an Stypi instance
-        returns:
-            the (key, value) tuple
-        '''
-        return self._dec_stypi(stypi)
+        if not ent.lastuserid:
+            ent.lastuserid = 1
+        if not ent.creatorid:
+            ent.creatorid = 1
+        if not ent.createddate:
+            ent.createddate = datetime.today()
+        if not ent.modifieddate:
+            ent.modifieddate = datetime.today()
+        if ent.tag is None:
+            ent.tag = 0
+        return ent
 
 
     def _get_mat_enc_fld(self, tn):
@@ -1005,6 +981,8 @@ class StypSvc(SvcBase):
 
 
     def dec_mat_spec(self, tpl, spec):
+        ''' decode a material's spec field into maps
+        '''
         vals = spec.split(';')
         flds = self._get_mat_enc_fld(tpl)
         if len(vals) != len(flds):
@@ -1013,6 +991,79 @@ class StypSvc(SvcBase):
         if 'karat' in mp:
             mp['karat'] = karatsvc.getkarat(mp['karat'].split(':')[-1])
         return mp
+
+class StypSvc(SvcBase):
+    '''
+    class to handle the style property list <-> db transferring
+    '''
+
+    def __init__(self, trmgr):
+        super().__init__(trmgr)
+        self._dfts = None
+        self._get_deft_def('')  # load the default maps, or create them on-demand
+
+
+    def toStypi(self, key, val, create_on_demand=False):
+        '''
+        transfer given kye/value to db
+        '''
+        updCnt = 0
+        with self.sessionctx() as cur:
+            pdef = cur.query(Stypidef).filter(Stypidef.name == key).one_or_none()
+            if not pdef:
+                if create_on_demand:
+                    pdef = self._new_def(key, val)
+                    cur.add(pdef)
+                    cur.flush() # to get the Id
+                    updCnt += 1
+                    _logger.debug('definition for property(%s) was created on-demand' % key)
+                else:
+                    pdef = self._get_deft_def(val)
+                    _logger.debug('using default definition for property(%s)' % key)
+            tn, val, tors = self._enc_stypi(pdef, val)
+            deft_def = self._is_deft_def(pdef)
+            q = Query(Stypi).filter(Stypi.pdef == pdef)
+            if tn == 'C':
+                # using default, the key should be encoded into valuec, by ';' as separator
+                if deft_def:
+                    val = '%s;%s' % (key, val)
+                q = q.filter(Stypi.valuec == val)
+            else:
+                # float point query, don't use ==, use range instead
+                if deft_def:
+                    # using default, the key was kept inside valuec
+                    q = q.filter(and_(Stypi.valuec == key, Stypi.valuen > tors[0], Stypi.valuen < tors[1]))
+                else:
+                    q = q.filter(and_(Stypi.valuen > tors[0], Stypi.valuen < tors[1]))
+            rc = q.with_session(cur).one_or_none()
+            if not rc:
+                rc = _Util.default_values(Stypi())
+                rc.pdef = pdef
+                rc.valuec = ''
+                rc.valuen = 0
+                if tn == 'C':
+                    rc.valuec = val
+                else:
+                    rc.valuen = val
+                    if deft_def:
+                        rc.valuec = key
+                cur.add(rc)
+                updCnt += 1
+            if updCnt:
+                cur.flush()
+            return rc
+
+
+    def fromStypi(self, stypi):
+        '''
+        transfer a Styp instance to key/value pair
+        Args:
+            stypi(Stypi): an Stypi instance
+        returns:
+            the (key, value, field) tuple
+        '''
+        return self._dec_stypi(stypi)
+
 
     def _enc_stypi(self, pdef, val):
         tn = triml(pdef.type)
@@ -1045,12 +1096,14 @@ class StypSvc(SvcBase):
     def _dec_stypi(self, stypi):
         pdef = stypi.pdef
         tn = triml(pdef.type)
+        fld = Stypi.valuen
         if tn.find('numeric') == 0:
             rc = stypi.valuen
         elif tn.find('date') == 0:
             rc = datetime.fromtimestamp(stypi.valuen)
         else:
             rc = stypi.valuec
+            fld = Stypi.valuec
         if self._is_deft_def(pdef):
             if tn == 'string':
                 rc = rc.split(';')
@@ -1060,7 +1113,8 @@ class StypSvc(SvcBase):
                 key = stypi.valuec
         else:
             key = pdef.name
-        return key, rc
+        return key, rc, fld
+
 
     def _create_defts(self):
         '''
@@ -1077,7 +1131,7 @@ class StypSvc(SvcBase):
             for key, lst in mp.items():
                 if key in exts:
                     continue
-                pdef = self.default_values(Stypidef())
+                pdef = _Util.default_values(Stypidef())
                 pdef.name = key
                 pdef.type, pdef.format, pdef.remarks = lst[:3]
                 if len(lst) > 3:
@@ -1115,26 +1169,125 @@ class StypSvc(SvcBase):
         return self._dfts.get(self._val_type(val))
 
 
-    @classmethod
-    def default_values(cls, ent):
-        '''
-        fill the defaults of a styx item
-        '''
-        if not ent.lastuserid:
-            ent.lastuserid = 1
-        if not ent.creatorid:
-            ent.creatorid = 1
-        if not ent.createddate:
-            ent.createddate = datetime.today()
-        if not ent.modifieddate:
-            ent.modifieddate = datetime.today()
-        if ent.tag is None:
-            ent.tag = 0
-        return ent
-
     def _new_def(self, key, val):
-        pdef = self.default_values(Stypidef())
+        pdef = _Util.default_values(Stypidef())
         pdef.format = '%s'
         pdef.type = self._val_type(val)
         pdef.name = key
         return pdef
+
+class _FormRender(SvcBase):
+
+    def __init__(self, sessmgr):
+        super().__init__(sessmgr)
+        self._uSvc = _Util()
+
+    def render(self, styno, hideFlds=None, tplFn=None):
+        '''
+        render the given styno to an excel file
+        Args:
+            tplFn(String):  the template file to spawn from
+            hideFlds(Set(String)): the fields that won't be shown
+        '''
+        with self.sessionctx() as cur:
+            sty = cur.query(Style).filter(Style.name == styno).one_or_none()
+            if not sty:
+                return None
+            alias = {'name': 'styno', 'modifieddate': 'lastmodified', 'createddate': 'createdate'}
+            _nrl = triml
+            def _fmt(fn, val):
+                if fn.find('date') >= 0:
+                    val = val.strftime('%Y/%m/%d')
+                return val
+            if not hideFlds:
+                hideFlds = set()
+            else:
+                hideFlds = {_nrl(x) for x in hideFlds}
+            mp0 = {alias.get(x, x): _fmt(x, getattr(sty, x)) for x in 'name createddate modifieddate qclevel size dim docno description'.split()}
+            mp0['author'] = '_RENDER_' # TODO::
+            # Some properties encoded into styp, get them out if there is
+            spsvc = StypSvc(self.sessmgr())
+            pps = cur.query(Styp).join(Style).filter(Style.name == styno).all()
+            pps = dict(spsvc.fromStypi(x.prop)[:-1] for x in pps)
+            p2m = trimu('category craft hallmark').split() # maybe get those stypidef.tag = 200
+            tmp = {alias.get(x, x): pps[x] for x in p2m if x in pps}
+            mp0.update(tmp)
+            if 'feature' not in hideFlds and len(pps) > len(tmp):
+                lst = [["catid", "value"]]
+                lst.extend([x for x in pps.items() if x[0] not in tmp])
+                mp0['feature'] = NamedLists(lst)
+            pps = {}
+            lst = Query((Stymat.id, Mat.type, Stymat.idx, Stymat.qty, Stymat.wgt, Mat.name, Mat.spec, Mat.unit, Stymat.remarks, )).join(Style).join(Mat).filter(Style.name == styno).order_by(and_(Mat.type, Stymat.idx))
+            lst = lst.with_session(cur).all()
+            for tmp in lst:
+                tpl = triml(tmp.type)
+                pps.setdefault(tpl, []).append(tmp)
+            for tpl, lst in pps.items():
+                if tpl in hideFlds:
+                    continue
+                lst = self._make_nls(tpl, lst, cur)
+                if lst:
+                    mp0[tpl] = lst
+            wb = xwu.fromtemplate(tplFn or config.get('prdspec.template'))
+            if hideFlds:
+                for fn in hideFlds:
+                    if fn in mp0:
+                        del mp0[fn]
+            tmp = JOFormHandler(wb).write(mp0)
+        return wb
+
+
+    def _make_stone_nls(self, lst, cur):
+        mpx = Query((Stystset.id, Stystset.setting, Stystset.ismain, )).filter(Stystset.id.in_([x.id for x in lst])).with_session(cur).all()
+        mpx = {x.id: x for x in mpx}
+        lst1 = ['setting shape name main size qty unitwgt wgtunit wgt matid remarks'.split(), ]
+        for pp in lst:
+            mp = {}
+            sett = mpx.get(pp.id)
+            if sett:
+                mp['setting'] = sett.setting
+                mp['main'] = 'Y' if sett.ismain > 0 else 'N'
+            mp['qty'] = pp.qty
+            mp['unitwgt'] = float(pp.wgt / pp.qty)
+            mp['wgt'] = float(pp.wgt)
+            mp['wgtunit'] = pp.unit
+            mp['matid'] = pp.name
+            mp['remarks'] = pp.remarks
+            mpxx = self._uSvc.dec_mat_spec('stone', pp.spec)
+            mp.update(mpxx)
+            mp['name'] = mp['description']
+            lst1.append([mp.get(x) for x in lst1[0]])
+        return lst1
+
+
+    def _make_nls(self, tpl, lst, cur):
+        lst = sorted(lst, key=lambda x: x.idx) # sort by idx
+        if tpl == 'stone':
+            lst = self._make_stone_nls(lst, cur)
+        elif tpl == 'metal':
+            lst = [(x.name, float(x.wgt), x.remarks) for x in lst]
+            lst.insert(0, ('karat', 'wgt', 'remarks'))
+        elif tpl == 'finishing':
+            _u = _Util()
+            lst = [(tuple(_u.dec_mat_spec(tpl, x.spec).values()), (x.remarks, )) for x in lst]
+            lst = [list(chain(*x)) for x in lst]
+            lst1 = list(_u._get_mat_enc_fld(tpl))
+            lst1.append('remarks')
+            lst.insert(0, lst1)
+        elif tpl == 'parts':
+            lst1 = ['type qty karat wgt matid remarks'.split(), ]
+            for pp in lst:
+                mp = {}
+                rmks = pp.remarks.split(';')
+                mp['type'] = rmks[0]
+                mp['remarks'] = rmks[-1]
+                mp1 = self._uSvc.dec_mat_spec(tpl, pp.spec)
+                mp['karat'] = None if not mp1 or 'karat' not in mp1 else mp1['karat'].name
+                mp['qty'] = pp.qty
+                mp['wgt'] = float(pp.wgt)
+                mp['matid'] = pp.name
+                lst1.append([mp[x] for x in lst1[0]])
+            lst = lst1
+        else:
+            lst = None
+        return NamedLists(lst) if lst else None

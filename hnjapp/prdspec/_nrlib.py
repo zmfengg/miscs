@@ -72,9 +72,15 @@ class KaratNrl(BaseNrl):
             rmk, lvl = 'Invalid Karat(%s)' % k0, self.LEVEL_CRITICAL
         return  (self._new_log(k0, nv, name=name, remarks=rmk, level=lvl), ) if rmk else None
 
-class SizeNrl(BaseNrl):
+class SizeNrl(SmpFmtNrl):
     '''
     formatting stone size or object dimension
+    '''
+
+    def __init__(self, **kwds):
+        super().__init__(SizeNrl._fmtr, **kwds)
+
+
     '''
     def normalize(self, pmap, name):
         if name in pmap:
@@ -93,6 +99,33 @@ class SizeNrl(BaseNrl):
                 return super().normalize(pmap, name)
             return  (self._new_log(ov, nv, name=name, remarks=None, level=_nsl(nv, self.LEVEL_RPLONLY)),)
         return super().normalize(pmap, name)
+    '''
+
+    @classmethod
+    def _fmtr(cls, ov):
+        ov = trimu(str(ov))
+        if not ov or ov.find(':') > 0: # Locket size case
+            return ov
+        sfx = ov.find('SZ')
+        if sfx > 0:
+            ov, sfx = ov[:sfx], ov[sfx:]
+        else:
+            sfx = ''
+        return stsizefmt(str(ov), True) + sfx
+
+class DimNrl(SmpFmtNrl):
+    '''
+    formatting the dim
+    '''
+
+    def __init__(self, **kwds):
+        super().__init__(DimNrl._dim_fmtr, **kwds)
+
+    @classmethod
+    def _dim_fmtr(cls, ov):
+        nv = trimu(ov)
+        return "X".join((stsizefmt(str(x), True) for x in nv.split('X')))
+
 
 class DescNrl(BaseNrl):
     ''' make the description based on the data map
@@ -491,6 +524,7 @@ class _NRInvoker(NrlsInvoker):
         mp = {
             'docno': JENrl,
             'size': SizeNrl,
+            'dim': DimNrl,
             'metal': MetalNrl,
             'finishing': FinishingNrl,
             'parts': PartsNrl,

@@ -7,8 +7,6 @@
 tables for product specification
 '''
 
-from numbers import Number
-
 from sqlalchemy import text
 # from sqlalchemy.dialects.sqlite import DateTime, TIMESTAMP
 from sqlalchemy.ext.declarative.api import declarative_base
@@ -94,7 +92,6 @@ class Stystset(_base):
     stymat = relationship("Stymat")
     setting = Column(SmallInteger)  # codetable('stystset.setting').coden0
     ismain = Column(SmallInteger, server_default=text("'0'"))
-    remarks = Column(String(50))
 
 
 class Stypidef(_base):

@@ -191,6 +191,7 @@ class FormHandler(object):
                 nd = self.get(n)
                 if not nd:
                     _add_fail(n, v)
+                    continue
                 # translate it to namedlist if it's not
                 if isinstance(v, (tuple, list, NamedLists)):
                     lst = [x for x in v]
