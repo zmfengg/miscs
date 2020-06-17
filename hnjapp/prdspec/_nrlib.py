@@ -635,3 +635,65 @@ class _HintsHdlr(object):
             return 2, None
         rts = sorted(rts, key=lambda x: x[0])
         return 2, rts[-1][1]
+
+class _BadWordFinder(object):
+    '''
+    to find the bad words in a string
+    '''
+
+    def __init__(self, fn=None):
+        super().__init__()
+        self._words = None
+        self._missingCs = None
+        self._load_words(fn or path.join(path.dirname(thispath), 'res', 'badwords.json'))
+
+
+    def _load_words(self, fn):
+        import json
+        from re import compile as cpl
+        self._words = {}
+        with open(fn) as fp:
+            words = json.load(fp)
+        for word in words:
+            k = 'reg' if self._is_reg(word) else 'txt'
+            if k == 'txt' and self._load_skip(word):
+                continue
+            lst = self._words.setdefault(k, [])
+            lst.append(cpl(word) if k == 'reg' else word)
+        del json, cpl
+
+    def _is_reg(self, word):
+        for ch in '.{[*':
+            if word.find(ch) >= 0:
+                return True
+        return False
+
+    def _load_skip(self, word):
+        if not self._missingCs:
+            cs = config.get("prdspec.naming")["charset"]
+            cs = {x for x in cs}
+            self._missingCs = {x for x in (chr(65 + y) for y in range(26)) if x not in cs}
+        for ch in word:
+            if ch in self._missingCs:
+                return True
+        return False
+
+
+    def contains(self, theStr):
+        ''' check if the given string contains bad word(s)
+        only return the first occurency's last position, if not found, return None
+
+        '''
+        for tp, words in self._words.items():
+            if tp == 'reg':
+                for word in words:
+                    mt = word.search(theStr)
+                    if mt:
+                        mt = mt.span(0)
+                        return (mt[0], mt[1] - 1)
+            else:
+                for word in words:
+                    idx = theStr.find(word)
+                    if idx >= 0:
+                        return idx, idx + len(word) - 1
+        return None

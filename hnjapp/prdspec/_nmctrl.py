@@ -25,7 +25,9 @@ from utilz.miscs import Literalize, Segments, triml, trimu
 
 from ..common import _logger, config
 from ._fromjo import JOFormHandler
+from ._photosvc import StylePhotoSvcX as StylePhotoSvc
 from ._tables import Mat, Style, Stymat, Styp, Stypi, Stypidef, Stystset
+from ._nrlib import _BadWordFinder
 
 
 class _NameItem(object):
@@ -125,7 +127,7 @@ class NameSvc(SvcBase):
         self._ctrlDao = CtrlDao(trmgr, self._gtr)
         self._styDao = styDao or NameRepo()
 
-    def get(self, cat, version=True):
+    def get(self, cat, gt=1):
         '''
         return the next item of given cat, when len(cat) is longer than gtr's cat, it's a:
         0.  Cat:    return next Cat+SN+00
@@ -136,16 +138,16 @@ class NameSvc(SvcBase):
         I'll take care of such case
         Args:
             cat(String): the cat or cat+sn + cat+sn+ver
-            version(optional): new version or sub-version::
-                name: create a new style# with initial version
-                version: create a new style# with the same Cat+SN as cat and new version
-                size: RING only, create new Style# with the same Cat+SN+VER, but new size
+            gt(optional): one of NameGtr.NXT_NAME/NXT_VERSION/NXT_SIZE:
+                NXT_NAME: create a new style# with initial version
+                NXT_VERSION: create a new style# with the same Cat+SN as cat and new version
+                NXT_SIZE: RING only, create new Style# with the same Cat+SN+VER, but new size
         '''
         name = None
         nt = self._gtr.nameType(cat)
         if nt == NameGtr.NT_INVALID:
             return name
-        if not self._gtr.subverable(cat) and not version:
+        if not self._gtr.subverable(cat) and gt == NameGtr.NXT_SIZE:
             raise Exception('cat(%s) is not sub-versionable' % cat)
         cds = None
         with self.sessionctx():
@@ -160,19 +162,24 @@ class NameSvc(SvcBase):
                         name0 = name.name
                         name = self._gtr.next(name.name, name.isbuffer)  # CAT always retrun version
                 else:
-                    if version:
+                    if gt != NameGtr.NXT_SIZE:
                         name = self._gtr.partOf(cat, NameGtr.NT_CAT_SN)
-                        name = self._styDao.getmax(name)
+                        if gt == NameGtr.NXT_VERSION:
+                            name = self._styDao.getmax(name) or cat
+                        else:
+                            # not from db, directly from the current
+                            name = self._gtr.next(name, NameGtr.NXT_NAME)
+                            name = self._gtr.partOf(name, NameGtr.NT_CAT_SN)
                         if name:
-                            name = self._gtr.next(name, version)
+                            name = self._gtr.next(name, NameGtr.NXT_VERSION)
                             # versioning does not need confirm, so just return
                             break
                     else:
-                        name = self._gtr.next(cat, version)
+                        name = self._gtr.next(cat, gt)
                 if not name:
                     # no matter what, get the next cat+sn+ver of given cat because there is no hint,
                     # that means, it's a initilization
-                    name = self._gtr.next(cat, version)
+                    name = self._gtr.next(cat, False)
                 # because the controller does not keep version/size info. so trim it
                 lst = [self._gtr.partOf(x, NameGtr.NT_CAT_SN) if x else None for x in (name, name0)]
                 lst.append(cds)
@@ -192,6 +199,9 @@ class NameSvc(SvcBase):
             _logger.debug('Still records of (%s) inside repository, can not recycle' % name)
         # recycle item always as buffer, not top
         return self._ctrlDao.recycle(name0) is not None
+
+    def isvalid(self, styno):
+        return self._gtr.isvalid(styno)
 
 class CtrlDao(SvcBase):
     ''' get from dao while keeping data integrity
@@ -352,12 +362,18 @@ class NameGtr(object):
 
         subver.headers=['T']: category of ring product
 
+        bad_word_file(string, optional): the json file(array type) contains the bad words
+
     '''
     # for nameType detection
     NT_INVALID = '_INVALID'
     NT_CAT = '_category'
     NT_CAT_SN = '_category_sn'
     NT_FULL = '_category_sn_ver'
+    # for NEXT_TYPE
+    NXT_NAME = 0
+    NXT_VERSION = 1
+    NXT_SIZE = 2
 
     def __init__(self, **kwds):
         mp = config.get('prdspec.naming')
@@ -371,27 +387,30 @@ class NameGtr(object):
         self._sgmgr = Segments(
             len(cs), _get('subver.capacity'), _get('ring.row_first', True))
 
+        self._digits = {'sn': self._gtr_sn.digits, 'ver': self._gtr_ver.digits}
         hdrs = _get('subver.headers')
         cm['_subver_hdrs'] = set(hdrs)
-        self._cat_digits = len(next(iter(hdrs)))
+        self._digits['cat'] = len(next(iter(hdrs)))
+        self._digits['_all'] = sum(x for x in self._digits.values())
+        self._bword_fnd = _BadWordFinder(kwds.get('bad_word_file'))
 
     @property
     def SnDigits(self):
         ''' length of the sn part
         '''
-        return self._gtr_sn.digits
+        return self._digits['sn']
 
     @property
     def VerDigits(self):
         ''' length of a version part
         '''
-        return self._gtr_ver.digits
+        return self._digits['ver']
 
     @property
     def CatDigits(self):
         ''' length of the category
         '''
-        return self._cat_digits
+        return self._digits['cat']
 
     def nameType(self, name):
         '''
@@ -466,9 +485,23 @@ class NameGtr(object):
         return None
 
     def _validate(self, name):
-        if not name or not self._gtr_sn.isvalid(name[self._cat_digits:]):
+        # if not (name and len(name) == self._digits['_all'] and self._gtr_sn.isvalid(name[self.CatDigits:])):
+        if not (name and self._gtr_sn.isvalid(name[self.CatDigits:])):
             raise AttributeError('%s Blank or contains character(s) not in %s' %
                                  (name, self._gtr_sn.charset))
+
+    def isvalid(self, styno):
+        ''' check if given styno is a valid one. Here valid means the same length
+        of summary length my generators and contains valid character set
+        '''
+        flag = True
+        try:
+            self._validate(styno)
+            flag = len(styno) == self._digits['_all']
+        except:
+            flag = False
+        return flag
+
 
     def _c2v(self, ch):
         ''' char to value or vise verse
@@ -479,39 +512,76 @@ class NameGtr(object):
             return [self._gtr_one.valueOf(x) for x in ch]
         return ''.join(self._gtr_one.charOf(x) for x in ch)
 
-    def next(self, current, version=True):
+    def next(self, current, nxt=1):
         ''' get next name based on current
         Args:
 
             current:    the current name, can be without sn and version
 
-            version=True:    True for getting new version, else for new sub-version(ring size) of current version
+            nxt=NameGtr.NXT_VERSION:    True for getting new version, else for new sub-version(ring size) of current version
 
         throws:
 
             OverflowError if current is already at the end
         The return value based on arguments as below:
-            current	version	Returns
-            Cat	    T/F	    Full(init Version of this Cat)
-            Name	T	    Full(This init version)
-            Name	F	    Full(Next init version)
-            Full	T	    Full(This next version)
-            Full	F	    Exception(Not sub-versionable)
-            Full		    Full(This next sub-version)
+            current	    version	        Returns
+            Cat	        ANY	            Full(init Version of this Cat)
+            Name	    NXT_VERSION	    Full(This init version)
+            Name/Full	NXT_NAME	    Full(Next init version)
+            Full	    NXT_VERSION	    Full(This next version)
+            Full	    NXT_SIZE	    Exception(Not sub-versionable)
+            Full	    NXT_SIZE	    Full(This next sub-version)
         '''
         self._validate(current)
         cat, sn, ver = self._split(current)
+        cat, sn, ver = self._raw_next(cat, sn, ver, nxt)
+        while True:
+            rc = cat + sn + ver
+            loc = self._bword_fnd.contains(rc)
+            if not loc:
+                break
+            else:
+                _logger.debug('(%s) contains bad word(s)' % rc)
+                # instead of looping one by one to find the next valid item, calcualte it improve perf.
+                loc = loc[1]
+                sm = idx = 0
+                segs = (self.CatDigits, self.SnDigits, self.VerDigits)
+                for idx, ln in enumerate(segs):
+                    sm += ln
+                    if sm - 1>= loc:
+                        loc = loc - (sm - ln) + 1
+                        break
+                s0 = sn[:loc] if idx == 1 else ver[:loc]
+                loc = segs[idx] - loc
+                if loc > 0:
+                    s0 += self._gtr_one.last
+                    loc -= 1
+                if loc > 0:
+                    s0 += self._gtr_one.first * loc
+                if idx == 1:
+                    sn = self._gtr_sn.next(s0)
+                    ver = self._gtr_ver.next(None)
+                else:
+                    ver = self._gtr_ver.next(s0)
+        return rc
+
+
+    def _raw_next(self, cat, sn, ver, nxt):
         if sn is None:
             sn = self._gtr_sn.next(self._gtr_sn.next(None))
             ver = None
-        elif ver is None and not version:
+        # elif ver is None and not version:
+        elif nxt == self.NXT_NAME:
             sn = self._gtr_sn.next(sn)
-        if self.subverable(current):
-            ver = self._sgmgr.next(self._c2v(ver), version)
+            if ver:
+                ver = None
+        if self.subverable(cat):
+            ver = self._sgmgr.next(self._c2v(ver), nxt != self.NXT_SIZE)
             ver = self._c2v(ver)
         else:
             ver = self._gtr_ver.next(ver)
-        return cat + sn + ver
+        return cat, sn, ver
+
 
     def header(self, name):
         ''' return header of given name. For non-ring, return itself
@@ -560,7 +630,7 @@ class NameGtr(object):
         gtr = self._gtr_sn
         if name:
             self._validate(name)
-            nm = name[:self._cat_digits + gtr.digits]
+            nm = name[:self.CatDigits + gtr.digits]
         else:
             nm = next(iter(self._cache_partTags['_subver_hdrs'])) + gtr.next(
                 gtr.charOf(0))
@@ -589,6 +659,7 @@ class FormSvc(SvcBase):
     Args:
         xstyno_as_parent(bool): use the old sty# as parent searching condition when
         new name is needed and the parent field is blank
+        photoSvc(StylePhotoSvcX): photo service help to extract photos from xlsx file
     '''
     def __init__(self, trmgr, **kwds):
         super().__init__(trmgr)
@@ -599,6 +670,7 @@ class FormSvc(SvcBase):
         self._xstyno_as_parent = kwds.get('xstyno_as_parent', True)
         mp = config.get('prdspec.parts.tags')
         self._partTags = {x[0]: x[1] for x in mp.items()}
+        self._photoSvc = kwds.get('photoSvc') or StylePhotoSvc.getInst('new')
 
 
     def _type2cat(self, tn):
@@ -616,7 +688,7 @@ class FormSvc(SvcBase):
         throws:
             Exceptions if error or warning found
         returns:
-            A set or data by FormHandler
+            A style instance from db, make sure you call this function inside a session
         '''
         app, tk = xwu.appmgr.acq()
         sty = None
@@ -630,7 +702,7 @@ class FormSvc(SvcBase):
                 rmp = self._map2ent(mp)
                 sty = rmp['style']
                 styno = mp.get('styno')
-                if not styno or styno[0] == '_':
+                if not self._nameSvc.isvalid(styno):
                     styno = self._new_styno(mp, rmp)
                 sty.name = styno
                 matIdx = 0
@@ -657,6 +729,8 @@ class FormSvc(SvcBase):
                 wb = None
                 remove(xlFn)
                 _logger.debug('file (%s) was saved as (%s)' % (xlFn, fn))
+                fns = self._photoSvc.extract(fn, styno)
+                _logger.debug('photos(%s) were extrated' % fns)
         finally:
             if wb:
                 wb.close()
@@ -912,7 +986,7 @@ class _Util(object):
     def __init__(self):
         super().__init__()
         self._mat_enc_fld = None
-    
+
 
     @classmethod
     def default_values(cls, ent):

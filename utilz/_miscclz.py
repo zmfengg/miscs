@@ -336,14 +336,23 @@ class Literalize(object):
         '''
         return self._digits
 
+    
     @property
-    def _zero(self):
-        ''' char for zero in my charset
+    def first(self):
+        ''' The first char in the charset
         '''
         return self._idx[1][0]
 
+
+    @property
+    def last(self):
+        ''' the last char in the charset
+        '''
+        return self._idx[1][self._radix-1]
+
+
     def _fill(self, x):
-        return self._zero * (self._digits - len(x)) + x if self._expand else x
+        return self.first * (self._digits - len(x)) + x if self._expand else x
 
     def next(self, current=None, frm=0, steps=1):
         ''' given current value and chars, return the next one
@@ -357,7 +366,7 @@ class Literalize(object):
             ni.next('FFFF') => OverflowError
         '''
         if not current:
-            return self._fill(self._zero)
+            return self._fill(self.first)
         self._validate(current)
         ln = len(current)
         length = max(ln, self._digits)
@@ -369,9 +378,9 @@ class Literalize(object):
             return self._fill(''.join(lsts))
         while -idx < length:
             if -idx == ln:
-                lsts.insert(0, self._zero)
+                lsts.insert(0, self.first)
                 ln += 1
-            lsts[idx] = self._zero
+            lsts[idx] = self.first
             idx -= 1
             nc = self._next(lsts[idx], steps=steps)
             if nc:
@@ -416,9 +425,9 @@ class Literalize(object):
         return (n2i, i2n, )
 
     def _next(self, char, steps=1):
-        idx = self._idx
         if not char:
-            return self._zero
+            return self.first
+        idx = self._idx
         i = idx[0].get(char)
         if i is None:
             raise TypeError('%s not in sequence %s' % (char, self._chars))

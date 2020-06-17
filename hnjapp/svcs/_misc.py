@@ -65,7 +65,7 @@ class StylePhotoSvc(object):
         ''' return a pre-config instance
         Args:
             key(String): according to conf.json's key stylephoto.x, it can be one of:
-            "h", "i".
+            "h", "i", "new". Here "new" for the new styling system
             when ignored, it will be "h"
         '''
         if not key:
